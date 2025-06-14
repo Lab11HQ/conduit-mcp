@@ -1,0 +1,13 @@
+{
+    "include": ["src", "tests"],
+    "exclude": ["**/node_modules", "**/__pycache__", ".venv", ".git", "dist"],
+    "pythonVersion": "3.12",
+    "typeCheckingMode": "basic",
+    "venvPath": ".",
+    "venv": ".venv",
+    "reportCallIssue": "none",
+    "reportArgumentType": "warning",
+    "reportMissingImports": true,
+    "reportMissingTypeStubs": false,
+    "useLibraryCodeForTypes": true
+  }

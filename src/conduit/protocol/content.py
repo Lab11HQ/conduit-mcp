@@ -56,14 +56,16 @@ class Annotations(ProtocolModel):
 
     @field_validator("audience", mode="before")
     @classmethod
-    def validate_audience(cls, v: str | list[str] | Role | list[Role]):
+    def validate_audience(
+        cls, v: str | list[str] | Role | list[Role]
+    ) -> list[str] | list[Role] | Role:
         if isinstance(v, str):
             return [v]
         return v
 
     @field_validator("priority")
     @classmethod
-    def validate_priority(cls, v: float | int | None):
+    def validate_priority(cls, v: float | int | None) -> float | int | None:
         if v is not None and not (0 <= v <= 1):
             raise ValueError("priority must be between 0 and 1")
         return v

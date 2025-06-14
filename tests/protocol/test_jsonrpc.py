@@ -27,7 +27,7 @@ from conduit.protocol.resources import ListResourcesRequest
 class TestJSONRPCSerializing:
     def test_serializes_request_with_params(self):
         req = InitializeRequest(
-            clientInfo=Implementation(name="Test client", version="1"),
+            client_info=Implementation(name="Test client", version="1"),
             capabilities=ClientCapabilities(),
         )
         jsonrpc_req = JSONRPCRequest.from_request(req, id=1)
@@ -59,7 +59,7 @@ class TestJSONRPCSerializing:
 
     def test_serializes_notification_with_params(self):
         notif = ProgressNotification(
-            progressToken="token", progress=1, total=2, message="Halfway home!"
+            progress_token="token", progress=1, total=2, message="Halfway home!"
         )
         jsonrpc_notif = JSONRPCNotification.from_notification(notif)
         wire_data = jsonrpc_notif.to_wire()

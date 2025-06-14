@@ -23,7 +23,9 @@ Role = Annotated[
 
 
 class ProtocolModel(BaseModel):
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(
+        extra="allow", validate_by_alias=True, validate_by_name=True
+    )
 
 
 class Request(ProtocolModel):
@@ -34,6 +36,11 @@ class Request(ProtocolModel):
     progress updates for long-running operations.
 
     Note: `progress_token` overrides `metadata["progressToken"]` if both are set.
+    """
+
+    method: str
+    """
+    The method to call.
     """
 
     progress_token: ProgressToken | None = None
@@ -48,7 +55,9 @@ class Request(ProtocolModel):
 
     @field_validator("metadata", mode="before")
     @classmethod
-    def validate_progress_token_in_metadata(cls, metadata: dict[str, Any] | None):
+    def validate_progress_token_in_metadata(
+        cls, metadata: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
         if metadata and "progressToken" in metadata:
             token = metadata["progressToken"]
             if not isinstance(token, str | int):
@@ -108,9 +117,7 @@ class Request(ProtocolModel):
         if meta:
             params["_meta"] = meta
 
-        # Attribute is defined on all subclasses but not on the base class. Ignore
-        # linter error.
-        result: dict[str, Any] = {"method": self.method}  # type: ignore[attr-defined]
+        result: dict[str, Any] = {"method": self.method}
         if params:
             result["params"] = params
 
@@ -136,6 +143,11 @@ class Notification(ProtocolModel):
     Base class for MCP notifications.
 
     Notifications are one-way messages that don't expect a response.
+    """
+
+    method: str
+    """
+    The method of the notification.
     """
 
     metadata: dict[str, Any] | None = Field(default=None)
@@ -294,7 +306,7 @@ class Error(ProtocolModel):
 
     @field_validator("data", mode="before")
     @classmethod
-    def transform_data(cls, value: Any) -> str | dict[str, Any] | None:
+    def transform_data(cls, value: Any) -> Any:
         if isinstance(value, Exception):
             return cls._format_exception(value)
         return value

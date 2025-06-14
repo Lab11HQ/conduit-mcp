@@ -28,7 +28,7 @@ class TestLogging:
 
     def test_request_rejects_invalid_level(self):
         with pytest.raises(ValidationError):
-            SetLevelRequest(level="invalid")
+            SetLevelRequest(level="invalid")  # type: ignore
 
     def test_request_rejects_invalid_level_from_protocol(self):
         with pytest.raises(ValidationError):
@@ -38,7 +38,7 @@ class TestLogging:
 
     def test_notification_rejects_invalid_level(self):
         with pytest.raises(ValidationError):
-            LoggingMessageNotification(level="invalid", data="test")
+            LoggingMessageNotification(level="invalid", data="test")  # type: ignore
 
     def test_notification_rejects_invalid_data_from_protocol(self):
         with pytest.raises(ValidationError):
