@@ -17,26 +17,31 @@ class TestClientSessionInitialization(BaseSessionTest):
             "capabilities": {"logging": {}},
             "serverInfo": {"name": "test-server", "version": "1.0.0"},
         }
+        init_response = {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "result": server_result,
+        }
 
         # Act
         init_task = asyncio.create_task(self.session.initialize())
         await self.wait_for_sent_request("initialize")
 
         # Now respond to the request
-        self.transport.queue_response(request_id=0, result=server_result)
+        self.server.send_message(payload=init_response)
         result = await init_task
 
         # Assert: verify complete handshake sequence
-        assert len(self.transport.sent_messages) == 2
+        assert len(self.transport.client_sent_messages) == 2
 
         # First message should be InitializeRequest
-        init_request = self.transport.sent_messages[0]
+        init_request = self.transport.client_sent_messages[0]
         assert init_request.payload["method"] == "initialize"
         assert init_request.payload["params"]["clientInfo"]["name"] == "test-client"
         assert init_request.payload["id"] == 0
 
         # Second message should be InitializedNotification
-        init_notification = self.transport.sent_messages[1]
+        init_notification = self.transport.client_sent_messages[1]
         assert init_notification.payload["method"] == "notifications/initialized"
         assert "id" not in init_notification.payload  # notifications have no id
 
@@ -57,11 +62,16 @@ class TestClientSessionInitialization(BaseSessionTest):
             "capabilities": {"logging": {}},
             "serverInfo": {"name": "test-server", "version": "1.0.0"},
         }
+        init_response = {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "result": server_result,
+        }
 
         # Act: start first initialization
         init_task = asyncio.create_task(self.session.initialize())
         await self.wait_for_sent_request("initialize")
-        self.transport.queue_response(request_id=0, result=server_result)
+        self.server.send_message(payload=init_response)
 
         # Complete first initialization, then call again
         result1 = await init_task
@@ -70,7 +80,7 @@ class TestClientSessionInitialization(BaseSessionTest):
 
         # Assert: handshake only happened once
         assert (
-            len(self.transport.sent_messages) == 2
+            len(self.transport.client_sent_messages) == 2
         )  # init request + notification only
 
         # All results should be identical
@@ -88,7 +98,11 @@ class TestClientSessionInitialization(BaseSessionTest):
             "capabilities": {"logging": {}},
             "serverInfo": {"name": "test-server", "version": "1.0.0"},
         }
-
+        init_response = {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "result": server_result,
+        }
         # Act: start multiple concurrent initialization calls
         task1 = asyncio.create_task(self.session.initialize())
         task2 = asyncio.create_task(self.session.initialize())
@@ -98,14 +112,14 @@ class TestClientSessionInitialization(BaseSessionTest):
         await self.wait_for_sent_request("initialize")
 
         # Respond to the single request
-        self.transport.queue_response(request_id=0, result=server_result)
+        self.server.send_message(payload=init_response)
 
         # Wait for all tasks to complete
         result1, result2, result3 = await asyncio.gather(task1, task2, task3)
 
         # Assert: only one handshake happened
         assert (
-            len(self.transport.sent_messages) == 2
+            len(self.transport.client_sent_messages) == 2
         )  # init request + notification only
         assert self.session._request_id == 1  # only one request ID allocated
 
@@ -129,11 +143,15 @@ class TestClientSessionInitialization(BaseSessionTest):
             "capabilities": {"logging": {}},
             "serverInfo": {"name": "test-server", "version": "1.0.0"},
         }
-
+        init_response = {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "result": server_result,
+        }
         # Act & Assert: initialization should fail
         init_task = asyncio.create_task(self.session.initialize())
         await self.wait_for_sent_request("initialize")
-        self.transport.queue_response(request_id=0, result=server_result)
+        self.server.send_message(payload=init_response)
 
         with pytest.raises(ValueError, match="Protocol version mismatch"):
             await init_task
@@ -145,8 +163,8 @@ class TestClientSessionInitialization(BaseSessionTest):
         assert self.session._initialize_result is None
 
         # Should have sent initialize request but no initialized notification
-        assert len(self.transport.sent_messages) == 1
-        assert self.transport.sent_messages[0].payload["method"] == "initialize"
+        assert len(self.transport.client_sent_messages) == 1
+        assert self.transport.client_sent_messages[0].payload["method"] == "initialize"
 
         # Assert: pending request should be cleaned up
         assert len(self.session._pending_requests) == 0
@@ -161,9 +179,9 @@ class TestClientSessionInitialization(BaseSessionTest):
             await self.session.initialize(timeout=0.01)
 
         # Assert: should have sent initialize request
-        assert len(self.transport.sent_messages) == 1
+        assert len(self.transport.client_sent_messages) == 1
 
-        init_request = self.transport.sent_messages[0]
+        init_request = self.transport.client_sent_messages[0]
         assert init_request.payload["method"] == "initialize"
         assert init_request.payload["id"] == 0
 

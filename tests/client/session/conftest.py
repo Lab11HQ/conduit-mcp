@@ -13,36 +13,27 @@ class MockTransport(Transport):
     """Mock transport for testing."""
 
     def __init__(self):
-        self.sent_messages: list[TransportMessage] = []
+        self.client_sent_messages: list[TransportMessage] = []
         self._incoming_queue: asyncio.Queue[TransportMessage] = asyncio.Queue()
         self.closed = False
 
-    def queue_message(
+    def _receive_from_network(
         self, payload: dict[str, Any], metadata: dict[str, Any] | None = None
     ) -> None:
-        """Queue a message to be received."""
+        """Internal: simulate a message arriving from the network."""
         if self.closed:
-            return  # Silently ignore if closed
+            return
         message = TransportMessage(payload=payload, metadata=metadata)
         self._incoming_queue.put_nowait(message)
-
-    def queue_response(
-        self, request_id: int, result: Any = None, error: dict | None = None
-    ) -> None:
-        """Helper: queue a JSON-RPC response."""
-        payload = {"jsonrpc": "2.0", "id": request_id}
-        if error:
-            payload["error"] = error
-        else:
-            payload["result"] = result
-        self.queue_message(payload)
 
     async def send(
         self, payload: dict[str, Any], metadata: dict[str, Any] | None = None
     ) -> None:
         if self.closed:
             raise ConnectionError("Transport closed")
-        self.sent_messages.append(TransportMessage(payload=payload, metadata=metadata))
+        self.client_sent_messages.append(
+            TransportMessage(payload=payload, metadata=metadata)
+        )
 
     async def messages(self) -> AsyncIterator[TransportMessage]:
         """Stream of incoming messages - stays alive until closed."""
@@ -59,22 +50,34 @@ class MockTransport(Transport):
         self.closed = True
 
 
+class MockServer:
+    def __init__(self, transport: MockTransport):
+        self.transport = transport
+
+    def send_message(
+        self, payload: dict[str, Any], metadata: dict[str, Any] | None = None
+    ) -> None:
+        """Simulate server sending a message to the client."""
+        self.transport._receive_from_network(payload, metadata)
+
+
 class BaseSessionTest:
     @pytest.fixture(autouse=True)
     def setup_fixtures(self):
         self.transport = MockTransport()
         self.session = ClientSession(
-            self.transport,
+            transport=self.transport,
             client_info=Implementation(name="test-client", version="1.0.0"),
             capabilities=ClientCapabilities(),
         )
+        self.server = MockServer(transport=self.transport)
 
     async def wait_for_sent_request(self, method: str) -> None:
         """Wait for a request to be sent - simple test sync helper."""
         for _ in range(100):  # Max 100ms wait
             if any(
                 msg.payload.get("method") == method
-                for msg in self.transport.sent_messages
+                for msg in self.transport.client_sent_messages
             ):
                 return
             await asyncio.sleep(0.001)

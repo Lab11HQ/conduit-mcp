@@ -26,10 +26,14 @@ class TestClientSessionRequestResponse(BaseSessionTest):
         await self.session._start()
 
         # Queue a response for a request that was never sent
-        self.transport.queue_response(request_id=999, result={"data": "orphaned"})
+        self.server.send_message(
+            payload={"jsonrpc": "2.0", "id": 999, "result": {"data": "orphaned"}}
+        )
 
         # Queue a second message to prove the loop is still processing
-        self.transport.queue_message({"test": "marker"})
+        self.server.send_message(
+            payload={"jsonrpc": "2.0", "id": 1000, "result": {"data": "second"}}
+        )
 
         # The loop should still be running (not hung)
         assert self.session._running is True
@@ -42,13 +46,7 @@ class TestClientSessionRequestResponse(BaseSessionTest):
         await self.session._start()
 
         # Queue a response missing both result and error
-        self.transport.queue_message(
-            {
-                "jsonrpc": "2.0",
-                "id": 123,
-                # Missing "result" or "error"
-            }
-        )
+        self.server.send_message(payload={"jsonrpc": "2.0", "id": 123})
 
         # Loop should still be running
         assert self.session._running is True
@@ -68,8 +66,12 @@ class TestClientSessionRequestResponse(BaseSessionTest):
         task2 = asyncio.create_task(self.session.send_request(request2))
 
         # Now queue responses in reverse order
-        self.transport.queue_response(1, {"result": "second"})
-        self.transport.queue_response(0, {"result": "first"})
+        self.server.send_message(
+            payload={"jsonrpc": "2.0", "id": 1, "result": {"result": "second"}}
+        )
+        self.server.send_message(
+            payload={"jsonrpc": "2.0", "id": 0, "result": {"result": "first"}}
+        )
 
         # Both should complete correctly despite reverse order
         result1, _ = await task1
@@ -89,7 +91,7 @@ class TestClientSessionRequestResponse(BaseSessionTest):
 
         assert self.session._pending_requests == {}
 
-        cancel_message = self.transport.sent_messages[-1].payload
+        cancel_message = self.transport.client_sent_messages[-1].payload
         assert cancel_message["method"] == "notifications/cancelled"
 
         await self.session.stop()
@@ -98,7 +100,7 @@ class TestClientSessionRequestResponse(BaseSessionTest):
         notification = CancelledNotification(request_id=42, reason="test")
         await self.session.send_notification(notification)
 
-        sent_message = self.transport.sent_messages[-1].payload
+        sent_message = self.transport.client_sent_messages[-1].payload
         assert sent_message["method"] == "notifications/cancelled"
         assert sent_message["params"]["requestId"] == 42
         assert sent_message["params"]["reason"] == "test"
@@ -126,7 +128,7 @@ class TestClientSessionRequestResponse(BaseSessionTest):
             "method": "notifications/message",
             "params": {"level": "info", "data": {"message": "test log"}},
         }
-        self.transport.queue_message(notification_payload)
+        self.server.send_message(payload=notification_payload)
 
         await self.session._start()
 
@@ -150,7 +152,7 @@ class TestClientSessionRequestResponse(BaseSessionTest):
             "method": "notifications/message",
             "params": {"level": "info", "data": {"message": "test log"}},
         }
-        self.transport.queue_message(bad_notification)
+        self.server.send_message(payload=bad_notification)
 
         await self.session._start()
 
@@ -158,7 +160,7 @@ class TestClientSessionRequestResponse(BaseSessionTest):
         assert self.session.notifications.empty()
         assert self.session._running is True
 
-        self.transport.queue_message(good_notification)
+        self.server.send_message(payload=good_notification)
         notification = await self.session.notifications.get()
         assert isinstance(notification, LoggingMessageNotification)
         assert notification.level == "info"
@@ -179,7 +181,7 @@ class TestClientSessionRequestResponse(BaseSessionTest):
             "id": request_id,
             "result": {"data": "test"},
         }
-        self.transport.queue_message(response_payload, metadata={"test": "meta"})
+        self.server.send_message(payload=response_payload, metadata={"test": "meta"})
 
         await self.session._start()
 
@@ -204,7 +206,7 @@ class TestClientSessionRequestResponse(BaseSessionTest):
             "id": request_id,
             "error": {"code": -1, "message": "test error"},
         }
-        self.transport.queue_message(error_payload)
+        self.server.send_message(payload=error_payload)
 
         await self.session._start()
 
@@ -220,7 +222,7 @@ class TestClientSessionRequestResponse(BaseSessionTest):
 
         # Send response with no matching pending request
         orphaned_payload = {"jsonrpc": "2.0", "id": 999, "result": {"orphaned": True}}
-        self.transport.queue_message(orphaned_payload, metadata={"meta": "data"})
+        self.server.send_message(payload=orphaned_payload, metadata={"meta": "data"})
 
         await self.session._start()
 
@@ -240,7 +242,7 @@ class TestClientSessionRequestResponse(BaseSessionTest):
 
         # Send a ping request
         ping_payload = {"jsonrpc": "2.0", "method": "ping", "id": 42}
-        self.transport.queue_message(ping_payload)
+        self.server.send_message(payload=ping_payload)
 
         await self.session._start()
 
@@ -248,7 +250,7 @@ class TestClientSessionRequestResponse(BaseSessionTest):
         await asyncio.sleep(0.001)
 
         # Should have sent back a response
-        response_message = self.transport.sent_messages[-1].payload
+        response_message = self.transport.client_sent_messages[-1].payload
         assert response_message["jsonrpc"] == "2.0"
         assert response_message["id"] == 42
         assert response_message["result"] == {}
@@ -261,13 +263,13 @@ class TestClientSessionRequestResponse(BaseSessionTest):
         # Note: session starts with no roots capability by default
 
         list_roots_payload = {"jsonrpc": "2.0", "method": "roots/list", "id": 42}
-        self.transport.queue_message(list_roots_payload)
+        self.server.send_message(payload=list_roots_payload)
 
         await self.session._start()
         await asyncio.sleep(0.001)
 
         # Should send error response
-        response_message = self.transport.sent_messages[-1].payload
+        response_message = self.transport.client_sent_messages[-1].payload
         assert response_message["jsonrpc"] == "2.0"
         assert response_message["id"] == 42
         assert "error" in response_message
@@ -285,13 +287,13 @@ class TestClientSessionRequestResponse(BaseSessionTest):
         self.session._initialized = True
 
         list_roots_payload = {"jsonrpc": "2.0", "method": "roots/list", "id": 42}
-        self.transport.queue_message(list_roots_payload)
+        self.server.send_message(payload=list_roots_payload)
 
         await self.session._start()
         await asyncio.sleep(0.001)
 
         # Should return the configured roots
-        response_message = self.transport.sent_messages[-1].payload
+        response_message = self.transport.client_sent_messages[-1].payload
         assert response_message["id"] == 42
         assert "result" in response_message
         assert response_message["result"]["roots"] == [
@@ -318,13 +320,13 @@ class TestClientSessionRequestResponse(BaseSessionTest):
                 "maxTokens": 100,
             },
         }
-        self.transport.queue_message(create_message_payload)
+        self.server.send_message(payload=create_message_payload)
 
         await self.session._start()
         await asyncio.sleep(0.001)
 
         # Should send error response
-        response_message = self.transport.sent_messages[-1].payload
+        response_message = self.transport.client_sent_messages[-1].payload
         assert response_message["jsonrpc"] == "2.0"
         assert response_message["id"] == 42
         assert "error" in response_message
@@ -354,13 +356,13 @@ class TestClientSessionRequestResponse(BaseSessionTest):
                 "maxTokens": 100,
             },
         }
-        self.transport.queue_message(create_message_payload)
+        self.server.send_message(payload=create_message_payload)
 
         await self.session._start()
         await asyncio.sleep(0.001)
 
         # Should send error response
-        response_message = self.transport.sent_messages[-1].payload
+        response_message = self.transport.client_sent_messages[-1].payload
         assert "error" in response_message
         assert (
             "Sampling capability enabled but internal handler not configured"
@@ -397,13 +399,13 @@ class TestClientSessionRequestResponse(BaseSessionTest):
                 "maxTokens": 100,
             },
         }
-        self.transport.queue_message(create_message_payload)
+        self.server.send_message(payload=create_message_payload)
 
         await self.session._start()
         await asyncio.sleep(0.001)
 
         # Should successfully call handler and return result
-        response_message = self.transport.sent_messages[-1].payload
+        response_message = self.transport.client_sent_messages[-1].payload
         assert response_message["jsonrpc"] == "2.0"
         assert response_message["id"] == 42
         assert "result" in response_message
@@ -424,7 +426,7 @@ class TestClientSessionRequestResponse(BaseSessionTest):
         ]
 
         for malformed_payload in test_cases:
-            self.transport.queue_message(malformed_payload)
+            self.server.send_message(payload=malformed_payload)
 
         await self.session._start()
         await asyncio.sleep(0.001)
@@ -435,12 +437,14 @@ class TestClientSessionRequestResponse(BaseSessionTest):
 
         # Test that valid requests still work after malformed ones
         valid_payload = {"jsonrpc": "2.0", "method": "ping", "id": 42}
-        self.transport.queue_message(valid_payload)
+        self.server.send_message(payload=valid_payload)
         await asyncio.sleep(0.001)
 
         # Should have at least one successful response for the valid request
         valid_responses = [
-            msg for msg in self.transport.sent_messages if msg.payload.get("id") == 42
+            msg
+            for msg in self.transport.client_sent_messages
+            if msg.payload.get("id") == 42
         ]
         assert len(valid_responses) == 1
 
@@ -469,13 +473,13 @@ class TestClientSessionRequestResponse(BaseSessionTest):
                 "maxTokens": 100,
             },
         }
-        self.transport.queue_message(create_message_payload)
+        self.server.send_message(payload=create_message_payload)
 
         await self.session._start()
         await asyncio.sleep(0.001)
 
         # Should get back an INTERNAL_ERROR response, not crash
-        response_message = self.transport.sent_messages[-1].payload
+        response_message = self.transport.client_sent_messages[-1].payload
         assert response_message["jsonrpc"] == "2.0"
         assert response_message["id"] == 42
         assert "error" in response_message
@@ -514,8 +518,8 @@ class TestClientSessionRequestResponse(BaseSessionTest):
         self.session.create_message_handler = controlled_slow_handler
 
         # Send slow request then fast request
-        self.transport.queue_message(
-            {
+        self.server.send_message(
+            payload={
                 "jsonrpc": "2.0",
                 "method": "sampling/createMessage",
                 "id": 1,
@@ -529,7 +533,7 @@ class TestClientSessionRequestResponse(BaseSessionTest):
                 },
             }
         )
-        self.transport.queue_message({"jsonrpc": "2.0", "method": "ping", "id": 2})
+        self.server.send_message(payload={"jsonrpc": "2.0", "method": "ping", "id": 2})
 
         await self.session._start()
 
@@ -541,7 +545,9 @@ class TestClientSessionRequestResponse(BaseSessionTest):
         await asyncio.sleep(0.01)  # Give message loop a chance to process ping
 
         ping_responses = [
-            msg for msg in self.transport.sent_messages if msg.payload.get("id") == 2
+            msg
+            for msg in self.transport.client_sent_messages
+            if msg.payload.get("id") == 2
         ]
         assert len(ping_responses) == 1, (
             "Ping should be processed while slow handler is blocked"
@@ -550,15 +556,19 @@ class TestClientSessionRequestResponse(BaseSessionTest):
         # Now let the slow handler finish
         handler_can_continue.set()
         await asyncio.sleep(0.01)
-        assert len(self.transport.sent_messages) == 2, (
-            f"Expected 2 responses, got {len(self.transport.sent_messages)}"
+        assert len(self.transport.client_sent_messages) == 2, (
+            f"Expected 2 responses, got {len(self.transport.client_sent_messages)}"
         )
 
         ping_responses = [
-            msg for msg in self.transport.sent_messages if msg.payload.get("id") == 2
+            msg
+            for msg in self.transport.client_sent_messages
+            if msg.payload.get("id") == 2
         ]
         slow_responses = [
-            msg for msg in self.transport.sent_messages if msg.payload.get("id") == 1
+            msg
+            for msg in self.transport.client_sent_messages
+            if msg.payload.get("id") == 1
         ]
 
         assert len(ping_responses) == 1, "Should have exactly one ping response"
@@ -583,13 +593,13 @@ class TestClientSessionRequestResponse(BaseSessionTest):
 
     #     # Second request should work fine
     #     request2 = PingRequest()
-    #     self.transport.queue_response(request_id=1, result={})
+    #     self.server.send_message(payload={"jsonrpc": "2.0", "id": 1, "result": {}})
 
     #     result, _ = await self.session.send_request(request2)
 
     #     assert result == {}
     #     assert self.session._running is True
     #     assert self.session._pending_requests == {}
-    #     assert len(self.transport.sent_messages) == 3  # 1 ping, 1 cancel, 1 response
+    #     assert len(self.transport.client_sent_messages) == 3  # 1 ping, 1 cancel, 1 response
 
     #     await self.session.stop()
