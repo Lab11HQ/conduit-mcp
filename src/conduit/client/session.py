@@ -347,22 +347,21 @@ class ClientSession:
     async def _message_loop(self) -> None:
         """Keeps the session alive by processing messages from the server.
 
-        This runs continuously in the background, pulling messages from the transport
-        and routing them to the right handlers. Think of it as the session's main
+        This runs continuously in the background, receiving messages from the transport
+        and handing them to the message handler. Think of it as the session's main
         thread—it never stops listening until the connection dies or you shut it down.
 
         When a message arrives, the loop hands it off to `_handle_message()` and keeps
-        going. If that message handler crashes, the loop logs the error and moves on
-        to the next message. One bad message won't kill your session.
+        going. If the message handler crashes on a given message, the loop logs the
+        error and moves on to the next message. One bad message won't kill your session.
 
         But transport failures are different. If the connection breaks or the transport
-        itself fails, the loop shuts down cleanly. It cancels any requests still
-        waiting for responses so your code doesn't hang forever.
+        itself fails, the loop shuts down cleanly. It cancels any requests still waiting
+        for responses so your code doesn't hang forever.
 
-        The loop processes messages one at a time. Requests spawn their own tasks to
-        run concurrently, but the loop itself stays sequential. This prevents a flood
-        of messages from overwhelming the client and keeps message ordering
-        predictable.
+        The loop processes messages sequentially. The message handler decides how each
+        message type should be processed (some may spawn concurrent tasks, others run
+        inline).
 
         Stops when:
         - You call `stop()`
