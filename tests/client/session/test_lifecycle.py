@@ -7,16 +7,16 @@ from .conftest import BaseSessionTest
 class TestClientSessionLifecycle(BaseSessionTest):
     async def test_start_creates_message_loop_task(self):
         # Arrange: verify initial state
-        assert self.session._task is None
+        assert self.session._message_loop_task is None
         assert self.session._running is False
 
         # Act
         await self.session._start()
 
         # Assert: task created and running
-        assert self.session._task is not None
-        assert isinstance(self.session._task, asyncio.Task)
-        assert not self.session._task.done()
+        assert self.session._message_loop_task is not None
+        assert isinstance(self.session._message_loop_task, asyncio.Task)
+        assert not self.session._message_loop_task.done()
         assert self.session._running is True
 
         # Cleanup
@@ -25,13 +25,13 @@ class TestClientSessionLifecycle(BaseSessionTest):
     async def test_start_is_idempotent_does_not_create_multiple_tasks(self):
         # Act: start multiple times
         await self.session._start()
-        first_task = self.session._task
+        first_task = self.session._message_loop_task
 
         await self.session._start()
         await self.session._start()
 
         # Assert: same task instance, still running
-        assert self.session._task is first_task
+        assert self.session._message_loop_task is first_task
         assert self.session._running is True
         assert not first_task.done()
 
@@ -45,14 +45,14 @@ class TestClientSessionLifecycle(BaseSessionTest):
 
         # Verify we have initialized state
         assert self.session._running is True
-        assert self.session._task is not None
+        assert self.session._message_loop_task is not None
 
         # Act
         await self.session.stop()
 
         # Assert: complete state reset
         assert self.session._running is False
-        assert self.session._task is None
+        assert self.session._message_loop_task is None
         assert self.session._initialized is False
 
     async def test_stop_is_idempotent_multiple_calls_are_safe(self):
@@ -60,7 +60,7 @@ class TestClientSessionLifecycle(BaseSessionTest):
         await self.session._start()
         self.session._initialized = True
         assert self.session._running is True
-        assert self.session._task is not None
+        assert self.session._message_loop_task is not None
 
         # Act: stop multiple times
         await self.session.stop()
@@ -69,7 +69,7 @@ class TestClientSessionLifecycle(BaseSessionTest):
 
         # Assert: clean state after all calls
         assert self.session._running is False
-        assert self.session._task is None
+        assert self.session._message_loop_task is None
         assert self.session._initialized is False
         assert self.session._initializing is None
 
@@ -89,7 +89,7 @@ class TestClientSessionLifecycle(BaseSessionTest):
     async def test_stop_cancels_and_awaits_background_task(self):
         # Arrange: start the session and capture the task
         await self.session._start()
-        background_task = self.session._task
+        background_task = self.session._message_loop_task
         assert background_task is not None
         assert not background_task.done()
 
@@ -99,4 +99,4 @@ class TestClientSessionLifecycle(BaseSessionTest):
         # Assert: task was cancelled and cleaned up
         assert background_task.done()
         assert background_task.cancelled()
-        assert self.session._task is None
+        assert self.session._message_loop_task is None

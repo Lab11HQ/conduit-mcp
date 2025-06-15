@@ -86,7 +86,7 @@ class ClientSession:
         self._request_id = 0
         self._pending_requests: dict[int, asyncio.Future[Any]] = {}
         self._buffered_responses: dict[int, tuple[Any, dict[str, Any] | None]] = {}
-        self._task: asyncio.Task[None] | None = None
+        self._message_loop_task: asyncio.Task[None] | None = None
         self._running = False
         self._initializing: asyncio.Future[InitializeResult] | None = None
         self._initialize_result: InitializeResult | None = None
@@ -105,7 +105,7 @@ class ClientSession:
         if self._running:
             return
         self._running = True
-        self._task = asyncio.create_task(self._message_loop())
+        self._message_loop_task = asyncio.create_task(self._message_loop())
 
     async def stop(self) -> None:
         """
@@ -117,17 +117,17 @@ class ClientSession:
 
         Safe to call multiple times - subsequent calls do nothing.
         """
-        if not self._running and self._task is None:
+        if not self._running and self._message_loop_task is None:
             return
 
         self._running = False
-        if self._task:
-            self._task.cancel()
+        if self._message_loop_task:
+            self._message_loop_task.cancel()
             try:
-                await self._task
+                await self._message_loop_task
             except asyncio.CancelledError:
                 pass
-            self._task = None
+            self._message_loop_task = None
 
         # Reset session state
         self._initialized = False
@@ -345,7 +345,30 @@ class ClientSession:
         await self.transport.send(jsonrpc_notification.to_wire(), transport_metadata)
 
     async def _message_loop(self) -> None:
-        """Background task: process incoming messages."""
+        """Keeps the session alive by processing messages from the server.
+
+        This runs continuously in the background, pulling messages from the transport
+        and routing them to the right handlers. Think of it as the session's main
+        thread—it never stops listening until the connection dies or you shut it down.
+
+        When a message arrives, the loop hands it off to `_handle_message()` and keeps
+        going. If that message handler crashes, the loop logs the error and moves on
+        to the next message. One bad message won't kill your session.
+
+        But transport failures are different. If the connection breaks or the transport
+        itself fails, the loop shuts down cleanly. It cancels any requests still
+        waiting for responses so your code doesn't hang forever.
+
+        The loop processes messages one at a time. Requests spawn their own tasks to
+        run concurrently, but the loop itself stays sequential. This prevents a flood
+        of messages from overwhelming the client and keeps message ordering
+        predictable.
+
+        Stops when:
+        - You call `stop()`
+        - Connection breaks
+        - Transport fails catastrophically
+        """
         try:
             async for message in self.transport.messages():
                 # Check if we should stop processing

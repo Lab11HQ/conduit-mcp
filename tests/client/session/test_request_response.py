@@ -37,7 +37,7 @@ class TestClientSessionRequestResponse(BaseSessionTest):
 
         # The loop should still be running (not hung)
         assert self.session._running is True
-        assert not self.session._task.done()
+        assert not self.session._message_loop_task.done()
 
         await self.session.stop()
 
