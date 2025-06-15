@@ -347,20 +347,22 @@ class ClientSession:
     async def _message_loop(self) -> None:
         """Background task: process incoming messages."""
         try:
-            while self._running:
-                try:
-                    message = await self.transport.receive()
-                except ConnectionError:
-                    print("Transport connection lost")
+            async for message in self.transport.messages():
+                # Check if we should stop processing
+                if not self._running:
                     break
-                except Exception as e:
-                    print("Transport error while receiving message:", e)
-                    break
+
                 try:
                     await self._handle_message(message)
                 except Exception as e:
                     print(f"Error handling message: {e}")
+                    # Continue processing other messages
                     continue
+
+        except ConnectionError:
+            print("Transport connection lost")
+        except Exception as e:
+            print("Transport error while receiving message:", e)
         finally:
             self._running = False
             self._cancel_pending_requests("Message loop terminated")

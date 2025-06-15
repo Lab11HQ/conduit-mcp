@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
@@ -13,15 +14,17 @@ class MockTransport(Transport):
 
     def __init__(self):
         self.sent_messages: list[TransportMessage] = []
-        self.incoming_queue: asyncio.Queue[TransportMessage] = asyncio.Queue()
+        self._incoming_queue: asyncio.Queue[TransportMessage] = asyncio.Queue()
         self.closed = False
 
     def queue_message(
         self, payload: dict[str, Any], metadata: dict[str, Any] | None = None
     ) -> None:
         """Queue a message to be received."""
+        if self.closed:
+            return  # Silently ignore if closed
         message = TransportMessage(payload=payload, metadata=metadata)
-        self.incoming_queue.put_nowait(message)
+        self._incoming_queue.put_nowait(message)
 
     def queue_response(
         self, request_id: int, result: Any = None, error: dict | None = None
@@ -41,10 +44,16 @@ class MockTransport(Transport):
             raise ConnectionError("Transport closed")
         self.sent_messages.append(TransportMessage(payload=payload, metadata=metadata))
 
-    async def receive(self) -> TransportMessage:
-        if self.closed:
-            raise ConnectionError("Transport closed")
-        return await self.incoming_queue.get()
+    async def messages(self) -> AsyncIterator[TransportMessage]:
+        """Stream of incoming messages - stays alive until closed."""
+        while not self.closed:
+            try:
+                message = await asyncio.wait_for(
+                    self._incoming_queue.get(), timeout=0.01
+                )
+                yield message
+            except asyncio.TimeoutError:
+                continue  # Keep waiting for messages
 
     async def close(self) -> None:
         self.closed = True
