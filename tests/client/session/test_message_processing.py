@@ -17,9 +17,9 @@ class TestMessageProcessing(BaseSessionTest):
         await self.session._start()
 
         # Act: send a few messages from the server
-        self.server.send_message({"method": "notifications/test1"})
-        self.server.send_message({"method": "notifications/test2"})
-        self.server.send_message({"method": "notifications/test3"})
+        self.server.send_message({"jsonrpc": "2.0", "method": "notifications/test1"})
+        self.server.send_message({"jsonrpc": "2.0", "method": "notifications/test2"})
+        self.server.send_message({"jsonrpc": "2.0", "method": "notifications/test3"})
 
         await asyncio.sleep(0.01)
 
@@ -29,9 +29,9 @@ class TestMessageProcessing(BaseSessionTest):
         # Assert: verify handler was called for each message
         assert len(handler_calls) == 3
         assert handler_calls == [
-            {"method": "notifications/test1"},
-            {"method": "notifications/test2"},
-            {"method": "notifications/test3"},
+            {"jsonrpc": "2.0", "method": "notifications/test1"},
+            {"jsonrpc": "2.0", "method": "notifications/test2"},
+            {"jsonrpc": "2.0", "method": "notifications/test3"},
         ]
 
     async def test_handler_error_doesnt_stop_loop(self):
@@ -51,9 +51,9 @@ class TestMessageProcessing(BaseSessionTest):
         await self.session._start()
 
         # Act: send messages - second one will crash the handler
-        self.server.send_message({"method": "notifications/test1"})
-        self.server.send_message({"method": "notifications/crash"})
-        self.server.send_message({"method": "notifications/test3"})
+        self.server.send_message({"jsonrpc": "2.0", "method": "notifications/test1"})
+        self.server.send_message({"jsonrpc": "2.0", "method": "notifications/crash"})
+        self.server.send_message({"jsonrpc": "2.0", "method": "notifications/test3"})
 
         # Act: give the loop time to process
         await asyncio.sleep(0.01)
@@ -64,9 +64,9 @@ class TestMessageProcessing(BaseSessionTest):
         # Assert: verify all messages were attempted (including the one that crashed)
         assert len(handler_calls) == 3
         assert handler_calls == [
-            {"method": "notifications/test1"},
-            {"method": "notifications/crash"},
-            {"method": "notifications/test3"},
+            {"jsonrpc": "2.0", "method": "notifications/test1"},
+            {"jsonrpc": "2.0", "method": "notifications/crash"},
+            {"jsonrpc": "2.0", "method": "notifications/test3"},
         ]
 
     async def test_transport_error_stops_loop_and_cleans_up(self):
@@ -83,7 +83,7 @@ class TestMessageProcessing(BaseSessionTest):
         await self.session._start()
 
         # Act: send a message to confirm loop is running
-        self.server.send_message({"method": "notifications/test1"})
+        self.server.send_message({"jsonrpc": "2.0", "method": "notifications/test1"})
         await asyncio.sleep(0.01)  # Let it process
 
         # Act: simulate transport failure by closing it
@@ -101,7 +101,7 @@ class TestMessageProcessing(BaseSessionTest):
 
         # Assert: verify we processed the message before the transport failed
         assert len(handler_calls) == 1
-        assert handler_calls[0] == {"method": "notifications/test1"}
+        assert handler_calls[0] == {"jsonrpc": "2.0", "method": "notifications/test1"}
 
     async def test_loop_respects_running_flag_on_stop(self):
         """Loop exits cleanly when stop() is called, even with queued messages."""
@@ -117,19 +117,24 @@ class TestMessageProcessing(BaseSessionTest):
         await self.session._start()
 
         # Act: send one message and let it process
-        self.server.send_message({"method": "notifications/processed"})
+        self.server.send_message(
+            {"jsonrpc": "2.0", "method": "notifications/processed"}
+        )
         await asyncio.sleep(0.01)
 
         # Act: stop the session immediately
         await self.session.stop()
 
         # Act: queue up more messages after the session is stopped
-        self.server.send_message({"method": "notifications/queued1"})
-        self.server.send_message({"method": "notifications/queued2"})
+        self.server.send_message({"jsonrpc": "2.0", "method": "notifications/queued1"})
+        self.server.send_message({"jsonrpc": "2.0", "method": "notifications/queued2"})
 
         # Assert: verify only the first message was processed
         assert len(handler_calls) == 1
-        assert handler_calls[0] == {"method": "notifications/processed"}
+        assert handler_calls[0] == {
+            "jsonrpc": "2.0",
+            "method": "notifications/processed",
+        }
 
         # Assert: verify session is properly stopped
         assert not self.session._running

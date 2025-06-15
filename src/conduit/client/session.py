@@ -158,7 +158,7 @@ class ClientSession:
 
         Returns:
             The server's initialization result, containing its capabilities, name,
-            and protocol version.
+            version, and protocol version.
 
         Raises:
             TimeoutError: If the server doesn't respond within the timeout period.
