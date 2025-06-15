@@ -252,7 +252,7 @@ class ClientSession:
         """
         await self._start()
         init_request = InitializeRequest(
-            client_info=self.client_info,  # type: ignore[call-arg]
+            client_info=self.client_info,
             capabilities=self.capabilities,
         )
         request_id = self._request_id
@@ -326,7 +326,7 @@ class ClientSession:
             return await asyncio.wait_for(future, timeout)
         except asyncio.TimeoutError:
             cancelled_notification = CancelledNotification(
-                request_id=request_id,  # type: ignore
+                request_id=request_id,
                 reason="Request timed out",
             )
             await self.send_notification(cancelled_notification, transport_metadata)
