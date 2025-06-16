@@ -1,4 +1,9 @@
 import asyncio
+import pytest
+from unittest.mock import AsyncMock
+
+from conduit.transport.base import TransportMessage
+
 from .conftest import BaseSessionTest
 
 
@@ -139,3 +144,130 @@ class TestMessageLoop(BaseSessionTest):
         # Assert: verify session is properly stopped
         assert not self.session._running
         assert self.session._message_loop_task is None
+
+
+class TestMessageHandler(BaseSessionTest):
+    async def test_routes_response_to_handler(self, monkeypatch):
+        # Arrange
+        response_payload = {
+            "jsonrpc": "2.0",
+            "id": 42,
+            "result": {"status": "success", "data": "test_data"},
+        }
+        transport_metadata = {"transport": "test", "timestamp": "2025-01-01"}
+
+        # Act
+        mock_handle_response = AsyncMock()
+        monkeypatch.setattr(self.session, "_handle_response", mock_handle_response)
+
+        message = TransportMessage(
+            payload=response_payload, metadata=transport_metadata
+        )
+        await self.session._handle_message(message)
+
+        # Assert
+        mock_handle_response.assert_awaited_once_with(
+            response_payload, transport_metadata
+        )
+
+    async def test_routes_notification_to_handler(self, monkeypatch):
+        # Arrange
+        notification_payload = {
+            "jsonrpc": "2.0",
+            "method": "notifications/progress",
+            "params": {"progressToken": "task-123", "value": 0.75},
+        }
+        transport_metadata = {"source": "server", "timestamp": "2025-01-01"}
+
+        # Act
+        mock_handle_notification = AsyncMock()
+        monkeypatch.setattr(
+            self.session, "_handle_notification", mock_handle_notification
+        )
+
+        message = TransportMessage(
+            payload=notification_payload, metadata=transport_metadata
+        )
+        await self.session._handle_message(message)
+
+        # Assert
+        mock_handle_notification.assert_awaited_once_with(
+            notification_payload, transport_metadata
+        )
+
+    async def test_routes_request_to_async_task(self, monkeypatch):
+        # Arrange
+        request_payload = {"jsonrpc": "2.0", "method": "ping", "id": 123}
+        transport_metadata = {"auth": "token"}
+
+        mock_handle_request = AsyncMock()
+        monkeypatch.setattr(self.session, "_handle_request", mock_handle_request)
+
+        # Act
+        message = TransportMessage(payload=request_payload, metadata=transport_metadata)
+        await self.session._handle_message(message)
+
+        # Give the task a moment to run
+        await asyncio.sleep(0)
+
+        # Assert
+        mock_handle_request.assert_awaited_once_with(
+            request_payload, transport_metadata
+        )
+
+    async def test_requests_dont_block_message_processing(self, monkeypatch):
+        # Arrange
+        request_handler_started = asyncio.Event()
+        request_handler_can_finish = asyncio.Event()
+        request_handler_finished = asyncio.Event()
+        notification_handler_called = asyncio.Event()
+
+        async def slow_request_handler(*args):
+            request_handler_started.set()
+            await request_handler_can_finish.wait()  # Wait for permission to finish
+            request_handler_finished.set()
+
+        async def notification_handler(*args):
+            notification_handler_called.set()
+
+        monkeypatch.setattr(self.session, "_handle_request", slow_request_handler)
+        monkeypatch.setattr(self.session, "_handle_notification", notification_handler)
+
+        # Act
+        request_msg = TransportMessage(
+            payload={"jsonrpc": "2.0", "method": "long/running/request", "id": 1}
+        )
+        notification_msg = TransportMessage(
+            payload={"jsonrpc": "2.0", "method": "important/notification"}
+        )
+
+        await self.session._handle_message(request_msg)
+        await self.session._handle_message(notification_msg)
+
+        # Assert - notification completes while request is still pending
+        await asyncio.wait_for(request_handler_started.wait(), timeout=0.5)
+        await asyncio.wait_for(notification_handler_called.wait(), timeout=0.5)
+
+        assert request_handler_started.is_set()  # Request did start
+        assert notification_handler_called.is_set()  # Notification was handled
+        assert not request_handler_finished.is_set()  # Request still pending
+
+        # Clean up - let request finish
+        request_handler_can_finish.set()
+        await asyncio.wait_for(request_handler_finished.wait(), timeout=0.5)
+
+        assert request_handler_finished.is_set()  # Request completed
+
+    async def test_raises_on_unknown_message_type(self):
+        # Arrange
+        # Missing both "method" (request/notification) and "result"/"error" (response)
+        malformed_payload = {
+            "jsonrpc": "2.0",
+            "id": 123,
+            "unknown_field": "data",
+        }
+
+        # Act & Assert
+        message = TransportMessage(payload=malformed_payload)
+        with pytest.raises(ValueError, match="Unknown message type"):
+            await self.session._handle_message(message)
