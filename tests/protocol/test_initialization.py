@@ -27,16 +27,22 @@ class TestInitialization:
         assert reconstructed.client_info.name == "Test client"
 
     def test_initialize_request_serializes_bool_sampling_as_dict(self):
+        # Arrange
         request = InitializeRequest(
             client_info=Implementation(name="Test client", version="1"),
             capabilities=ClientCapabilities(sampling=True),
             protocol_version=PROTOCOL_VERSION,
         )
+        # Act
         serialized = request.to_protocol()
+        # Assert
         assert serialized["params"]["capabilities"]["sampling"] == {}
 
     def test_initialize_from_protocol_deserializes_dict_sampling_as_bool(self):
+        # Arrange
         protocol_data = {
+            "jsonrpc": "2.0",
+            "id": 1,
             "method": "initialize",
             "params": {
                 "protocolVersion": PROTOCOL_VERSION,
@@ -44,65 +50,103 @@ class TestInitialization:
                 "capabilities": {"sampling": {}},
             },
         }
+        # Act
         request = InitializeRequest.from_protocol(protocol_data)
+        # Assert
         assert request.capabilities.sampling
 
     def test_initialize_request_no_sampling_serializes_as_empty_dict(self):
+        # Arrange
         request = InitializeRequest(
             client_info=Implementation(name="Test client", version="1"),
             capabilities=ClientCapabilities(roots=RootsCapability(list_changed=True)),
             protocol_version=PROTOCOL_VERSION,
         )
+        # Act
         serialized = request.to_protocol()
+        # Assert
         assert "sampling" not in serialized["params"]["capabilities"]
 
     def test_initialized_notification_roundtrip(self):
+        # Arrange
         notif = InitializedNotification()
+        # Act
         protocol_data = notif.to_protocol()
+        # Assert
         reconstructed = InitializedNotification.from_protocol(protocol_data)
         assert reconstructed == notif
 
     def test_initialize_result_roundtrip(self):
-        result = InitializeResult(
+        # Arrange
+        original = InitializeResult(
             protocol_version="2025-03-26",
             capabilities=ServerCapabilities(),
             server_info=Implementation(name="test_server", version="1.0"),
         )
-        protocol_data = result.to_protocol()
-        print("protocol_data", protocol_data)
-        print("result", result)
-        reconstructed = InitializeResult.from_protocol(protocol_data)
-        print("-" * 100)
-        print("reconstructed", reconstructed)
-        assert reconstructed == result
+        jsonrpc_response = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "serverInfo": {"name": "test_server", "version": "1.0"},
+            },
+        }
+
+        # Act
+        reconstructed = InitializeResult.from_protocol(jsonrpc_response)
+
+        # Assert
+        assert reconstructed == original
+        assert reconstructed.to_protocol() == jsonrpc_response["result"]
 
     def test_initialize_result_with_metadata_roundtrips(self):
-        protocol_data = {
-            "protocolVersion": "not_a_version",
+        # Arrange
+        result_payload = {
+            "protocolVersion": PROTOCOL_VERSION,
             "capabilities": {},
             "serverInfo": {"name": "test_server", "version": "1.0"},
             "_meta": {"some": "metadata"},
         }
-        result = InitializeResult.from_protocol(protocol_data)
+        jsonrpc_response = {"jsonrpc": "2.0", "id": 1, "result": result_payload}
+
+        # Act
+        result = InitializeResult.from_protocol(jsonrpc_response)
+
+        # Assert
         assert result.metadata == {"some": "metadata"}
-        serialized = result.to_protocol()
-        assert serialized == protocol_data
+        assert result.to_protocol() == result_payload
 
     def test_initialize_result_ignores_empty_metadata_from_protocol(self):
-        protocol_data = {
-            "protocolVersion": "not_a_version",
+        # Arrange
+        result_payload_without_meta = {
+            "protocolVersion": PROTOCOL_VERSION,
+            "capabilities": {},
+            "serverInfo": {"name": "test_server", "version": "1.0"},
+        }
+        result_payload_with_meta = {
+            "protocolVersion": PROTOCOL_VERSION,
             "capabilities": {},
             "serverInfo": {"name": "test_server", "version": "1.0"},
             "_meta": {},
         }
-        result = InitializeResult.from_protocol(protocol_data)
+        jsonrpc_response = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": result_payload_with_meta,
+        }
+
+        # Act
+        result = InitializeResult.from_protocol(jsonrpc_response)
+
+        # Assert
         assert result.metadata is None
-        serialized = result.to_protocol()
-        assert "_meta" not in serialized
+
+        assert result.to_protocol() == result_payload_without_meta
 
     def test_initialize_result_does_not_serialize_metadata_if_empty(self):
         result = InitializeResult(
-            protocol_version="not_a_version",
+            protocol_version=PROTOCOL_VERSION,
             capabilities=ServerCapabilities(),
             server_info=Implementation(name="test_server", version="1.0"),
         )

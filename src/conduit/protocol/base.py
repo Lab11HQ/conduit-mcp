@@ -220,8 +220,11 @@ class Result(ProtocolModel):
     def from_protocol(cls, data: dict[str, Any]) -> Self:
         """Convert from protocol-level representation."""
 
+        # Extract result
+        result_data = data["result"]
+
         # Extract metadata
-        meta = data.get("_meta", {})
+        meta = result_data.get("_meta", {})
 
         # Build kwargs for the constructor
         kwargs: dict[str, Any] = {}
@@ -238,8 +241,8 @@ class Result(ProtocolModel):
             # Use the alias if it exists, otherwise use the field name
             param_key = field_info.alias if field_info.alias else field_name
 
-            if param_key in data:
-                kwargs[field_name] = data[param_key]
+            if param_key in result_data:
+                kwargs[field_name] = result_data[param_key]
 
         return cls(**kwargs)
 

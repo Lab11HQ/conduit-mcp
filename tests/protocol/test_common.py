@@ -7,7 +7,7 @@ import pytest
 from conduit.protocol.common import CancelledNotification, EmptyResult, PingRequest
 
 
-class TestMisc:
+class TestCommon:
     def test_ping_rejects_non_ping_request(self):
         with pytest.raises(ValueError):
             protocol_data = {"method": "not_ping"}
@@ -31,22 +31,30 @@ class TestMisc:
         serialized = notif.to_protocol()
         assert serialized == protocol_data
 
-    def test_empty_result_with_metadata_round_trip(self):
-        """Test EmptyResult serializes metadata correctly."""
-        # Test with metadata
-        result_with_meta = EmptyResult(metadata={"operation": "delete", "count": 5})
+    def test_empty_result_no_metadata_roundtrip(self):
+        # Arrange
+        jsonrpc_response = {"jsonrpc": "2.0", "id": 1, "result": {}}
 
-        protocol_data = result_with_meta.to_protocol()
-        reconstructed = EmptyResult.from_protocol(protocol_data)
+        # Act
+        empty_result = EmptyResult.from_protocol(jsonrpc_response)
 
-        assert reconstructed.metadata == {"operation": "delete", "count": 5}
-        assert protocol_data == {"_meta": {"operation": "delete", "count": 5}}
+        # Assert
+        assert empty_result.metadata is None
+        assert empty_result.to_protocol() == jsonrpc_response["result"]
 
-        # Test without metadata (should be clean)
-        empty_result = EmptyResult()
+    def test_empty_result_roundtrip(self):
+        # Arrange
+        metadata = {"trace_id": "abc123", "duration_ms": 42}
+        original = EmptyResult(metadata=metadata)
+        jsonrpc_response = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"_meta": metadata},
+        }
 
-        protocol_data = empty_result.to_protocol()
-        reconstructed = EmptyResult.from_protocol(protocol_data)
+        # Act
+        reconstructed = EmptyResult.from_protocol(jsonrpc_response)
 
-        assert reconstructed.metadata is None
-        assert protocol_data == {}  # Should be completely empty
+        # Assert
+        assert reconstructed == original
+        assert reconstructed.to_protocol() == jsonrpc_response["result"]
