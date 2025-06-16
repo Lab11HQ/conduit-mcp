@@ -323,10 +323,11 @@ class Error(ProtocolModel):
 
     @classmethod
     def from_protocol(cls, data: dict[str, Any]) -> "Error":
+        error_data = data["error"]
         return cls.model_validate(
             {
-                "code": data["code"],
-                "message": data["message"],
-                "data": data.get("data"),
+                "code": error_data["code"],
+                "message": error_data["message"],
+                "data": error_data.get("data"),
             }
         )
