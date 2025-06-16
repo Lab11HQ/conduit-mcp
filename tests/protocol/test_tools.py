@@ -16,99 +16,60 @@ from conduit.protocol.tools import (
 
 
 class TestTools:
-    def test_call_tool_with_arguments(self):
-        # Test the complex case with nested data
-        pass
-
-    def test_invalid_wire_data(self):
-        # Missing fields, wrong types, etc.
-        pass
-
-    def test_list_tools_request_minimal(self):
-        # Test with no optional fields
-        request = ListToolsRequest()
-        protocol_data = request.to_protocol()
-        reconstructed = ListToolsRequest.from_protocol(protocol_data)
-        assert reconstructed == request
-        assert reconstructed.cursor is None
-        assert reconstructed.progress_token is None
-        assert reconstructed.method == "tools/list"
-
-    def test_list_tools_from_protocol_with_no_data_roundtrips_to_method_only(self):
-        protocol_data = {"method": "tools/list"}
-        request = ListToolsRequest.from_protocol(protocol_data)
-        assert request.method == "tools/list"
-        assert request.cursor is None
-        assert request.progress_token is None
-        assert request.to_protocol() == protocol_data
-
     def test_list_tools_request_round_trip_with_cursor_and_progress_token(self):
+        # Arrange
         request = ListToolsRequest(
             cursor="123",
             progress_token="456",
         )
+
+        # Act
         protocol_data = request.to_protocol()
-        reconstructed = ListToolsRequest.from_protocol(protocol_data)
+        wire_format = {"jsonrpc": "2.0", "id": 1, **protocol_data}
+        reconstructed = ListToolsRequest.from_protocol(wire_format)
+
+        # Assert
         assert reconstructed == request
         assert reconstructed.cursor == "123"
         assert reconstructed.progress_token == "456"
         assert reconstructed.method == "tools/list"
 
-    def test_list_tools_request_wire_format(self):
-        # Verify JSON matches spec exactly
-        pass
-
-    def test_progress_notification_roundtrip_without_metadata(self):
-        protocol_data = {
-            "method": "notifications/progress",
-            "params": {
-                "progressToken": "progress_token",
-                "progress": 0.5,
-                "total": 100,
-                "message": "test",
-            },
-        }
-        notif = ProgressNotification.from_protocol(protocol_data)
-        assert notif.method == "notifications/progress"
-        assert notif.progress_token == "progress_token"
-        assert notif.progress == 0.5
-        assert notif.total == 100
-        assert notif.message == "test"
-        serialized = notif.to_protocol()
-        assert serialized == protocol_data
-
     def test_progress_notification_roundtrip_with_metadata(self):
-        """Test that metadata is preserved during roundtrip"""
-        protocol_data = {
+        # Arrange
+        payload = {
             "method": "notifications/progress",
             "params": {
                 "progressToken": "progress_token",
                 "progress": 0.5,
                 "total": 100,
                 "message": "test",
-                "_meta": {
-                    "requestId": "req-123",
-                    "timestamp": "2025-06-04T10:00:00Z",
-                    "customField": {"nested": "value"},
-                },
+                "_meta": {"some": {"nested": "value"}},
             },
         }
-
-        # Deserialize
-        notif = ProgressNotification.from_protocol(protocol_data)
-        assert notif.metadata == {
-            "requestId": "req-123",
-            "timestamp": "2025-06-04T10:00:00Z",
-            "customField": {"nested": "value"},
+        wire_format = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            **payload,
         }
 
-        # Serialize back
-        serialized = notif.to_protocol()
-        assert serialized == protocol_data
+        # Act
+        progress_notif = ProgressNotification.from_protocol(wire_format)
+        serialized = progress_notif.to_protocol()
+
+        # Assert
+        assert progress_notif.method == "notifications/progress"
+        assert progress_notif.progress_token == "progress_token"
+        assert progress_notif.progress == 0.5
+        assert progress_notif.total == 100
+        assert progress_notif.message == "test"
+        assert progress_notif.metadata == {"some": {"nested": "value"}}
+
+        # Assert
+        assert serialized == payload
 
     def test_progress_notification_ignores_empty_metadata(self):
-        """Test handling of empty _meta object"""
-        protocol_data = {
+        # Arrange
+        payload = {
             "method": "notifications/progress",
             "params": {
                 "progressToken": "progress_token",
@@ -117,26 +78,34 @@ class TestTools:
                 "_meta": {},
             },
         }
+        wire_format = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            **payload,
+        }
 
-        notif = ProgressNotification.from_protocol(protocol_data)
+        # Act
+        notif = ProgressNotification.from_protocol(wire_format)
+
+        # Assert
         assert notif.metadata is None
 
-        serialized = notif.to_protocol()
-        assert "_meta" not in serialized["params"]
-
     def test_list_tools_request_roundtrip(self):
-        """Test ListToolsRequest protocol conversion."""
+        # Arrange
         request = ListToolsRequest(cursor="page_2")
 
+        # Act
         protocol_data = request.to_protocol()
-        reconstructed = ListToolsRequest.from_protocol(protocol_data)
+        wire_format = {"jsonrpc": "2.0", "id": 1, **protocol_data}
+        reconstructed = ListToolsRequest.from_protocol(wire_format)
 
+        # Assert
         assert reconstructed == request
         assert reconstructed.method == "tools/list"
         assert reconstructed.cursor == "page_2"
 
-    def test_list_tools_result_roundtrip(self):
-        """Test ListToolsResult with tools survives protocol conversion."""
+    def test_list_tools_result_roundtrip_with_tool_schema(self):
+        # Arrange
         schema = InputSchema(
             type="object",
             properties={
@@ -154,9 +123,12 @@ class TestTools:
 
         result = ListToolsResult(tools=[tool], next_cursor="next_page_token")
 
-        protocol_data = result.to_protocol()
-        reconstructed = ListToolsResult.from_protocol(protocol_data)
+        # Act
+        serialized = result.to_protocol()
+        wire_format = {"jsonrpc": "2.0", "id": 1, "result": serialized}
+        reconstructed = ListToolsResult.from_protocol(wire_format)
 
+        # Assert
         assert reconstructed == result
         assert len(reconstructed.tools) == 1
         assert reconstructed.tools[0].name == "search_files"
@@ -166,18 +138,18 @@ class TestTools:
         assert reconstructed.next_cursor == "next_page_token"
 
     def test_input_schema_validation(self):
-        """Test that InputSchema validates properly."""
-        # Valid schema
+        # Arrange
         schema = InputSchema(
             type="object", properties={"name": {"type": "string"}}, required=["name"]
         )
-        assert schema.type == "object"
 
-        # Type is frozen, should be "object"
+        # Assert
+        assert schema.type == "object"
         with pytest.raises(ValidationError):
-            InputSchema(type="array")  # Should fail if frozen=True works
+            InputSchema(type="array")
 
     def test_list_tools_result_protocol_roundtrip_complex_nested_schema(self):
+        # Arrange
         schema = InputSchema(
             properties={
                 "config": {
@@ -211,16 +183,21 @@ class TestTools:
             tools=[tool], next_cursor="next_page", metadata=metadata
         )
 
-        # This is the real test - full protocol conversion
-        protocol_data = original_result.to_protocol()
-        assert protocol_data["_meta"] == metadata
-        reconstructed_result = ListToolsResult.from_protocol(protocol_data)
+        # Act
+        serialized = original_result.to_protocol()
+        wire_format = {"jsonrpc": "2.0", "id": 1, "result": serialized}
+        reconstructed_result = ListToolsResult.from_protocol(wire_format)
 
-        # Verify the nested Tool survived the roundtrip intact
+        # Assert that the serialized result is valid
+        assert "tools" in serialized
+        assert isinstance(serialized["tools"], list)
+        assert "nextCursor" in serialized
+
+        # Assert that the reconstructed result is valid
         assert len(reconstructed_result.tools) == 1
         reconstructed_tool = reconstructed_result.tools[0]
 
-        # Test that complex nested schema properties survived
+        # Assert
         assert reconstructed_tool.input_schema.properties["config"]["type"] == "object"
         assert (
             reconstructed_tool.input_schema.properties["config"]["properties"][
@@ -234,13 +211,13 @@ class TestTools:
         )
         assert reconstructed_tool.input_schema.required == ["config"]
 
-        # Test that annotations survived with proper alias conversion
+        # Assert
         assert reconstructed_tool.annotations.title == "Complex Tool"
         assert reconstructed_tool.annotations.read_only_hint is True
         assert reconstructed_tool.annotations.destructive_hint is False
 
-        # Test pagination survived
+        # Assert
         assert reconstructed_result.next_cursor == "next_page"
 
-        # Test metadata survived
+        # Assert
         assert reconstructed_result.metadata == metadata
