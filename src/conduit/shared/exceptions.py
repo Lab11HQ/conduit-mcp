@@ -13,3 +13,11 @@ class MCPError(Exception):
         super().__init__(error.message)
         self.error = error
         self.transport_metadata = transport_metadata
+
+
+class UnknownNotificationError(Exception):
+    """Raised when receiving a notification with an unrecognized method."""
+
+    def __init__(self, method: str):
+        self.method = method
+        super().__init__(f"Unknown notification method: {method}")

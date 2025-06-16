@@ -36,6 +36,8 @@ from conduit.protocol.sampling import CreateMessageRequest, CreateMessageResult
 from conduit.protocol.tools import ToolListChangedNotification
 from conduit.transport.base import Transport, TransportMessage
 
+from conduit.shared.exceptions import UnknownNotificationError
+
 NOTIFICATION_CLASSES = {
     "notifications/cancelled": CancelledNotification,
     "notifications/message": LoggingMessageNotification,
@@ -89,7 +91,9 @@ class ClientSession:
         self._initializing: asyncio.Future[InitializeResult] | None = None
         self._initialize_result: InitializeResult | None = None
         self._initialized = False
-        self.notifications: asyncio.Queue[Notification] = asyncio.Queue()
+        self.notifications: asyncio.Queue[
+            tuple[Notification, dict[str, Any] | None]
+        ] = asyncio.Queue()
 
     async def _start(self) -> None:
         """
@@ -406,15 +410,12 @@ class ClientSession:
             elif self._is_request(payload):
                 asyncio.create_task(self._handle_request(payload, message.metadata))
             elif self._is_notification(payload):
-                await self._handle_notification(payload)
+                await self._handle_notification(payload, message.metadata)
             else:
                 raise ValueError(f"Unknown message type: {payload}")
         except Exception as e:
             print("Error handling message", e)
             raise
-
-    def _is_request(self, payload: dict[str, Any]) -> bool:
-        return "method" in payload and "id" in payload and payload["id"] is not None
 
     def _is_response(self, payload: dict[str, Any]) -> bool:
         return (
@@ -423,8 +424,14 @@ class ClientSession:
             and ("result" in payload or "error" in payload)
         )
 
+    def _is_request(self, payload: dict[str, Any]) -> bool:
+        return "method" in payload and "id" in payload and payload["id"] is not None
+
+    def _is_notification(self, payload: dict[str, Any]) -> bool:
+        return "method" in payload and "id" not in payload
+
     async def _handle_response(
-        self, payload: dict[str, Any], metadata: dict[str, Any] | None
+        self, payload: dict[str, Any], transport_metadata: dict[str, Any] | None
     ) -> None:
         """Handle incoming response to a request we sent.
 
@@ -433,7 +440,7 @@ class ClientSession:
 
         Args:
             payload: Complete JSON-RPC response message (validated by _is_response)
-            metadata: Transport-specific metadata or None
+            transport_metadata: Transport-specific metadata or None
 
         Note:
             Assumes payload contains a valid 'id' field as validated by _is_response().
@@ -444,26 +451,22 @@ class ClientSession:
 
         if message_id in self._pending_requests:
             future = self._pending_requests[message_id]
-            future.set_result((payload, metadata))
+            future.set_result((payload, transport_metadata))
         else:
             print(f"Orphaned response for request ID {message_id}")
 
-    async def _handle_notification(self, payload: dict[str, Any]) -> None:
-        try:
-            notification = self._parse_notification(payload)
-            await self.notifications.put(notification)
-        except Exception as e:
-            print("Error handling notification", e)
+    async def _handle_notification(
+        self, payload: dict[str, Any], transport_metadata: dict[str, Any] | None
+    ) -> None:
+        notification = self._parse_notification(payload)
+        await self.notifications.put((notification, transport_metadata))
 
     def _parse_notification(self, payload: dict[str, Any]) -> Notification:
         method = payload["method"]
         notification_class = NOTIFICATION_CLASSES.get(method)
         if notification_class is None:
-            raise Exception(f"Unknown method: {method}")
+            raise UnknownNotificationError(method)
         return notification_class.from_protocol(payload)
-
-    def _is_notification(self, payload: dict[str, Any]) -> bool:
-        return "method" in payload and "id" not in payload
 
     async def _handle_request(
         self, payload: dict[str, Any], metadata: dict[str, Any] | None
