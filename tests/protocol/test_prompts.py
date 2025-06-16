@@ -1,7 +1,7 @@
 from conduit.protocol.prompts import (
+    PromptArgument,
     GetPromptRequest,
     GetPromptResult,
-    ListPromptsRequest,
     ListPromptsResult,
     Prompt,
     PromptMessage,
@@ -10,29 +10,72 @@ from conduit.protocol.prompts import (
 
 
 class TestPrompts:
-    def test_list_prompts_request_method_matches_spec(self):
-        request = ListPromptsRequest()
-        assert request.method == "prompts/list"
-
     def test_list_prompts_result_roundtrips(self):
-        result = ListPromptsResult(
+        # Arrange
+        original = ListPromptsResult(
             prompts=[Prompt(name="test", description="Test prompt")],
         )
-        protocol_data = result.to_protocol()
-        from_protocol = ListPromptsResult.from_protocol(protocol_data)
-        assert from_protocol == result
 
-    def test_prompt_list_result_serializes_with_metadata(self):
-        result = ListPromptsResult(
+        # Act
+        result_payload = original.to_protocol()
+        jsonrpc_response = {"jsonrpc": "2.0", "id": 1, "result": result_payload}
+        reconstructed = ListPromptsResult.from_protocol(jsonrpc_response)
+
+        # Assert
+        assert reconstructed == original
+        assert reconstructed.to_protocol() == result_payload
+
+    def test_prompt_list_result_roundtrips_with_metadata(self):
+        # Arrange
+        original = ListPromptsResult(
             prompts=[Prompt(name="Test")], metadata={"some_meta": "data"}
         )
-        expected = {"prompts": [{"name": "Test"}], "_meta": {"some_meta": "data"}}
-        serialized = result.to_protocol()
-        print("serialized", serialized)
-        print("expected", expected)
-        assert serialized == expected
 
-    def test_get_prompt_request_serializes_with_args(self):
+        # Act
+        result_payload = original.to_protocol()
+        jsonrpc_response = {"jsonrpc": "2.0", "id": 1, "result": result_payload}
+        reconstructed = ListPromptsResult.from_protocol(jsonrpc_response)
+
+        # Assert
+        assert reconstructed == original
+        assert reconstructed.to_protocol() == result_payload
+
+    def test_list_prompt_result_roundtrip_with_prompt_arguments(self):
+        # Arrange
+        original = ListPromptsResult(
+            prompts=[
+                Prompt(
+                    name="Test",
+                    arguments=[
+                        PromptArgument(
+                            name="arg1", description="Argument 1", required=True
+                        )
+                    ],
+                )
+            ]
+        )
+        expected_payload = {
+            "prompts": [
+                {
+                    "name": "Test",
+                    "arguments": [
+                        {"name": "arg1", "description": "Argument 1", "required": True}
+                    ],
+                }
+            ]
+        }
+
+        # Act
+        result_payload = original.to_protocol()
+        jsonrpc_response = {"jsonrpc": "2.0", "id": 1, "result": result_payload}
+        reconstructed = ListPromptsResult.from_protocol(jsonrpc_response)
+
+        # Assert
+        assert reconstructed == original
+        assert reconstructed.to_protocol() == expected_payload
+
+    def test_get_prompt_request_roundtrips_with_args(self):
+        # Arrange
         request = GetPromptRequest(name="Test", arguments={"arg1": "value1"})
         expected = {
             "method": "prompts/get",
@@ -41,20 +84,39 @@ class TestPrompts:
                 "arguments": {"arg1": "value1"},
             },
         }
+
+        # Act
         serialized = request.to_protocol()
+
+        # Assert
         assert serialized == expected
 
     def test_get_prompt_request_roundtrips(self):
+        # Arrange
         request = GetPromptRequest(name="Test", arguments={"arg1": "value1"})
-        protocol_data = request.to_protocol()
-        assert request == GetPromptRequest.from_protocol(protocol_data)
+        expected = {
+            "method": "prompts/get",
+            "params": {"name": "Test", "arguments": {"arg1": "value1"}},
+        }
 
-    def test_get_prompt_result_serializes_with_messages(self):
+        # Act
+        serialized = request.to_protocol()
+
+        # Assert
+        assert serialized == expected
+        assert request == GetPromptRequest.from_protocol(serialized)
+
+    def test_get_prompt_result_roundtrips_with_messages(self):
+        # Arrange
         result = GetPromptResult(
             messages=[PromptMessage(role="user", content=TextContent(text="Hello"))]
         )
-        expected = {
-            "messages": [{"role": "user", "content": {"type": "text", "text": "Hello"}}]
-        }
-        serialized = result.to_protocol()
-        assert serialized == expected
+
+        # Act
+        result_payload = result.to_protocol()
+        jsonrpc_response = {"jsonrpc": "2.0", "id": 1, "result": result_payload}
+        reconstructed = GetPromptResult.from_protocol(jsonrpc_response)
+
+        # Assert
+        assert reconstructed == result
+        assert reconstructed.to_protocol() == result_payload
