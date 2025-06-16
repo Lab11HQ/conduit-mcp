@@ -229,9 +229,8 @@ class ClientSession:
 
         This method handles the low-level protocol details including request ID
         management, response correlation, and protocol version validation. If the
-        server doesn't respond within the timeout, sends a CancelledNotification
-        and stops the session. On any failure, the session is cleanly stopped to
-        prevent partial initialization states.
+        server doesn't respond within the timeout, we stop the session. On any failure,
+        we stop the session to prevent partial initialization states.
 
         Args:
             transport_metadata: Optional metadata passed to transport operations.
