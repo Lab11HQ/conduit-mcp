@@ -34,7 +34,6 @@ from conduit.protocol.resources import (
 from conduit.protocol.roots import ListRootsRequest, ListRootsResult, Root
 from conduit.protocol.sampling import CreateMessageRequest, CreateMessageResult
 from conduit.protocol.tools import ToolListChangedNotification
-from conduit.shared.exceptions import MCPError
 from conduit.transport.base import Transport, TransportMessage
 
 NOTIFICATION_CLASSES = {
@@ -85,7 +84,6 @@ class ClientSession:
 
         self._request_id = 0
         self._pending_requests: dict[int, asyncio.Future[Any]] = {}
-        self._buffered_responses: dict[int, tuple[Any, dict[str, Any] | None]] = {}
         self._message_loop_task: asyncio.Task[None] | None = None
         self._running = False
         self._initializing: asyncio.Future[InitializeResult] | None = None
@@ -266,7 +264,9 @@ class ClientSession:
             await self.transport.send(jsonrpc_request.to_wire(), transport_metadata)
             result_data, _ = await asyncio.wait_for(future, timeout)
             init_result = InitializeResult.from_protocol(result_data)
-            if init_result.protocol_version != PROTOCOL_VERSION:
+            if (
+                init_result.protocol_version != PROTOCOL_VERSION
+            ):  # TODO: Handle this better. SEND A INVALID_PARAMS ERROR.
                 await self.stop()
                 raise ValueError(
                     f"Protocol version mismatch: client version {PROTOCOL_VERSION} !="
@@ -401,8 +401,6 @@ class ClientSession:
         payload = message.payload
 
         try:
-            if self._is_request(payload) or self._is_response(payload):
-                self._validate_request_id(payload)
             if self._is_response(payload):
                 await self._handle_response(payload, message.metadata)
             elif self._is_request(payload):
@@ -416,29 +414,39 @@ class ClientSession:
             raise
 
     def _is_request(self, payload: dict[str, Any]) -> bool:
-        return "method" in payload and "id" in payload
+        return "method" in payload and "id" in payload and payload["id"] is not None
 
     def _is_response(self, payload: dict[str, Any]) -> bool:
-        return "id" in payload and ("result" in payload or "error" in payload)
+        return (
+            "id" in payload
+            and payload["id"] is not None
+            and ("result" in payload or "error" in payload)
+        )
 
     async def _handle_response(
         self, payload: dict[str, Any], metadata: dict[str, Any] | None
     ) -> None:
-        """Handle incoming response to a request we sent."""
+        """Handle incoming response to a request we sent.
+
+        Resolves the pending future for the corresponding request with the
+        complete JSON-RPC response payload and transport metadata.
+
+        Args:
+            payload: Complete JSON-RPC response message (validated by _is_response)
+            metadata: Transport-specific metadata or None
+
+        Note:
+            Assumes payload contains a valid 'id' field as validated by _is_response().
+            Both success responses (with 'result') and error responses (with 'error')
+            are resolved normally - the calling code determines how to handle errors.
+        """
         message_id = payload["id"]
 
         if message_id in self._pending_requests:
             future = self._pending_requests[message_id]
-
-            if "error" in payload:
-                protocol_error = Error.from_protocol(payload["error"])
-                mcp_error = MCPError(protocol_error, transport_metadata=metadata)
-                future.set_exception(mcp_error)
-            elif "result" in payload:
-                future.set_result((payload["result"], metadata))
+            future.set_result((payload, metadata))
         else:
-            self._buffered_responses[message_id] = (payload, metadata)
-            print(f"Buffered orphaned response for request ID {message_id}")
+            print(f"Orphaned response for request ID {message_id}")
 
     async def _handle_notification(self, payload: dict[str, Any]) -> None:
         try:
@@ -490,28 +498,6 @@ class ClientSession:
             return ListRootsRequest.from_protocol(payload)
         else:
             raise ValueError(f"Unknown request method: {method}")
-
-    def _validate_request_id(self, payload: dict[str, Any]) -> int | str:
-        """Validate and extract request ID from payload.
-
-        Returns:
-            The validated request ID (int or str)
-
-        Raises:
-            ValueError: If ID is missing or invalid type
-        """
-        if "id" not in payload:
-            raise ValueError("Request missing required 'id' field")
-
-        request_id = payload["id"]
-
-        if not isinstance(request_id, int | str):
-            raise ValueError(
-                f"Invalid request ID type: {type(request_id).__name__}."
-                " Must be string or number."
-            )
-
-        return request_id
 
     async def _route_request(self, request: Request) -> Result | Error:
         """Route request based on capabilities and available handlers."""
