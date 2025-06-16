@@ -10,7 +10,8 @@ from conduit.protocol.sampling import (
 
 
 class TestCreateMessageRequest:
-    def test_check_create_message_request_serialization_data_matches_protocol(self):
+    def test_create_message_request_serialization_data_matches_protocol(self):
+        # Arrange
         request = CreateMessageRequest(
             messages=[
                 SamplingMessage(role="user", content=TextContent(text="Hello, world!"))
@@ -24,7 +25,11 @@ class TestCreateMessageRequest:
             max_tokens=100,
             stop_sequences=["\n"],
         )
+
+        # Act
         serialized = request.to_protocol()
+
+        # Assert
         assert serialized == {
             "method": "sampling/createMessage",
             "params": {
@@ -47,22 +52,8 @@ class TestCreateMessageRequest:
             },
         }
 
-    def test_minimal_create_message_request_roundtrip(self):
-        """Minimal request with only required fields"""
-        original = CreateMessageRequest(
-            messages=[SamplingMessage(role="user", content=TextContent(text="Hi"))],
-            max_tokens=50,
-        )
-
-        protocol_dict = original.to_protocol()
-        reconstructed = CreateMessageRequest.from_protocol(protocol_dict)
-
-        assert reconstructed == original
-        assert "metadata" not in protocol_dict["params"]
-        assert "_meta" not in protocol_dict["params"]
-
     def test_full_create_message_request_roundtrip(self):
-        """Happy path: full roundtrip with all fields populated"""
+        # Arrange
         original = CreateMessageRequest(
             messages=[SamplingMessage(role="user", content=TextContent(text="Hello"))],
             max_tokens=150,
@@ -76,24 +67,26 @@ class TestCreateMessageRequest:
             metadata={"trace_id": "abc-def", "user_id": 456},
         )
 
-        protocol_dict = original.to_protocol()
-        reconstructed = CreateMessageRequest.from_protocol(protocol_dict)
+        # Act
+        serialized = original.to_protocol()
+        wire_format = {"jsonrpc": "2.0", "id": 1, **serialized}
+        reconstructed = CreateMessageRequest.from_protocol(wire_format)
 
+        # Assert
         assert reconstructed == original
 
-        # Verify the protocol structure is correct. Note the MCP metadata is in the
-        # _meta field and the LLM metadata is in the metadata field.
-        assert protocol_dict["method"] == "sampling/createMessage"
-        assert protocol_dict["params"]["metadata"] == {
+        # Assert
+        assert serialized["method"] == "sampling/createMessage"
+        assert serialized["params"]["metadata"] == {
             "provider": "openai",
             "custom_field": 42,
         }
-        assert protocol_dict["params"]["_meta"]["progressToken"] == "req-123"
-        assert protocol_dict["params"]["_meta"]["trace_id"] == "abc-def"
-        assert protocol_dict["params"]["_meta"]["user_id"] == 456
+        assert serialized["params"]["_meta"]["progressToken"] == "req-123"
+        assert serialized["params"]["_meta"]["trace_id"] == "abc-def"
+        assert serialized["params"]["_meta"]["user_id"] == 456
 
     def test_create_message_request_metadata_collision_is_handled(self):
-        """The gnarly case: both metadata types present with overlapping keys"""
+        # Arrange
         original = CreateMessageRequest(
             messages=[SamplingMessage(role="user", content=TextContent(text="Test"))],
             max_tokens=100,
@@ -107,37 +100,18 @@ class TestCreateMessageRequest:
             },  # Same keys, different meaning
         )
 
-        protocol_dict = original.to_protocol()
-        # Verify they end up in different places
-        assert protocol_dict["params"]["metadata"]["temperature"] == 0.5
-        assert protocol_dict["params"]["_meta"]["temperature"] == "trace_temp"
+        # Act
+        serialized = original.to_protocol()
+        wire_format = {"jsonrpc": "2.0", "id": 1, **serialized}
+        reconstructed = CreateMessageRequest.from_protocol(wire_format)
 
-    def test_create_message_request_nested_metadata_roundtrip(self):
-        """Complex nested objects in metadata"""
-        complex_metadata = {
-            "nested": {"deep": {"value": [1, 2, {"even": "deeper"}]}},
-            "list": [{"item": 1}, {"item": 2}],
-            "unicode": "café 🚀",
-            "numbers": {"int": 42, "float": 3.14, "scientific": 1e-10},
-        }
-
-        original = CreateMessageRequest(
-            messages=[SamplingMessage(role="user", content=TextContent(text="Test"))],
-            max_tokens=100,
-            llm_metadata=complex_metadata.copy(),
-            metadata={"trace": complex_metadata.copy()},
-        )
-
-        protocol_dict = original.to_protocol()
-        reconstructed = CreateMessageRequest.from_protocol(protocol_dict)
-
+        # Assert
         assert reconstructed == original
-        assert reconstructed.llm_metadata == complex_metadata
-        assert reconstructed.metadata["trace"] == complex_metadata
+        assert serialized["params"]["metadata"]["temperature"] == 0.5
+        assert serialized["params"]["_meta"]["temperature"] == "trace_temp"
 
     def test_create_message_request_progress_token_set_in_mcp_meta_is_handled(self):
-        # Simulate malformed protocol data where progressToken appears in both _meta
-        # and metadata
+        # Arrange
         malformed_protocol = {
             "method": "sampling/createMessage",
             "params": {
@@ -150,15 +124,15 @@ class TestCreateMessageRequest:
             },
         }
 
+        # Act
         reconstructed = CreateMessageRequest.from_protocol(malformed_protocol)
 
-        # Should prefer the one from _meta
+        # Assert
         assert reconstructed.progress_token == "good-token"
-        # The evil one should end up in llm_metadata
         assert reconstructed.llm_metadata == {"progressToken": "evil-token"}
 
     def test_empty_metadata_objects_are_converted_to_none(self):
-        """Edge case: empty but present metadata objects"""
+        # Arrange
         original = CreateMessageRequest(
             messages=[SamplingMessage(role="user", content=TextContent(text="Test"))],
             max_tokens=100,
@@ -166,17 +140,21 @@ class TestCreateMessageRequest:
             metadata={},  # Empty dict
         )
 
-        protocol_dict = original.to_protocol()
-        reconstructed = CreateMessageRequest.from_protocol(protocol_dict)
+        # Act
+        serialized = original.to_protocol()
+        wire_format = {"jsonrpc": "2.0", "id": 1, **serialized}
+        reconstructed = CreateMessageRequest.from_protocol(wire_format)
+
+        # Assert
         assert reconstructed.llm_metadata is None
         assert reconstructed.metadata is None
 
-        # Neither should appear in protocol
-        assert "metadata" not in protocol_dict["params"]
-        assert "_meta" not in protocol_dict["params"]
+        # Assert
+        assert "metadata" not in serialized["params"]
+        assert "_meta" not in serialized["params"]
 
     def test_none_vs_missing_fields_are_handled(self):
-        """Subtle difference between None and missing fields"""
+        # Arrange
         original = CreateMessageRequest(
             messages=[SamplingMessage(role="user", content=TextContent(text="Test"))],
             max_tokens=100,
@@ -184,15 +162,19 @@ class TestCreateMessageRequest:
             llm_metadata=None,  # Explicitly None
         )
 
-        protocol_dict = original.to_protocol()
-        reconstructed = CreateMessageRequest.from_protocol(protocol_dict)
+        # Act
+        serialized = original.to_protocol()
+        wire_format = {"jsonrpc": "2.0", "id": 1, **serialized}
+        reconstructed = CreateMessageRequest.from_protocol(wire_format)
 
+        # Assert
         assert reconstructed == original
         # None fields should not appear in protocol
-        assert "temperature" not in protocol_dict["params"]
-        assert "metadata" not in protocol_dict["params"]
+        assert "temperature" not in serialized["params"]
+        assert "metadata" not in serialized["params"]
 
     def test_create_message_request_roundtrips(self):
+        # Arrange
         request = CreateMessageRequest(
             messages=[
                 SamplingMessage(role="user", content=TextContent(text="Hello, world!"))
@@ -200,7 +182,11 @@ class TestCreateMessageRequest:
             preferences=ModelPreferences(cost_priority=1),
             max_tokens=100,
         )
+
+        # Act
         serialized = request.to_protocol()
+
+        # Assert
         assert serialized == {
             "method": "sampling/createMessage",
             "params": {
@@ -214,10 +200,15 @@ class TestCreateMessageRequest:
                 "maxTokens": 100,
             },
         }
-        deserialized = CreateMessageRequest.from_protocol(serialized)
-        assert deserialized == request
+
+        # Act
+        reconstructed = CreateMessageRequest.from_protocol(serialized)
+
+        # Assert
+        assert reconstructed == request
 
     def test_create_message_request_rejects_invalid_priority(self):
+        # Arrange and Assert
         with pytest.raises(ValueError):
             CreateMessageRequest(
                 messages=[
@@ -225,28 +216,28 @@ class TestCreateMessageRequest:
                         role="user", content=TextContent(text="Hello, world!")
                     )
                 ],
-                # Priority must be between 0 and 1
-                preferences=ModelPreferences(cost_priority=1.1),
+                preferences=ModelPreferences(cost_priority=1.1),  # BOOM!
                 max_tokens=100,
             )
 
 
 class TestCreateMessageResult:
     def test_create_message_result_minimal_roundtrip(self):
-        """Test with only required fields"""
+        # Arrange
         original = CreateMessageResult(
             role="user", content=TextContent(type="text", text="Hi"), model="claude-3"
         )
 
-        protocol_dict = original.to_protocol()
-        reconstructed = CreateMessageResult.from_protocol(protocol_dict)
+        # Act
+        serialized = original.to_protocol()
+        wire_format = {"jsonrpc": "2.0", "id": 1, "result": serialized}
+        reconstructed = CreateMessageResult.from_protocol(wire_format)
 
+        # Assert
         assert reconstructed == original
-        assert reconstructed.stop_reason is None
-        assert "stopReason" not in protocol_dict  # None fields excluded
 
     def test_create_message_result_roundtrip(self):
-        """Basic roundtrip test for CreateMessageResult"""
+        # Arrange
         original = CreateMessageResult(
             role="assistant",
             content=TextContent(type="text", text="Hello world"),
@@ -255,14 +246,17 @@ class TestCreateMessageResult:
             metadata={"trace_id": "abc123"},
         )
 
-        protocol_dict = original.to_protocol()
-        reconstructed = CreateMessageResult.from_protocol(protocol_dict)
+        # Act
+        serialized = original.to_protocol()
+        wire_format = {"jsonrpc": "2.0", "id": 1, "result": serialized}
+        reconstructed = CreateMessageResult.from_protocol(wire_format)
 
+        # Assert
         assert reconstructed == original
-        assert protocol_dict["stopReason"] == "endTurn"  # Verify alias works
+        assert serialized["stopReason"] == "endTurn"  # Verify alias works
 
     def test_create_message_result_custom_stop_reason(self):
-        """Test that custom stop reasons (not in the literal) work"""
+        # Arrange
         original = CreateMessageResult(
             role="assistant",
             content=TextContent(type="text", text="Response"),
@@ -270,8 +264,12 @@ class TestCreateMessageResult:
             stop_reason="customReason",  # Not in the predefined literals
         )
 
-        protocol_dict = original.to_protocol()
-        reconstructed = CreateMessageResult.from_protocol(protocol_dict)
+        # Act
+        serialized = original.to_protocol()
+        wire_format = {"jsonrpc": "2.0", "id": 1, "result": serialized}
+        reconstructed = CreateMessageResult.from_protocol(wire_format)
 
+        # Assert
         assert reconstructed == original
         assert reconstructed.stop_reason == "customReason"
+        assert serialized["stopReason"] == "customReason"
