@@ -2,7 +2,7 @@ import asyncio
 from .conftest import BaseSessionTest
 
 
-class TestMessageProcessing(BaseSessionTest):
+class TestMessageLoop(BaseSessionTest):
     async def test_message_loop_calls_handler_for_each_message(self):
         """Happy path: message loop processes messages by calling the handler."""
         # Arrange: mock the handler method
