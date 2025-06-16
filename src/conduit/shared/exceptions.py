@@ -21,3 +21,11 @@ class UnknownNotificationError(Exception):
     def __init__(self, method: str):
         self.method = method
         super().__init__(f"Unknown notification method: {method}")
+
+
+class UnknownRequestError(Exception):
+    """Raised when receiving a request with an unrecognized method."""
+
+    def __init__(self, method: str):
+        self.method = method
+        super().__init__(f"Unknown request method: {method}")

@@ -36,7 +36,7 @@ from conduit.protocol.sampling import CreateMessageRequest, CreateMessageResult
 from conduit.protocol.tools import ToolListChangedNotification
 from conduit.transport.base import Transport, TransportMessage
 
-from conduit.shared.exceptions import UnknownNotificationError
+from conduit.shared.exceptions import UnknownNotificationError, UnknownRequestError
 
 NOTIFICATION_CLASSES = {
     "notifications/cancelled": CancelledNotification,
@@ -48,10 +48,10 @@ NOTIFICATION_CLASSES = {
     "notifications/prompts/list_changed": PromptListChangedNotification,
 }
 
-REQUEST_CAPABILITY_REQUIREMENTS: dict[type[Request], str | None] = {
-    CreateMessageRequest: "sampling",
-    ListRootsRequest: "roots",
-    PingRequest: None,
+REQUEST_CLASSES = {
+    "ping": PingRequest,
+    "roots/list": ListRootsRequest,
+    "sampling/createMessage": CreateMessageRequest,
 }
 
 
@@ -80,7 +80,7 @@ class ClientSession:
                 "create_message_handler required when sampling capability is enabled."
                 " Either provide a handler or disable sampling in ClientCapabilities."
             )
-        self.create_message_handler = create_message_handler
+        self._handle_create_message = create_message_handler
 
         self.roots = roots or []  # TODO: Hook this up to notifcations.
 
@@ -401,14 +401,41 @@ class ClientSession:
         self._pending_requests.clear()
 
     async def _handle_message(self, message: TransportMessage) -> None:
-        """Handle incoming message from transport."""
+        """Route incoming transport message to appropriate handler based on JSON-RPC
+        type.
+
+        This is the central message dispatch point for the client session. It examines
+        the message payload to determine the JSON-RPC message type and routes
+        accordingly:
+
+        - **Responses**: Resolves pending request futures with the complete response
+        - **Requests**: Creates async task to handle server requests and send responses
+        - **Notifications**: Parses and queues notifications for client consumption
+
+        Request handling is done in background tasks to avoid blocking the message loop
+        while fulfilling requests.
+
+        Args:
+            message: Transport message containing JSON-RPC payload and transport metadata
+
+        Raises:
+            ValueError: If message payload doesn't match any known JSON-RPC type
+
+        Note:
+            Message type validation (ID presence, null checks) is performed by the
+            _is_* helper methods before routing. Individual handlers assume valid
+            message structure.
+        """
         payload = message.payload
 
         try:
             if self._is_response(payload):
                 await self._handle_response(payload, message.metadata)
             elif self._is_request(payload):
-                asyncio.create_task(self._handle_request(payload, message.metadata))
+                asyncio.create_task(
+                    self._handle_request(payload, message.metadata),
+                    name=f"handle_request_{payload.get('id', 'unknown')}",
+                )
             elif self._is_notification(payload):
                 await self._handle_notification(payload, message.metadata)
             else:
@@ -469,7 +496,7 @@ class ClientSession:
         return notification_class.from_protocol(payload)
 
     async def _handle_request(
-        self, payload: dict[str, Any], metadata: dict[str, Any] | None
+        self, payload: dict[str, Any], transport_metadata: dict[str, Any] | None
     ) -> None:
         """Handle incoming request from server."""
         message_id = payload["id"]
@@ -483,64 +510,59 @@ class ClientSession:
             else:  # Error
                 response = JSONRPCError.from_error(result_or_error, message_id)
 
-            await self.transport.send(response.to_wire(), metadata)
+            await self.transport.send(response.to_wire(), transport_metadata)
 
-        except Exception as e:
-            # Unexpected error during request handling
-            error = Error(code=INTERNAL_ERROR, message=str(e))
+        except UnknownRequestError as e:
+            error = Error(
+                code=METHOD_NOT_FOUND,
+                message=f"Unknown request method: {e.method}",
+            )
             error_response = JSONRPCError.from_error(error, message_id)
-            await self.transport.send(error_response.to_wire(), metadata)
+            await self.transport.send(error_response.to_wire(), transport_metadata)
+
+        except Exception:
+            # Unexpected error during request handling
+            error = Error(
+                code=INTERNAL_ERROR, message="Internal error processing request"
+            )
+            error_response = JSONRPCError.from_error(error, message_id)
+            await self.transport.send(error_response.to_wire(), transport_metadata)
 
     def _parse_request(self, payload: dict[str, Any]) -> Request:
         method = payload["method"]
-        if method == "sampling/createMessage":
-            return CreateMessageRequest.from_protocol(payload)
-        elif method == "ping":
-            return PingRequest.from_protocol(payload)
-        elif method == "roots/list":
-            return ListRootsRequest.from_protocol(payload)
-        else:
-            raise ValueError(f"Unknown request method: {method}")
+        request_class = REQUEST_CLASSES.get(method)
+        if request_class is None:
+            raise UnknownRequestError(method)
+        return request_class.from_protocol(payload)
 
     async def _route_request(self, request: Request) -> Result | Error:
-        """Route request based on capabilities and available handlers."""
+        """Route request to appropriate handler."""
+        handler_method = {
+            "ping": self._handle_ping,
+            "roots/list": self._handle_list_roots,
+            "sampling/createMessage": self._handle_create_message,
+        }.get(request.method)
 
-        # Check capability requirement
-        required_capability = REQUEST_CAPABILITY_REQUIREMENTS.get(type(request))
-        if required_capability:
-            capability_value = getattr(self.capabilities, required_capability)
-
-            if required_capability == "sampling" and not capability_value:
-                return Error(
-                    code=METHOD_NOT_FOUND,
-                    message="Client does not support sampling capability",
-                )
-            elif required_capability == "roots" and capability_value is None:
-                return Error(
-                    code=METHOD_NOT_FOUND,
-                    message="Client does not support roots capability",
-                )
-
-        # Route to specific handler
-        if isinstance(request, PingRequest):
-            return EmptyResult()
-        elif isinstance(request, ListRootsRequest):
-            return ListRootsResult(roots=self.roots)
-        elif isinstance(request, CreateMessageRequest):
-            if self.create_message_handler is None:
-                return Error(
-                    code=INTERNAL_ERROR,
-                    message=(
-                        "Sampling capability enabled but internal handler not"
-                        " configured"
-                    ),
-                )
-            return await self.create_message_handler(request)
-        else:
+        if not handler_method:
             return Error(
                 code=METHOD_NOT_FOUND,
-                message=f"Unknown request: {type(request).__name__}",
+                message=f"Unknown request method: {request.method}",
             )
+
+        return await handler_method(request)
+
+    async def _handle_list_roots(self) -> Result | Error:
+        """Handle roots/list request."""
+        if self.capabilities.roots is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Client does not support roots capability",
+            )
+        return ListRootsResult(roots=self.roots)
+
+    async def _handle_ping(self) -> Result:
+        """Handle ping request."""
+        return EmptyResult()
 
     async def call_tool(
         self,
