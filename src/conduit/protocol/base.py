@@ -30,27 +30,52 @@ class ProtocolModel(BaseModel):
 
 class Request(ProtocolModel):
     """
-    Base class for MCP requests.
+    Foundation for all MCP request messages.
 
-    All requests must specify a method. Use `progress_token` to receive
-    progress updates for long-running operations.
+    This base class bridges the gap between Python's natural idioms and the JSON-RPC
+    format for MCP requests. While you'll work with concrete request types like
+    `InitializeRequest` or `ListToolsRequest`, they all inherit this common structure
+    and behavior.
 
-    Note: `progress_token` overrides `metadata["progressToken"]` if both are set.
+    The key insight: MCP's TypeScript spec uses nested structures and camelCase that
+    feel foreign in Python. So we flatten complex hierarchies, use snake_case throughout,
+    and surface important fields at intuitive levels—like putting `progress_token` at
+    the top level instead of buried in `params._meta.progressToken`.
+
+    When you create any MCP request, you're getting:
+    - Clean, snake_case Python interfaces
+    - Automatic translation to/from the nested protocol format
+    - Transparent progress token handling
+    - Validation that ensures spec compliance
+
+    The `from_protocol` and `to_protocol` methods handle the format translation—
+    you work with Pythonic objects, we handle JSON-RPC serialization.
     """
 
     method: str
     """
-    The method to call.
+    The RPC method name for this request.
+    
+    This identifies which operation the server should perform, like "initialize" 
+    or "tools/list". Each concrete request type sets this automatically.
     """
 
     progress_token: ProgressToken | None = None
     """
-    Token (str or int) to identify this request for progress updates.
+    Optional token to track progress for long-running operations.
+    
+    When provided, the server can send progress notifications back to the client
+    using this token as an identifier.
     """
 
     metadata: dict[str, Any] | None = Field(default=None)
     """
-    Additional request metadata.
+    Optional metadata for the request.
+    
+    Use this for additional context that doesn't fit the standard request fields.
+    Note: Don't put progress tokens here—use the dedicated `progress_token` field
+    instead for proper handling. If you set both, the `progress_token` field takes
+    precedence.
     """
 
     @field_validator("metadata", mode="before")
@@ -70,7 +95,22 @@ class Request(ProtocolModel):
 
     @classmethod
     def from_protocol(cls, data: dict[str, Any]) -> Self:
-        """Convert from protocol-level representation."""
+        """Create a request instance from JSON-RPC protocol data.
+
+        This method handles the translation from MCP's nested JSON-RPC format
+        to our flattened Python representation. It extracts the method name,
+        pulls progress tokens out of the metadata hierarchy, and maps any
+        subclass-specific fields using their aliases.
+
+        The heavy lifting happens here so that everywhere else we can work with
+        clean Python objects instead of nested dictionaries.
+
+        Args:
+            data: Raw JSON-RPC request data with method, params, and optional metadata
+
+        Returns:
+            A properly constructed request instance with all fields populated
+        """
 
         # Extract protocol structure
         params = data.get("params", {})
@@ -100,7 +140,20 @@ class Request(ProtocolModel):
         return cls(**kwargs)
 
     def to_protocol(self) -> dict[str, Any]:
-        """Convert to protocol-level representation"""
+        """Convert this request to MCP protocol format.
+
+        This method takes our clean Python representation and converts it to
+        the nested structure that MCP expects—progress tokens get moved into
+        `params._meta.progressToken`, field names use their camelCase aliases,
+        and everything gets properly nested.
+
+        Note: This creates the MCP request structure, not the full JSON-RPC
+        envelope. The `jsonrpc` and `id` fields are handled separately by
+        the JSON-RPC layer.
+
+        Returns:
+            An MCP-compatible request dictionary with method and params
+        """
         params = self.model_dump(
             exclude={"method", "progress_token", "metadata"},
             by_alias=True,
