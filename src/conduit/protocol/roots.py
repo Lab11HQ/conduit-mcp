@@ -10,7 +10,9 @@ class Root(ProtocolModel):
     A root of the client.
     """
 
-    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
+    uri: Annotated[
+        AnyUrl, UrlConstraints(host_required=False)
+    ]  # TODO: Allow strings explicitly
     """
     URI must start with file:// in this version of the protocol.
     """

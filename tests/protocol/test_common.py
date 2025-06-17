@@ -14,22 +14,38 @@ class TestCommon:
             _ = PingRequest.from_protocol(protocol_data)
 
     def test_ping_roundtrips(self):
-        protocol_data = {"method": "ping"}
+        # Arrange
+        protocol_data = {"jsonrpc": "2.0", "id": 1, "method": "ping"}
+
+        # Act
         ping = PingRequest.from_protocol(protocol_data)
         serialized = ping.to_protocol()
-        assert serialized == protocol_data
+
+        # Assert
+        assert serialized == {"method": "ping"}
 
     def test_cancelled_notification_roundtrips_with_id_alias(self):
-        protocol_data = {
+        # Arrange
+        payload = {
             "method": "notifications/cancelled",
             "params": {"requestId": 1, "reason": "no need"},
         }
+        protocol_data = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            **payload,
+        }
+
+        # Act
         notif = CancelledNotification.from_protocol(protocol_data)
+        serialized = notif.to_protocol()
+
+        # Assert
         assert notif.method == "notifications/cancelled"
         assert notif.request_id == 1
         assert notif.reason == "no need"
-        serialized = notif.to_protocol()
-        assert serialized == protocol_data
+
+        assert serialized == payload
 
     def test_empty_result_no_metadata_roundtrip(self):
         # Arrange
