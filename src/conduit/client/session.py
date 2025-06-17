@@ -376,7 +376,8 @@ class ClientSession:
                 # Check if we should stop processing
                 if not self._running:
                     break
-
+                # NOTE: If we call stop() while this is running, shutdown will happen after
+                # this message is processed. Shutdown not immediate.
                 try:
                     await self._handle_message(message)
                 except Exception as e:
@@ -420,16 +421,11 @@ class ClientSession:
 
         Raises:
             ValueError: If message payload doesn't match any known JSON-RPC type
-
-        Note:
-            Message type validation (ID presence, null checks) is performed by the
-            _is_* helper methods before routing. Individual handlers assume valid
-            message structure.
         """
         payload = message.payload
 
         try:
-            if self._is_response(payload):
+            if self._is_valid_response(payload):
                 await self._handle_response(payload, message.metadata)
             elif self._is_request(payload):
                 asyncio.create_task(
@@ -444,7 +440,20 @@ class ClientSession:
             print("Error handling message", e)
             raise
 
-    def _is_response(self, payload: dict[str, Any]) -> bool:
+    def _is_valid_response(self, payload: dict[str, Any]) -> bool:
+        """Check if payload is a structurally valid JSON-RPC response.
+
+        A valid response must have a non-null ID (to match against pending requests)
+        and either a 'result' field for success or an 'error' field for failure.
+        This validation ensures we can safely route the response to the right
+        pending request.
+
+        Args:
+            payload: JSON-RPC message payload from transport
+
+        Returns:
+            True if payload can be processed as a response, False otherwise
+        """
         return (
             "id" in payload
             and payload["id"] is not None
@@ -460,19 +469,24 @@ class ClientSession:
     async def _handle_response(
         self, payload: dict[str, Any], transport_metadata: dict[str, Any] | None
     ) -> None:
-        """Handle incoming response to a request we sent.
+        """Resolve a pending request with the server's response.
 
-        Resolves the pending future for the corresponding request with the
-        complete JSON-RPC response payload and transport metadata.
+        When the server responds to one of our requests, this matches the response
+        to the original request using the JSON-RPC ID and resolves the waiting
+        future. This unblocks whatever code sent the request and lets it continue
+        with the server's answer.
+
+        Both successful responses (with 'result') and error responses (with 'error')
+        resolve the future normally—the calling code decides how to interpret errors.
 
         Args:
-            payload: Complete JSON-RPC response message (validated by _is_response)
+            payload: Complete JSON-RPC response (validated by _is_valid_response)
             transport_metadata: Transport-specific metadata or None
 
         Note:
-            Assumes payload contains a valid 'id' field as validated by _is_response().
-            Both success responses (with 'result') and error responses (with 'error')
-            are resolved normally - the calling code determines how to handle errors.
+            If no pending request matches the response ID, this logs the unmatched
+            response and continues. This can happen if requests timeout or in
+            edge cases with transport behavior.
         """
         message_id = payload["id"]
 
@@ -480,7 +494,7 @@ class ClientSession:
             future = self._pending_requests[message_id]
             future.set_result((payload, transport_metadata))
         else:
-            print(f"Orphaned response for request ID {message_id}")
+            print(f"Unmatched response for request ID {message_id}")
 
     async def _handle_notification(
         self, payload: dict[str, Any], transport_metadata: dict[str, Any] | None
