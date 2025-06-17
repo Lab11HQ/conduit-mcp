@@ -3,6 +3,9 @@ import pytest
 from unittest.mock import AsyncMock
 
 from conduit.transport.base import TransportMessage
+from conduit.protocol.common import ProgressNotification
+
+from conduit.shared.exceptions import UnknownNotificationError
 
 from .conftest import BaseSessionTest
 
@@ -387,3 +390,55 @@ class TestResponseHandler(BaseSessionTest):
 
         # All pending requests should be resolved
         assert len(self.session._pending_requests) == 3
+
+
+class TestNotificationHandler(BaseSessionTest):
+    async def test_parses_and_queues_known_notification(self):
+        # Arrange
+        payload = {
+            "jsonrpc": "2.0",
+            "method": "notifications/progress",
+            "params": {"progressToken": "test-token", "progress": 0.5, "total": 1.0},
+        }
+        metadata = {"transport": "test", "timestamp": "2025-01-01"}
+
+        # Ensure queue starts empty
+        assert self.session.notifications.empty()
+
+        # Act
+        await self.session._handle_notification(payload, metadata)
+
+        # Assert
+        assert not self.session.notifications.empty()
+        notification, queued_metadata = await self.session.notifications.get()
+
+        # Verify we got the right notification type
+        assert isinstance(notification, ProgressNotification)
+        assert notification.progress_token == "test-token"
+        assert notification.progress == 0.5
+        assert notification.total == 1.0
+
+        # Verify metadata was preserved
+        assert queued_metadata == metadata
+
+    async def test_raises_on_unknown_notification_method(self):
+        # Arrange
+        payload = {
+            "jsonrpc": "2.0",
+            "method": "notifications/unknown_method",
+            "params": {"some": "data"},
+        }
+        metadata = {"transport": "test"}
+
+        # Ensure queue starts empty
+        assert self.session.notifications.empty()
+
+        # Act & Assert
+        with pytest.raises(UnknownNotificationError) as exc_info:
+            await self.session._handle_notification(payload, metadata)
+
+        # Verify the exception contains the unknown method
+        assert "notifications/unknown_method" in str(exc_info.value)
+
+        # Verify nothing was queued when parsing failed
+        assert self.session.notifications.empty()

@@ -432,7 +432,7 @@ class ClientSession:
                     self._handle_request(payload, message.metadata),
                     name=f"handle_request_{payload.get('id', 'unknown')}",
                 )
-            elif self._is_notification(payload):
+            elif self._is_valid_notification(payload):
                 await self._handle_notification(payload, message.metadata)
             else:
                 raise ValueError(f"Unknown message type: {payload}")
@@ -463,7 +463,20 @@ class ClientSession:
     def _is_request(self, payload: dict[str, Any]) -> bool:
         return "method" in payload and "id" in payload and payload["id"] is not None
 
-    def _is_notification(self, payload: dict[str, Any]) -> bool:
+    def _is_valid_notification(self, payload: dict[str, Any]) -> bool:
+        """Check if payload is a structurally valid JSON-RPC notification.
+
+        A valid notification must have a 'method' field (to identify what happened)
+        and must NOT have an 'id' field (notifications are fire-and-forget, so no
+        response is expected). This validation ensures we can safely parse and
+        queue the notification.
+
+        Args:
+            payload: JSON-RPC message payload from transport
+
+        Returns:
+            True if payload can be processed as a notification, False otherwise
+        """
         return "method" in payload and "id" not in payload
 
     async def _handle_response(
@@ -499,10 +512,40 @@ class ClientSession:
     async def _handle_notification(
         self, payload: dict[str, Any], transport_metadata: dict[str, Any] | None
     ) -> None:
+        """Parse and queue an incoming notification for client consumption.
+
+        Notifications are fire-and-forget messages from the server about events
+        that happened (like resource changes or progress updates). We parse the
+        raw payload into a typed notification object and queue it with any
+        transport metadata so client code can process notifications at their
+        own pace.
+
+        Args:
+            payload: JSON-RPC notification payload (validated by _is_valid_notification)
+            transport_metadata: Transport-specific metadata or None
+
+        Raises:
+            UnknownNotificationError: If the notification method isn't recognized
+        """
         notification = self._parse_notification(payload)
         await self.notifications.put((notification, transport_metadata))
 
     def _parse_notification(self, payload: dict[str, Any]) -> Notification:
+        """Convert raw JSON-RPC notification payload into a typed notification object.
+
+        Looks up the notification method in our registry of known notification types
+        and uses the appropriate class to parse the payload. This gives client code
+        strongly-typed notification objects instead of raw dictionaries.
+
+        Args:
+            payload: JSON-RPC notification payload with 'method' field
+
+        Returns:
+            Typed notification object corresponding to the method
+
+        Raises:
+            UnknownNotificationError: If the notification method isn't recognized
+        """
         method = payload["method"]
         notification_class = NOTIFICATION_CLASSES.get(method)
         if notification_class is None:
