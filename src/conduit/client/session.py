@@ -5,7 +5,6 @@ from typing import Any
 from conduit.protocol import CallToolRequest, CallToolResult, JSONRPCRequest, Request
 from conduit.protocol.base import (
     INTERNAL_ERROR,
-    INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION,
     Error,
