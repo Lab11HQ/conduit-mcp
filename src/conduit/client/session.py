@@ -186,6 +186,62 @@ class ClientSession:
         finally:
             self._initializing = None
 
+    async def send_request(
+        self,
+        request: Request,
+        transport_metadata: dict[str, Any] | None = None,
+        timeout: float = 30.0,
+    ) -> tuple[Any, dict[str, Any] | None]:
+        """Send a request and wait for a response.
+
+        Remove the request from the pending requests dictionary when the response is
+        received.
+
+        Args:
+            request: The request to send
+            transport_metadata: Transport specific metadata to send with the request
+                (auth tokens, etc.)
+            timeout: Timeout in seconds for the request.
+
+        Returns:
+            tuple[Any, dict[str, Any] | None]: The result and transport metadata.
+                (result, transport_metadata).
+        """
+        await self._start()
+        if not isinstance(request, PingRequest):
+            await self._ensure_initialized()
+
+        # Generate request ID and create JSON-RPC wrapper
+        request_id = self._request_id
+        self._request_id += 1
+        jsonrpc_request = JSONRPCRequest.from_request(request, request_id)
+
+        future: asyncio.Future[Any] = asyncio.Future()
+        self._pending_requests[request_id] = future
+
+        try:
+            await self.transport.send(jsonrpc_request.to_wire(), transport_metadata)
+            return await asyncio.wait_for(future, timeout)
+        except asyncio.TimeoutError:
+            cancelled_notification = CancelledNotification(
+                request_id=request_id,
+                reason="Request timed out",
+            )
+            await self.send_notification(cancelled_notification, transport_metadata)
+            raise TimeoutError(f"Request {request_id} timed out after {timeout}s")
+        finally:
+            self._pending_requests.pop(request_id, None)
+
+    async def send_notification(
+        self,
+        notification: Notification,
+        transport_metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Send a notification to the server."""
+        await self._start()
+        jsonrpc_notification = JSONRPCNotification.from_notification(notification)
+        await self.transport.send(jsonrpc_notification.to_wire(), transport_metadata)
+
     async def _ensure_initialized(self) -> None:
         """
         Ensure the session is initialized, triggering initialization if needed.
@@ -290,61 +346,6 @@ class ClientSession:
             raise
         finally:
             self._pending_requests.pop(request_id, None)
-
-    async def send_request(
-        self,
-        request: Request,
-        transport_metadata: dict[str, Any] | None = None,
-        timeout: float = 30.0,
-    ) -> tuple[Any, dict[str, Any] | None]:
-        """Send a request and wait for a response.
-
-        Remove the request from the pending requests dictionary when the response is
-        received.
-
-        Args:
-            request: The request to send
-            transport_metadata: Transport specific metadata to send with the request
-                (auth tokens, etc.)
-            timeout: Timeout in seconds for the request.
-
-        Returns:
-            tuple[Any, dict[str, Any] | None]: The result and transport metadata.
-                (result, transport_metadata).
-        """
-        await self._start()
-        await self._ensure_initialized()
-
-        # Generate request ID and create JSON-RPC wrapper
-        request_id = self._request_id
-        self._request_id += 1
-        jsonrpc_request = JSONRPCRequest.from_request(request, request_id)
-
-        future: asyncio.Future[Any] = asyncio.Future()
-        self._pending_requests[request_id] = future
-
-        try:
-            await self.transport.send(jsonrpc_request.to_wire(), transport_metadata)
-            return await asyncio.wait_for(future, timeout)
-        except asyncio.TimeoutError:
-            cancelled_notification = CancelledNotification(
-                request_id=request_id,
-                reason="Request timed out",
-            )
-            await self.send_notification(cancelled_notification, transport_metadata)
-            raise TimeoutError(f"Request {request_id} timed out after {timeout}s")
-        finally:
-            self._pending_requests.pop(request_id, None)
-
-    async def send_notification(
-        self,
-        notification: Notification,
-        transport_metadata: dict[str, Any] | None = None,
-    ) -> None:
-        """Send a notification to the server."""
-        await self._start()
-        jsonrpc_notification = JSONRPCNotification.from_notification(notification)
-        await self.transport.send(jsonrpc_notification.to_wire(), transport_metadata)
 
     async def _message_loop(self) -> None:
         """Keeps the session alive by processing messages from the server.
