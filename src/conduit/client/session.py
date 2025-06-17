@@ -80,7 +80,7 @@ class ClientSession:
                 "create_message_handler required when sampling capability is enabled."
                 " Either provide a handler or disable sampling in ClientCapabilities."
             )
-        self._handle_create_message = create_message_handler
+        self._create_message_handler = create_message_handler
 
         self.roots = roots or []  # TODO: Hook this up to notifcations.
 
@@ -427,7 +427,7 @@ class ClientSession:
         try:
             if self._is_valid_response(payload):
                 await self._handle_response(payload, message.metadata)
-            elif self._is_request(payload):
+            elif self._is_valid_request(payload):
                 asyncio.create_task(
                     self._handle_request(payload, message.metadata),
                     name=f"handle_request_{payload.get('id', 'unknown')}",
@@ -460,7 +460,20 @@ class ClientSession:
             and ("result" in payload or "error" in payload)
         )
 
-    def _is_request(self, payload: dict[str, Any]) -> bool:
+    def _is_valid_request(self, payload: dict[str, Any]) -> bool:
+        """Check if payload is a structurally valid JSON-RPC request.
+
+        A valid request must have a 'method' field (to identify what operation
+        the client wants to perform) and a non-null 'id' field (to match against
+        the response). This validation ensures we can safely route the request
+        to the appropriate handler.
+
+        Args:
+            payload: JSON-RPC message payload from transport
+
+        Returns:
+            True if payload can be processed as a request, False otherwise
+        """
         return "method" in payload and "id" in payload and payload["id"] is not None
 
     def _is_valid_notification(self, payload: dict[str, Any]) -> bool:
@@ -555,7 +568,29 @@ class ClientSession:
     async def _handle_request(
         self, payload: dict[str, Any], transport_metadata: dict[str, Any] | None
     ) -> None:
-        """Handle incoming request from server."""
+        """Handle a complete request-response cycle from the server.
+
+        When the server sends us a request (like asking for a ping, filesystem roots,
+        or LLM sampling), this method orchestrates the full response cycle. We parse
+        the request, route it to the appropriate handler, execute the handler, and
+        send back a properly formatted JSON-RPC response.
+
+        The server always gets a response, even when things go wrong. Unknown methods
+        get METHOD_NOT_FOUND errors, handler exceptions become INTERNAL_ERROR
+        responses, and successful operations return the handler's result. This prevents
+        the server from hanging on malformed or failed requests.
+
+        This runs in a background task (created by _handle_message) so request
+        processing doesn't block the main message loop.
+
+        Args:
+            payload: JSON-RPC request payload (validated by _is_valid_request)
+            transport_metadata: Transport-specific metadata or None
+
+        Note:
+            Always sends a response to the server using the request ID from the
+            original payload.
+        """
         message_id = payload["id"]
 
         try:
@@ -567,7 +602,7 @@ class ClientSession:
             else:  # Error
                 response = JSONRPCError.from_error(result_or_error, message_id)
 
-            await self.transport.send(response.to_wire(), transport_metadata)
+            await self.transport.send(response.to_wire())
 
         except UnknownRequestError as e:
             error = Error(
@@ -575,7 +610,7 @@ class ClientSession:
                 message=f"Unknown request method: {e.method}",
             )
             error_response = JSONRPCError.from_error(error, message_id)
-            await self.transport.send(error_response.to_wire(), transport_metadata)
+            await self.transport.send(error_response.to_wire())
 
         except Exception:
             # Unexpected error during request handling
@@ -583,9 +618,24 @@ class ClientSession:
                 code=INTERNAL_ERROR, message="Internal error processing request"
             )
             error_response = JSONRPCError.from_error(error, message_id)
-            await self.transport.send(error_response.to_wire(), transport_metadata)
+            await self.transport.send(error_response.to_wire())
 
     def _parse_request(self, payload: dict[str, Any]) -> Request:
+        """Parse raw JSON-RPC request payload into a typed request object.
+
+        Looks up the request method in our registry of known request types and
+        uses the appropriate class to parse the payload. This gives us strongly-
+        typed request objects instead of raw dictionaries for handler methods.
+
+        Args:
+            payload: JSON-RPC request payload with 'method' field
+
+        Returns:
+            Typed request object corresponding to the method
+
+        Raises:
+            UnknownRequestError: If the request method isn't recognized
+        """
         method = payload["method"]
         request_class = REQUEST_CLASSES.get(method)
         if request_class is None:
@@ -593,7 +643,20 @@ class ClientSession:
         return request_class.from_protocol(payload)
 
     async def _route_request(self, request: Request) -> Result | Error:
-        """Route request to appropriate handler."""
+        """Route parsed request to the appropriate handler method.
+
+        Maps request methods to their corresponding handler functions. This
+        provides a second layer of method checking after parsing - if we can
+        parse a request type but don't have a handler for it, we return an
+        Error rather than crashing.
+
+        Args:
+            request: Typed request object from _parse_request
+
+        Returns:
+            Result object for success, Error object for failure (including
+            methods we can parse but choose not to handle)
+        """
         handler_method = {
             "ping": self._handle_ping,
             "roots/list": self._handle_list_roots,
@@ -608,8 +671,19 @@ class ClientSession:
 
         return await handler_method(request)
 
-    async def _handle_list_roots(self) -> Result | Error:
-        """Handle roots/list request."""
+    async def _handle_list_roots(self, request: ListRootsRequest) -> Result | Error:
+        """Handle server request for filesystem roots.
+
+        Returns the list of filesystem roots this client can provide access to,
+        but only if the client advertised roots capability during initialization.
+        If roots capability wasn't enabled, returns METHOD_NOT_FOUND.
+
+        Args:
+            request: Parsed roots/list request from server
+
+        Returns:
+            ListRootsResult with available roots, or Error if capability missing
+        """
         if self.capabilities.roots is None:
             return Error(
                 code=METHOD_NOT_FOUND,
@@ -617,9 +691,42 @@ class ClientSession:
             )
         return ListRootsResult(roots=self.roots)
 
-    async def _handle_ping(self) -> Result:
-        """Handle ping request."""
+    async def _handle_ping(self, request: PingRequest) -> Result:
+        """Handle server ping request.
+
+        Simple connectivity test - always returns success. Used by servers to
+        verify the client connection is alive and responsive.
+
+        Args:
+            request: Parsed ping request from server
+
+        Returns:
+            EmptyResult indicating successful ping response
+        """
         return EmptyResult()
+
+    async def _handle_create_message(
+        self, request: CreateMessageRequest
+    ) -> Result | Error:
+        """Handle server request for LLM message generation.
+
+        Delegates to the user-provided create message handler to generate a response
+        using the client's LLM. Only available if sampling capability was enabled
+        and a handler was provided during initialization.
+
+        Args:
+            request: Parsed sampling/createMessage request with prompt and parameters
+
+        Returns:
+            CreateMessageResult with generated response, or Error if capability missing
+        """
+        if not self.capabilities.sampling:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Client does not support sampling capability",
+            )
+
+        return await self._create_message_handler(request)
 
     async def call_tool(
         self,
