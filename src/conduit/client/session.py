@@ -5,6 +5,7 @@ from typing import Any
 from conduit.protocol import CallToolRequest, CallToolResult, JSONRPCRequest, Request
 from conduit.protocol.base import (
     INTERNAL_ERROR,
+    INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION,
     Error,
@@ -34,9 +35,8 @@ from conduit.protocol.resources import (
 from conduit.protocol.roots import ListRootsRequest, ListRootsResult, Root
 from conduit.protocol.sampling import CreateMessageRequest, CreateMessageResult
 from conduit.protocol.tools import ToolListChangedNotification
-from conduit.transport.base import Transport, TransportMessage
-
 from conduit.shared.exceptions import UnknownNotificationError, UnknownRequestError
+from conduit.transport.base import Transport, TransportMessage
 
 NOTIFICATION_CLASSES = {
     "notifications/cancelled": CancelledNotification,
@@ -441,12 +441,11 @@ class ClientSession:
             raise
 
     def _is_valid_response(self, payload: dict[str, Any]) -> bool:
-        """Check if payload is a structurally valid JSON-RPC response.
+        """Check if payload is a structurally valid response for routing.
 
-        A valid response must have a non-null ID (to match against pending requests)
-        and either a 'result' field for success or an 'error' field for failure.
-        This validation ensures we can safely route the response to the right
-        pending request.
+        A valid response must have a non-null ID (to match against pending
+        requests) and exactly one of 'result' or 'error' fields. This validation
+        ensures we can safely route the response to the right pending request.
 
         Args:
             payload: JSON-RPC message payload from transport
@@ -454,11 +453,14 @@ class ClientSession:
         Returns:
             True if payload can be processed as a response, False otherwise
         """
-        return (
-            "id" in payload
-            and payload["id"] is not None
-            and ("result" in payload or "error" in payload)
-        )
+        has_valid_id = "id" in payload and payload["id"] is not None
+        has_result = "result" in payload
+        has_error = "error" in payload
+
+        # Must have exactly one of result or error (not both, not neither)
+        has_exactly_one_response_field = has_result ^ has_error
+
+        return has_valid_id and has_exactly_one_response_field
 
     def _is_valid_request(self, payload: dict[str, Any]) -> bool:
         """Check if payload is a structurally valid JSON-RPC request.

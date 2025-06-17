@@ -1,16 +1,16 @@
 import asyncio
-import pytest
 from unittest.mock import AsyncMock
 
-from conduit.transport.base import TransportMessage
-from conduit.protocol.base import METHOD_NOT_FOUND, INTERNAL_ERROR
+import pytest
+
+from conduit.protocol.base import INTERNAL_ERROR, METHOD_NOT_FOUND
 from conduit.protocol.common import PingRequest, ProgressNotification
+from conduit.protocol.content import TextContent
 from conduit.protocol.initialization import RootsCapability
 from conduit.protocol.roots import Root
 from conduit.protocol.sampling import CreateMessageRequest, CreateMessageResult
-from conduit.protocol.content import TextContent
-
 from conduit.shared.exceptions import UnknownNotificationError
+from conduit.transport.base import TransportMessage
 
 from .conftest import BaseSessionTest
 
@@ -449,11 +449,6 @@ class TestNotificationHandler(BaseSessionTest):
         assert self.session.notifications.empty()
 
 
-class TestMessageValidators(BaseSessionTest):
-    # TODO: Test _is_valid_response, _is_valid_notification, _is_valid_request
-    pass
-
-
 class TestRequestHandler(BaseSessionTest):
     # Core request handling flow
     async def test_sends_success_response_for_valid_ping_request(self):
@@ -703,3 +698,113 @@ class TestRequestHandler(BaseSessionTest):
         assert result["role"] == "assistant"
         assert result["content"]["type"] == "text"
         assert result["content"]["text"] == "Hello! How can I help you?"
+
+
+class TestMessageValidators(BaseSessionTest):
+    def test_is_valid_response_identifies_success_responses(self):
+        # Arrange
+        valid_response = {"jsonrpc": "2.0", "id": 42, "result": {"data": "success"}}
+
+        # Act & Assert
+        assert self.session._is_valid_response(valid_response) is True
+
+    def test_is_valid_response_identifies_error_responses(self):
+        # Arrange
+        valid_error_response = {
+            "jsonrpc": "2.0",
+            "id": 123,
+            "error": {"code": -32601, "message": "Method not found"},
+        }
+
+        # Act & Assert
+        assert self.session._is_valid_response(valid_error_response) is True
+
+    def test_is_valid_response_rejects_both_result_and_error(self):
+        # Arrange
+        invalid_response = {
+            "jsonrpc": "2.0",
+            "id": 42,
+            "result": {"data": "success"},
+            "error": {"code": -1, "message": "Also an error"},  # Invalid per spec
+        }
+
+        # Act & Assert
+        assert self.session._is_valid_response(invalid_response) is False
+
+    def test_is_valid_request_identifies_valid_requests(self):
+        # Arrange
+        valid_request = {"jsonrpc": "2.0", "method": "ping", "id": 42, "params": {}}
+
+        # Act & Assert
+        assert self.session._is_valid_request(valid_request) is True
+
+    def test_is_valid_request_rejects_missing_method(self):
+        # Arrange
+        invalid_request = {
+            "jsonrpc": "2.0",
+            "id": 42,
+            "params": {},
+            # Missing method
+        }
+
+        # Act & Assert
+        assert self.session._is_valid_request(invalid_request) is False
+
+    def test_is_valid_request_rejects_missing_id(self):
+        # Arrange
+        invalid_request = {
+            "jsonrpc": "2.0",
+            "method": "ping",
+            "params": {},
+            # Missing id
+        }
+
+        # Act & Assert
+        assert self.session._is_valid_request(invalid_request) is False
+
+    def test_is_valid_request_rejects_null_id(self):
+        # Arrange
+        invalid_request = {
+            "jsonrpc": "2.0",
+            "method": "ping",
+            "id": None,  # Null id
+            "params": {},
+        }
+
+        # Act & Assert
+        assert self.session._is_valid_request(invalid_request) is False
+
+    def test_is_valid_notification_identifies_valid_notifications(self):
+        # Arrange
+        valid_notification = {
+            "jsonrpc": "2.0",
+            "method": "notifications/progress",
+            "params": {"progress": 0.5},
+            # No id field
+        }
+
+        # Act & Assert
+        assert self.session._is_valid_notification(valid_notification) is True
+
+    def test_is_valid_notification_rejects_missing_method(self):
+        # Arrange
+        invalid_notification = {
+            "jsonrpc": "2.0",
+            "params": {"progress": 0.5},
+            # Missing method
+        }
+
+        # Act & Assert
+        assert self.session._is_valid_notification(invalid_notification) is False
+
+    def test_is_valid_notification_rejects_notifications_with_id(self):
+        # Arrange
+        invalid_notification = {
+            "jsonrpc": "2.0",
+            "method": "notifications/progress",
+            "id": 42,  # Should not have id
+            "params": {"progress": 0.5},
+        }
+
+        # Act & Assert
+        assert self.session._is_valid_notification(invalid_notification) is False

@@ -17,6 +17,9 @@ dev = [
     "ruff>=0.11.13",
 ]
 
+[tool.ruff.lint]
+select = ["I"]
+
 [tool.ruff.lint.per-file-ignores]
 "*/__init__.py" = ["F401"]  # Allow unused imports in __init__.py files
 
