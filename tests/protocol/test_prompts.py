@@ -1,9 +1,9 @@
 from conduit.protocol.prompts import (
-    PromptArgument,
     GetPromptRequest,
     GetPromptResult,
     ListPromptsResult,
     Prompt,
+    PromptArgument,
     PromptMessage,
     TextContent,
 )

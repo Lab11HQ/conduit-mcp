@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Self
-from dataclasses import dataclass
 
 
 @dataclass
