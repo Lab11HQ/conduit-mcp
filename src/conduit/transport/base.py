@@ -9,7 +9,7 @@ from typing import Any, Self
 class TransportMessage:
     """A message with specific metadata for transport-specific features."""
 
-    payload: dict[str, Any]
+    payload: dict[str, Any] | list[dict[str, Any]]
     metadata: dict[str, Any] | None = None
 
 
