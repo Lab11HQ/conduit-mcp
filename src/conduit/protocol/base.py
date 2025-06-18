@@ -176,6 +176,10 @@ class Request(ProtocolModel):
 
         return result
 
+    @classmethod
+    def expected_result_type(cls) -> type["Result"] | None:
+        return None
+
 
 class PaginatedRequest(Request):
     """

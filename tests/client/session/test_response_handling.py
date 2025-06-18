@@ -1,5 +1,8 @@
 import asyncio
 
+from conduit.protocol.base import Error
+from conduit.protocol.common import EmptyResult, PingRequest
+
 from .conftest import BaseSessionTest
 
 
@@ -10,22 +13,21 @@ class TestResponseHandler(BaseSessionTest):
         expected_payload = {
             "jsonrpc": "2.0",
             "id": request_id,
-            "result": {"data": "success"},
+            "result": {},
         }
         expected_metadata = {"transport": "test"}
 
         # Create and store a pending future
         future = asyncio.Future()
-        self.session._pending_requests[request_id] = future
+        self.session._pending_requests[request_id] = (PingRequest(), future)
 
         # Act
         await self.session._handle_response(expected_payload, expected_metadata)
 
         # Assert
         assert future.done()
-        payload, metadata = future.result()
-        assert payload == expected_payload
-        assert metadata == expected_metadata
+        result = future.result()
+        assert result == EmptyResult()
 
     async def test_resolves_error_response_future(self):
         # Arrange
@@ -35,20 +37,18 @@ class TestResponseHandler(BaseSessionTest):
             "id": request_id,
             "error": {"code": -32601, "message": "Method not found"},
         }
-        expected_metadata = {"transport": "test", "error_context": "method_missing"}
 
         # Create and store a pending future
         future = asyncio.Future()
-        self.session._pending_requests[request_id] = future
+        self.session._pending_requests[request_id] = (PingRequest(), future)
 
         # Act
-        await self.session._handle_response(expected_payload, expected_metadata)
+        await self.session._handle_response(expected_payload, None)
 
         # Assert
         assert future.done()
-        payload, metadata = future.result()
-        assert payload == expected_payload
-        assert metadata == expected_metadata
+        result = future.result()
+        assert isinstance(result, Error)
 
     async def test_handles_unmatched_response_gracefully(self):
         # Arrange
@@ -73,19 +73,17 @@ class TestResponseHandler(BaseSessionTest):
 
     async def test_resolves_multiple_responses_with_correct_id_matching(self):
         # Arrange
-        # Create multiple pending requests with different IDs
-        request_ids = [100, 200, 300]
         futures = {}
 
-        for request_id in request_ids:
+        for request_id in [100, 200]:
             future = asyncio.Future()
             futures[request_id] = future
-            self.session._pending_requests[request_id] = future
+            self.session._pending_requests[request_id] = (PingRequest(), future)
 
         # Create responses for each request
         responses = [
             (
-                {"jsonrpc": "2.0", "id": 100, "result": {"data": "first"}},
+                {"jsonrpc": "2.0", "id": 100, "result": {}},
                 {"meta": "first"},
             ),
             (
@@ -96,10 +94,6 @@ class TestResponseHandler(BaseSessionTest):
                 },
                 {"meta": "second"},
             ),
-            (
-                {"jsonrpc": "2.0", "id": 300, "result": {"data": "third"}},
-                {"meta": "third"},
-            ),
         ]
 
         # Act
@@ -107,16 +101,10 @@ class TestResponseHandler(BaseSessionTest):
             await self.session._handle_response(payload, metadata)
 
         # Assert
-        # Each future should resolve with its corresponding response
-        for i, request_id in enumerate(request_ids):
-            assert futures[request_id].done()
-            payload, metadata = futures[request_id].result()
-            expected_payload, expected_metadata = responses[i]
-            assert payload == expected_payload
-            assert metadata == expected_metadata
-
-        # All pending requests should be resolved
-        assert len(self.session._pending_requests) == 3
+        assert futures[100].done()
+        assert futures[200].done()
+        assert futures[100].result() == EmptyResult()
+        assert isinstance(futures[200].result(), Error)
 
 
 class TestResponseValidator(BaseSessionTest):

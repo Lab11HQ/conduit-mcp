@@ -3,6 +3,7 @@ import asyncio
 import pytest
 
 from conduit.protocol.common import (
+    EmptyResult,
     PingRequest,
 )
 
@@ -62,11 +63,11 @@ class TestClientSessionRequestResponse(BaseSessionTest):
         )
 
         # Both should complete correctly despite reverse order
-        result1, _ = await task1
-        result2, _ = await task2
+        result1 = await task1
+        result2 = await task2
 
-        assert result1 == {"jsonrpc": "2.0", "id": 0, "result": {"result": "first"}}
-        assert result2 == {"jsonrpc": "2.0", "id": 1, "result": {"result": "second"}}
+        assert result1 == EmptyResult()
+        assert result2 == EmptyResult()
 
         await self.session.stop()
 

@@ -1,8 +1,8 @@
 import asyncio
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, cast
 
-from conduit.protocol import CallToolRequest, CallToolResult, JSONRPCRequest, Request
+from conduit.protocol import JSONRPCRequest, Request
 from conduit.protocol.base import (
     INTERNAL_ERROR,
     METHOD_NOT_FOUND,
@@ -84,7 +84,9 @@ class ClientSession:
         self.roots = roots or []  # TODO: Hook this up to notifcations.
 
         self._request_id = 0
-        self._pending_requests: dict[int, asyncio.Future[Any]] = {}
+        self._pending_requests: dict[
+            int, tuple[Request, asyncio.Future[Result | Error]]
+        ] = {}
         self._message_loop_task: asyncio.Task[None] | None = None
         self._running = False
         self._initializing: asyncio.Future[InitializeResult] | None = None
@@ -191,7 +193,7 @@ class ClientSession:
         request: Request,
         transport_metadata: dict[str, Any] | None = None,
         timeout: float = 30.0,
-    ) -> tuple[Any, dict[str, Any] | None]:
+    ) -> Result | Error | None:
         """Send a request and wait for a response.
 
         Remove the request from the pending requests dictionary when the response is
@@ -204,8 +206,7 @@ class ClientSession:
             timeout: Timeout in seconds for the request.
 
         Returns:
-            tuple[Any, dict[str, Any] | None]: The result and transport metadata.
-                (result, transport_metadata).
+            Result | Error: The result or error from the server.
         """
         await self._start()
         if not isinstance(request, PingRequest):
@@ -216,12 +217,18 @@ class ClientSession:
         self._request_id += 1
         jsonrpc_request = JSONRPCRequest.from_request(request, request_id)
 
-        future: asyncio.Future[Any] = asyncio.Future()
-        self._pending_requests[request_id] = future
+        # If the request doesn't have a result type, we don't need to wait for a response.
+        if request.expected_result_type() is None:
+            await self.transport.send(jsonrpc_request.to_wire(), transport_metadata)
+            return
+
+        future: asyncio.Future[Result | Error] = asyncio.Future()
+        self._pending_requests[request_id] = (request, future)
 
         try:
             await self.transport.send(jsonrpc_request.to_wire(), transport_metadata)
-            return await asyncio.wait_for(future, timeout)
+            result = await asyncio.wait_for(future, timeout)
+            return result
         except asyncio.TimeoutError:
             cancelled_notification = CancelledNotification(
                 request_id=request_id,
@@ -245,24 +252,6 @@ class ClientSession:
     async def _ensure_initialized(self) -> None:
         """
         Ensure the session is initialized, triggering initialization if needed.
-
-        This is a convenience method for internal operations that require an
-        initialized session. If the session is already initialized, returns
-        immediately. If initialization is in progress, waits for it to complete.
-        Otherwise, starts initialization with default parameters.
-
-        This method is used internally before operations like sending requests
-        or accessing server capabilities, ensuring the session is ready without
-        requiring callers to manage initialization state.
-
-        Raises:
-            ValueError: If initialization fails due to protocol incompatibility.
-            ConnectionError: If transport operations fail during initialization.
-            Any exception that initialize() might raise.
-
-        Note:
-            This is an internal helper. External code should call initialize()
-            directly for explicit control over initialization parameters.
         """
         if self._initialized:
             return
@@ -316,13 +305,17 @@ class ClientSession:
         jsonrpc_request = JSONRPCRequest.from_request(init_request, request_id)
 
         # Set up response waiting.
-        future: asyncio.Future[Any] = asyncio.Future()
-        self._pending_requests[request_id] = future
+        future: asyncio.Future[Result | Error] = asyncio.Future()
+        self._pending_requests[request_id] = (init_request, future)
 
         try:
             await self.transport.send(jsonrpc_request.to_wire(), transport_metadata)
-            result_data, _ = await asyncio.wait_for(future, timeout)
-            init_result = InitializeResult.from_protocol(result_data)
+            response = await asyncio.wait_for(future, timeout)
+            if isinstance(response, Error):
+                await self.stop()
+                raise ValueError(f"Initialization failed: {response}")
+
+            init_result = cast(InitializeResult, response)
             if (
                 init_result.protocol_version != PROTOCOL_VERSION
             ):  # TODO: Handle this better. SEND A INVALID_PARAMS ERROR.
@@ -394,10 +387,12 @@ class ClientSession:
             self._cancel_pending_requests("Message loop terminated")
 
     def _cancel_pending_requests(self, reason: str) -> None:
-        for request_id, future in self._pending_requests.items():
+        for request_id, (request, future) in self._pending_requests.items():
             if not future.done():
                 future.set_exception(
-                    ConnectionError(f"Request {request_id} cancelled: {reason}")
+                    ConnectionError(
+                        f"Request {request_id} cancelled: {reason} for {request.method}"
+                    )
                 )
         self._pending_requests.clear()
 
@@ -519,10 +514,32 @@ class ClientSession:
         message_id = payload["id"]
 
         if message_id in self._pending_requests:
-            future = self._pending_requests[message_id]
-            future.set_result((payload, transport_metadata))
+            request, future = self._pending_requests[message_id]
+            result_or_error = self._parse_response(payload, request)
+            future.set_result(result_or_error)
         else:
             print(f"Unmatched response for request ID {message_id}")
+
+    def _parse_response(
+        self, payload: dict[str, Any], request: Request
+    ) -> Result | Error:
+        """Parse a JSON-RPC response into a typed result or error object.
+
+        Args:
+            payload: JSON-RPC response payload with 'result' or 'error' field
+            request: The original request that generated this response
+        """
+        if "result" in payload:
+            result_type = request.expected_result_type()
+            if result_type is None:
+                raise ValueError(
+                    f"Request {request.method} does not have a result type"
+                )
+            return result_type.from_protocol(payload)
+        elif "error" in payload:
+            return Error.from_protocol(payload)
+        else:
+            raise ValueError(f"Invalid response payload: {payload}")
 
     async def _handle_notification(
         self, payload: dict[str, Any], transport_metadata: dict[str, Any] | None
@@ -728,36 +745,10 @@ class ClientSession:
                 message="Client does not support sampling capability",
             )
 
+        if self._create_message_handler is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Client not configured with a create message handler",
+            )
+
         return await self._create_message_handler(request)
-
-    async def call_tool(
-        self,
-        name: str,
-        arguments: dict[str, Any] | None = None,
-        transport_metadata: dict[str, Any] | None = None,
-        return_transport_metadata: bool = False,
-    ) -> CallToolResult | tuple[CallToolResult, dict[str, Any] | None]:
-        """Call a tool and return the result.
-
-        Args:
-            name: Name of the tool to call
-            arguments: Arguments to pass to the tool
-            transport_metadata: Metadata to send with the request (auth tokens, etc.)
-            return_transport_metadata: If True, return (result, transport_metadata)
-                tuple.
-
-        Returns:
-            CallToolResult if return_metadata=False, otherwise tuple of
-            (result, metadata)
-
-        Raises:
-            MCPError: If the tool call fails. Check .transport_metadata for HTTP
-            status, etc.
-        """
-        request = CallToolRequest(name=name, arguments=arguments)
-        raw_result, transport_meta = await self.send_request(
-            request, transport_metadata
-        )
-        result = CallToolResult.from_protocol(raw_result)
-
-        return (result, transport_meta) if return_transport_metadata else result
