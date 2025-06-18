@@ -413,6 +413,14 @@ class ClientSession:
         """
         payload = message.payload
 
+        # FUTURE: Handle JSON-RPC batch requests/responses
+        # if isinstance(payload, list):
+        #     for item in payload:
+        #         # Create a new message for each batch item with same metadata
+        #         item_message = Message(payload=item, metadata=message.metadata)
+        #         await self._handle_message(item_message)  # Recursive call
+        #     return
+
         try:
             if self._is_valid_response(payload):
                 await self._handle_response(payload, message.metadata)
