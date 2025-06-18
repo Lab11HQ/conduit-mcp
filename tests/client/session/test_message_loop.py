@@ -152,7 +152,7 @@ class TestMessageHandler(BaseSessionTest):
         # Arrange
         response_payload = {
             "jsonrpc": "2.0",
-            "id": 42,
+            "id": "42",
             "result": {"status": "success", "data": "test_data"},
         }
         transport_metadata = {"transport": "test", "timestamp": "2025-01-01"}
@@ -198,7 +198,7 @@ class TestMessageHandler(BaseSessionTest):
 
     async def test_routes_request_to_async_task(self, monkeypatch):
         # Arrange
-        request_payload = {"jsonrpc": "2.0", "method": "ping", "id": 123}
+        request_payload = {"jsonrpc": "2.0", "method": "ping", "id": "123"}
         transport_metadata = {"auth": "token"}
 
         mock_handle_request = AsyncMock()
@@ -236,7 +236,7 @@ class TestMessageHandler(BaseSessionTest):
 
         # Act
         request_msg = TransportMessage(
-            payload={"jsonrpc": "2.0", "method": "long/running/request", "id": 1}
+            payload={"jsonrpc": "2.0", "method": "long/running/request", "id": "1"}
         )
         notification_msg = TransportMessage(
             payload={"jsonrpc": "2.0", "method": "important/notification"}
@@ -264,7 +264,7 @@ class TestMessageHandler(BaseSessionTest):
         # Missing both "method" (request/notification) and "result"/"error" (response)
         malformed_payload = {
             "jsonrpc": "2.0",
-            "id": 123,
+            "id": "123",
             "unknown_field": "data",
         }
 

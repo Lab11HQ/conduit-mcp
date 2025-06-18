@@ -56,7 +56,7 @@ class TestResponseHandler(BaseSessionTest):
 
     async def test_handles_unmatched_response_gracefully(self):
         # Arrange
-        unmatched_id = 999
+        unmatched_id = "999"
         unmatched_payload = {
             "jsonrpc": "2.0",
             "id": unmatched_id,
@@ -79,13 +79,13 @@ class TestResponseHandler(BaseSessionTest):
         # Arrange - two different pending requests
         future_100 = asyncio.Future()
         future_200 = asyncio.Future()
-        self.session._pending_requests[100] = (PingRequest(), future_100)
-        self.session._pending_requests[200] = (PingRequest(), future_200)
+        self.session._pending_requests["100"] = (PingRequest(), future_100)
+        self.session._pending_requests["200"] = (PingRequest(), future_200)
 
         # Act - respond to just the second one
         response = {
             "jsonrpc": "2.0",
-            "id": 200,
+            "id": "200",
             "result": {},
         }
         await self.session._handle_response(response)
@@ -106,7 +106,7 @@ class TestResponseHandler(BaseSessionTest):
         with a clear exception rather than silently corrupting state.
         """
         # Arrange - simulate the bug: a no-response request in pending_requests
-        request_id = 42
+        request_id = "42"
         future = asyncio.Future()
         set_level_request = SetLevelRequest(level="info")
         self.session._pending_requests[request_id] = (set_level_request, future)
@@ -123,7 +123,7 @@ class TestResponseHandler(BaseSessionTest):
 class TestResponseValidator(BaseSessionTest):
     def test_is_valid_response_identifies_success_responses(self):
         # Arrange
-        valid_response = {"jsonrpc": "2.0", "id": 42, "result": {"data": "success"}}
+        valid_response = {"jsonrpc": "2.0", "id": "42", "result": {"data": "success"}}
 
         # Act & Assert
         assert self.session._is_valid_response(valid_response) is True
@@ -132,7 +132,7 @@ class TestResponseValidator(BaseSessionTest):
         # Arrange
         valid_error_response = {
             "jsonrpc": "2.0",
-            "id": 123,
+            "id": "123",
             "error": {"code": -32601, "message": "Method not found"},
         }
 
@@ -143,7 +143,7 @@ class TestResponseValidator(BaseSessionTest):
         # Arrange
         invalid_response = {
             "jsonrpc": "2.0",
-            "id": 42,
+            "id": "42",
             "result": {"data": "success"},
             "error": {"code": -1, "message": "Also an error"},  # Invalid per spec
         }

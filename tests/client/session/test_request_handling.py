@@ -12,7 +12,7 @@ class TestRequestHandler(BaseSessionTest):
     # Core request handling flow
     async def test_sends_success_response_for_valid_ping_request(self):
         # Arrange
-        request_payload = {"jsonrpc": "2.0", "id": 42, "method": "ping"}
+        request_payload = {"jsonrpc": "2.0", "id": "42", "method": "ping"}
         transport_metadata = {"transport": "test"}
 
         # Ensure no messages sent yet
@@ -29,7 +29,7 @@ class TestRequestHandler(BaseSessionTest):
 
         # Verify JSON-RPC response structure
         assert response_payload["jsonrpc"] == "2.0"
-        assert response_payload["id"] == 42
+        assert response_payload["id"] == "42"
         assert "result" in response_payload
         assert "error" not in response_payload
 
@@ -39,7 +39,7 @@ class TestRequestHandler(BaseSessionTest):
     # Error handling
     async def test_sends_method_not_found_for_unknown_request_method(self):
         # Arrange
-        request_payload = {"jsonrpc": "2.0", "id": 123, "method": "unknown/method"}
+        request_payload = {"jsonrpc": "2.0", "id": "123", "method": "unknown/method"}
         transport_metadata = {"transport": "test"}
 
         # Ensure no messages sent yet
@@ -56,7 +56,7 @@ class TestRequestHandler(BaseSessionTest):
 
         # Verify JSON-RPC error response structure
         assert response_payload["jsonrpc"] == "2.0"
-        assert response_payload["id"] == 123
+        assert response_payload["id"] == "123"
         assert "error" in response_payload
         assert "result" not in response_payload
 
@@ -72,7 +72,7 @@ class TestRequestHandler(BaseSessionTest):
         self, monkeypatch
     ):
         # Arrange
-        request_payload = {"jsonrpc": "2.0", "id": 456, "method": "ping"}
+        request_payload = {"jsonrpc": "2.0", "id": "456", "method": "ping"}
         transport_metadata = {"transport": "test"}
 
         # Mock the ping handler to raise an exception
@@ -95,7 +95,7 @@ class TestRequestHandler(BaseSessionTest):
 
         # Verify JSON-RPC error response structure
         assert response_payload["jsonrpc"] == "2.0"
-        assert response_payload["id"] == 456
+        assert response_payload["id"] == "456"
         assert "error" in response_payload
         assert "result" not in response_payload
 
@@ -114,7 +114,7 @@ class TestRequestHandler(BaseSessionTest):
         self.session.capabilities.roots = RootsCapability()
         self.session.roots = [Root(uri="file:///tmp", name="temp")]
 
-        request_payload = {"jsonrpc": "2.0", "id": 789, "method": "roots/list"}
+        request_payload = {"jsonrpc": "2.0", "id": "789", "method": "roots/list"}
 
         # Act
         await self.session._handle_request(request_payload, None)
@@ -127,7 +127,7 @@ class TestRequestHandler(BaseSessionTest):
 
         # Verify successful response
         assert response_payload["jsonrpc"] == "2.0"
-        assert response_payload["id"] == 789
+        assert response_payload["id"] == "789"
         assert "result" in response_payload
         assert "error" not in response_payload
 
@@ -143,7 +143,7 @@ class TestRequestHandler(BaseSessionTest):
         # Ensure session has no roots capability
         self.session.capabilities.roots = None
 
-        request_payload = {"jsonrpc": "2.0", "id": 101, "method": "roots/list"}
+        request_payload = {"jsonrpc": "2.0", "id": "101", "method": "roots/list"}
 
         # Act
         await self.session._handle_request(request_payload, None)
@@ -156,7 +156,7 @@ class TestRequestHandler(BaseSessionTest):
 
         # Verify error response
         assert response_payload["jsonrpc"] == "2.0"
-        assert response_payload["id"] == 101
+        assert response_payload["id"] == "101"
         assert "error" in response_payload
         assert "result" not in response_payload
 
@@ -175,7 +175,7 @@ class TestRequestHandler(BaseSessionTest):
 
         request_payload = {
             "jsonrpc": "2.0",
-            "id": 202,
+            "id": "202",
             "method": "sampling/createMessage",
             "params": {
                 "messages": [
@@ -196,7 +196,7 @@ class TestRequestHandler(BaseSessionTest):
 
         # Verify error response
         assert response_payload["jsonrpc"] == "2.0"
-        assert response_payload["id"] == 202
+        assert response_payload["id"] == "202"
         assert "error" in response_payload
         assert "result" not in response_payload
 
@@ -226,7 +226,7 @@ class TestRequestHandler(BaseSessionTest):
 
         request_payload = {
             "jsonrpc": "2.0",
-            "id": 303,
+            "id": "303",
             "method": "sampling/createMessage",
             "params": {
                 "messages": [
@@ -247,7 +247,7 @@ class TestRequestHandler(BaseSessionTest):
 
         # Verify successful response
         assert response_payload["jsonrpc"] == "2.0"
-        assert response_payload["id"] == 303
+        assert response_payload["id"] == "303"
         assert "result" in response_payload
         assert "error" not in response_payload
 
@@ -262,7 +262,7 @@ class TestRequestHandler(BaseSessionTest):
 class TestRequestValidator(BaseSessionTest):
     def test_is_valid_request_identifies_valid_requests(self):
         # Arrange
-        valid_request = {"jsonrpc": "2.0", "method": "ping", "id": 42, "params": {}}
+        valid_request = {"jsonrpc": "2.0", "method": "ping", "id": "42", "params": {}}
 
         # Act & Assert
         assert self.session._is_valid_request(valid_request) is True
@@ -271,7 +271,7 @@ class TestRequestValidator(BaseSessionTest):
         # Arrange
         invalid_request = {
             "jsonrpc": "2.0",
-            "id": 42,
+            "id": "42",
             "params": {},
             # Missing method
         }
