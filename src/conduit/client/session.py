@@ -536,10 +536,7 @@ class ClientSession:
                     f"Request {request.method} does not have a result type"
                 )
             return result_type.from_protocol(payload)
-        elif "error" in payload:
-            return Error.from_protocol(payload)
-        else:
-            raise ValueError(f"Invalid response payload: {payload}")
+        return Error.from_protocol(payload)
 
     async def _handle_notification(
         self, payload: dict[str, Any], transport_metadata: dict[str, Any] | None
