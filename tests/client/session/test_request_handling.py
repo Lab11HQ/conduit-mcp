@@ -302,3 +302,22 @@ class TestRequestValidator(BaseSessionTest):
 
         # Act & Assert
         assert self.session._is_valid_request(invalid_request) is False
+
+    def test_is_valid_request_rejects_non_int_or_string_ids(self):
+        # Arrange
+        invalid_request_1 = {
+            "jsonrpc": "2.0",
+            "method": "ping",
+            "id": 1.9,
+            "params": {},
+        }
+        invalid_request_2 = {
+            "jsonrpc": "2.0",
+            "method": "ping",
+            "id": [1, 2, 3],
+            "params": {},
+        }
+
+        # Act & Assert
+        assert self.session._is_valid_request(invalid_request_1) is False
+        assert self.session._is_valid_request(invalid_request_2) is False

@@ -438,7 +438,7 @@ class ClientSession:
     def _is_valid_response(self, payload: dict[str, Any]) -> bool:
         """Check if payload is a structurally valid response for routing.
 
-        A valid response must have a non-null ID (to match against pending
+        A valid response must have a int or string ID (to match against pending
         requests) and exactly one of 'result' or 'error' fields. This validation
         ensures we can safely route the response to the right pending request.
 
@@ -448,7 +448,9 @@ class ClientSession:
         Returns:
             True if payload can be processed as a response, False otherwise
         """
-        has_valid_id = "id" in payload and payload["id"] is not None
+        has_valid_id = payload.get("id") is not None and isinstance(
+            payload.get("id"), int | str
+        )
         has_result = "result" in payload
         has_error = "error" in payload
 
@@ -461,7 +463,7 @@ class ClientSession:
         """Check if payload is a structurally valid JSON-RPC request.
 
         A valid request must have a 'method' field (to identify what operation
-        the client wants to perform) and a non-null 'id' field (to match against
+        the client wants to perform) and a int or string 'id' field (to match against
         the response). This validation ensures we can safely route the request
         to the appropriate handler.
 
@@ -471,7 +473,10 @@ class ClientSession:
         Returns:
             True if payload can be processed as a request, False otherwise
         """
-        return "method" in payload and "id" in payload and payload["id"] is not None
+        has_valid_id = payload.get("id") is not None and isinstance(
+            payload.get("id"), int | str
+        )
+        return "method" in payload and has_valid_id
 
     def _is_valid_notification(self, payload: dict[str, Any]) -> bool:
         """Check if payload is a structurally valid JSON-RPC notification.
@@ -490,50 +495,60 @@ class ClientSession:
         return "method" in payload and "id" not in payload
 
     async def _handle_response(
-        self, payload: dict[str, Any], transport_metadata: dict[str, Any] | None
+        self, payload: dict[str, Any], transport_metadata: dict[str, Any] | None = None
     ) -> None:
-        """Resolve a pending request with the server's response.
+        """Resolve a pending request with a typed response.
 
-        When the server responds to one of our requests, this matches the response
-        to the original request using the JSON-RPC ID and resolves the waiting
-        future. This unblocks whatever code sent the request and lets it continue
-        with the server's answer.
-
-        Both successful responses (with 'result') and error responses (with 'error')
-        resolve the future normally—the calling code decides how to interpret errors.
+        Matches the server's response to the original request using the JSON-RPC ID,
+        parses it into the appropriate Result or Error type, and resolves the
+        waiting future.
 
         Args:
             payload: Complete JSON-RPC response (validated by _is_valid_response)
-            transport_metadata: Transport-specific metadata or None
-
+            transport_metadata: Transport-specific metadata (currently unused)
         Note:
-            If no pending request matches the response ID, this logs the unmatched
-            response and continues. This can happen if requests timeout or in
-            edge cases with transport behavior.
+            If no pending request matches the response ID, logs the unmatched
+            response and continues. This can happen with request timeouts or
+            edge cases in transport behavior.
         """
         message_id = payload["id"]
 
         if message_id in self._pending_requests:
-            request, future = self._pending_requests[message_id]
-            result_or_error = self._parse_response(payload, request)
+            original_request, future = self._pending_requests[message_id]
+            result_or_error = self._parse_response(payload, original_request)
             future.set_result(result_or_error)
         else:
             print(f"Unmatched response for request ID {message_id}")
 
     def _parse_response(
-        self, payload: dict[str, Any], request: Request
+        self, payload: dict[str, Any], original_request: Request
     ) -> Result | Error:
-        """Parse a JSON-RPC response into a typed result or error object.
+        """Transform raw JSON-RPC responses into typed objects.
+
+        Instead of forcing you to parse JSON dictionaries and handle protocol
+        details, this uses the original request's type information to build
+        properly typed Result objects for successful responses or Error objects
+        for failures.
 
         Args:
-            payload: JSON-RPC response payload with 'result' or 'error' field
-            request: The original request that generated this response
+            payload: The raw JSON-RPC response from the server
+            original_request: The request that triggered this response. This is used
+                to determine the expected result type.
+
+        Returns:
+            A typed Result object for success, or an Error object for failures
+
+        Raises:
+            ValueError: When a request type is missing its expected_result_type()
+                    implementation - indicates a bug in the request class
         """
         if "result" in payload:
-            result_type = request.expected_result_type()
+            result_type = original_request.expected_result_type()
             if result_type is None:
                 raise ValueError(
-                    f"Request {request.method} does not have a result type"
+                    f"Request type {type(original_request).__name__} "
+                    f"(method: {original_request.method}) is missing "
+                    "expected_result_type() implementation"
                 )
             return result_type.from_protocol(payload)
         return Error.from_protocol(payload)
