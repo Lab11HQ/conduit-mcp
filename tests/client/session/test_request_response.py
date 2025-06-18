@@ -35,37 +35,41 @@ class TestClientSessionRequestResponse(BaseSessionTest):
         await self.session._start()
 
         # Queue a response missing both result and error
-        self.server.send_message(payload={"jsonrpc": "2.0", "id": 123})
+        self.server.send_message(payload={"jsonrpc": "2.0", "id": "123"})
 
         # Loop should still be running
         assert self.session._running is True
 
         await self.session.stop()
 
-    async def test_concurrent_requests_out_of_order_responses(self):
+    async def test_concurrent_requests_out_of_order_responses(self, monkeypatch):
         """Test that out-of-order responses correlate correctly."""
+        # Arrange
+
+        # Mock UUID to return incrementing IDs
+        counter = iter(["id-1", "id-2"])
+        monkeypatch.setattr("conduit.client.session.uuid.uuid4", lambda: next(counter))
+
+        # Fake initialization
         self.session._initialized = True
 
-        # Send both requests first
+        # Set up requests
         request1 = PingRequest()
         request2 = PingRequest()
 
-        # Start both requests (don't await yet)
+        # Act - start both requests (don't await yet)
         task1 = asyncio.create_task(self.session.send_request(request1))
         task2 = asyncio.create_task(self.session.send_request(request2))
 
-        # Now queue responses in reverse order
-        self.server.send_message(
-            payload={"jsonrpc": "2.0", "id": 1, "result": {"result": "second"}}
-        )
-        self.server.send_message(
-            payload={"jsonrpc": "2.0", "id": 0, "result": {"result": "first"}}
-        )
+        # Act - queue responses in reverse order (id-2 first, then id-1)
+        self.server.send_message(payload={"jsonrpc": "2.0", "id": "id-2", "result": {}})
+        self.server.send_message(payload={"jsonrpc": "2.0", "id": "id-1", "result": {}})
 
-        # Both should complete correctly despite reverse order
+        # Act - await results
         result1 = await task1
         result2 = await task2
 
+        # Assert - both should complete correctly despite reverse order
         assert result1 == EmptyResult()
         assert result2 == EmptyResult()
 

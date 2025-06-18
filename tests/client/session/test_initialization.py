@@ -8,6 +8,17 @@ from .conftest import BaseSessionTest
 
 
 class TestClientSessionInitialization(BaseSessionTest):
+    """Test the initialize() method of the client session.
+
+    Note we use the mock_uuid fixture to ensure that the initialize()
+    method always returns the same ID for the initialize request.
+    """
+
+    @pytest.fixture(autouse=True)
+    def mock_uuid(self, monkeypatch):
+        """Mock UUID generation for predictable test IDs."""
+        monkeypatch.setattr("conduit.client.session.uuid.uuid4", lambda: "0")
+
     async def test_initialize_performs_complete_handshake_and_returns_server_result(
         self,
     ):
@@ -19,7 +30,7 @@ class TestClientSessionInitialization(BaseSessionTest):
         }
         init_response = {
             "jsonrpc": "2.0",
-            "id": 0,
+            "id": "0",
             "result": server_result,
         }
 
@@ -38,7 +49,7 @@ class TestClientSessionInitialization(BaseSessionTest):
         init_request = self.transport.client_sent_messages[0]
         assert init_request.payload["method"] == "initialize"
         assert init_request.payload["params"]["clientInfo"]["name"] == "test-client"
-        assert init_request.payload["id"] == 0
+        assert init_request.payload["id"] == "0"
 
         # Second message should be InitializedNotification
         init_notification = self.transport.client_sent_messages[1]
@@ -64,7 +75,7 @@ class TestClientSessionInitialization(BaseSessionTest):
         }
         init_response = {
             "jsonrpc": "2.0",
-            "id": 0,
+            "id": "0",
             "result": server_result,
         }
 
@@ -100,7 +111,7 @@ class TestClientSessionInitialization(BaseSessionTest):
         }
         init_response = {
             "jsonrpc": "2.0",
-            "id": 0,
+            "id": "0",
             "result": server_result,
         }
         # Act: start multiple concurrent initialization calls
@@ -121,7 +132,6 @@ class TestClientSessionInitialization(BaseSessionTest):
         assert (
             len(self.transport.client_sent_messages) == 2
         )  # init request + notification only
-        assert self.session._request_id == 1  # only one request ID allocated
 
         # All results should be identical
         assert result1 is result2 is result3
@@ -145,7 +155,7 @@ class TestClientSessionInitialization(BaseSessionTest):
         }
         init_response = {
             "jsonrpc": "2.0",
-            "id": 0,
+            "id": "0",
             "result": server_result,
         }
         # Act & Assert: initialization should fail
@@ -183,7 +193,7 @@ class TestClientSessionInitialization(BaseSessionTest):
 
         init_request = self.transport.client_sent_messages[0]
         assert init_request.payload["method"] == "initialize"
-        assert init_request.payload["id"] == 0
+        assert init_request.payload["id"] == "0"
 
         # Assert: session should be cleanly stopped
         assert self.transport.closed is True
@@ -193,7 +203,6 @@ class TestClientSessionInitialization(BaseSessionTest):
 
         # Assert: pending request should be cleaned up
         assert len(self.session._pending_requests) == 0
-        assert self.session._request_id == 1  # request ID was allocated
 
     async def test_initialize_stops_session_and_reraises_on_transport_failure(self):
         # Arrange: make transport fail during send
@@ -214,4 +223,3 @@ class TestClientSessionInitialization(BaseSessionTest):
 
         # Assert: no pending requests left behind
         assert len(self.session._pending_requests) == 0
-        assert self.session._request_id == 1  # request ID was allocated before failure

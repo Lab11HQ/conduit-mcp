@@ -82,3 +82,12 @@ class BaseSessionTest:
                 return
             await asyncio.sleep(0.001)
         raise AssertionError(f"Request {method} never sent")
+
+
+# def numbered_ids(count):
+#     """Generate numbered test IDs: id-1, id-2, etc."""
+#     return iter(f"id-{i}" for i in range(1, count + 1))
+
+# Usage:
+# counter = numbered_ids(5)
+# monkeypatch.setattr("conduit.client.session.uuid.uuid4", lambda: next(counter))

@@ -1,4 +1,5 @@
 import asyncio
+import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
@@ -82,10 +83,8 @@ class ClientSession:
         self._create_message_handler = create_message_handler
 
         self.roots = roots or []  # TODO: Hook this up to notifcations.
-
-        self._request_id = 0
         self._pending_requests: dict[
-            int, tuple[Request, asyncio.Future[Result | Error]]
+            str, tuple[Request, asyncio.Future[Result | Error]]
         ] = {}
         self._message_loop_task: asyncio.Task[None] | None = None
         self._running = False
@@ -213,8 +212,7 @@ class ClientSession:
             await self._ensure_initialized()
 
         # Generate request ID and create JSON-RPC wrapper
-        request_id = self._request_id
-        self._request_id += 1
+        request_id = str(uuid.uuid4())
         jsonrpc_request = JSONRPCRequest.from_request(request, request_id)
 
         # If the request doesn't have a result type, we don't need to wait for a response.
@@ -300,8 +298,7 @@ class ClientSession:
             client_info=self.client_info,
             capabilities=self.capabilities,
         )
-        request_id = self._request_id
-        self._request_id += 1
+        request_id = str(uuid.uuid4())
         jsonrpc_request = JSONRPCRequest.from_request(init_request, request_id)
 
         # Set up response waiting.
