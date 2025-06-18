@@ -57,7 +57,6 @@ class TestClientSessionInitialization(BaseSessionTest):
         assert "id" not in init_notification.payload  # notifications have no id
 
         # Session should be marked as initialized
-        assert self.session._initialized is True
         assert self.session._initialize_result is not None
 
         # Return value should be the server result
@@ -99,7 +98,6 @@ class TestClientSessionInitialization(BaseSessionTest):
         assert result1.server_info.name == "test-server"
 
         # Session state should be consistent
-        assert self.session._initialized is True
         assert self.session._initializing is None  # No ongoing initialization
 
     async def test_initialize_handles_concurrent_calls_and_returns_same_result(self):
@@ -138,7 +136,6 @@ class TestClientSessionInitialization(BaseSessionTest):
         assert result1.server_info.name == "test-server"
 
         # Session should be properly initialized
-        assert self.session._initialized is True
         assert self.session._initializing is None
 
         # Assert: pending request should be cleaned up
@@ -169,7 +166,6 @@ class TestClientSessionInitialization(BaseSessionTest):
         # Assert: session should be cleanly stopped
         assert self.transport.closed is True
         assert self.session._running is False
-        assert self.session._initialized is False
         assert self.session._initialize_result is None
 
         # Should have sent initialize request but no initialized notification
@@ -198,7 +194,6 @@ class TestClientSessionInitialization(BaseSessionTest):
         # Assert: session should be cleanly stopped
         assert self.transport.closed is True
         assert self.session._running is False
-        assert self.session._initialized is False
         assert self.session._initialize_result is None
 
         # Assert: pending request should be cleaned up
@@ -218,7 +213,6 @@ class TestClientSessionInitialization(BaseSessionTest):
         # Assert: session should be cleanly stopped
         assert self.transport.closed is True
         assert self.session._running is False
-        assert self.session._initialized is False
         assert self.session._initialize_result is None
 
         # Assert: no pending requests left behind

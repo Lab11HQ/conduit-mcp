@@ -41,7 +41,7 @@ class TestClientSessionLifecycle(BaseSessionTest):
     async def test_stop_resets_session_to_clean_uninitialized_state(self):
         # Arrange: start session and initialize it
         await self.session._start()
-        self.session._initialized = True
+        self.session._initialize_result = "NOT NONE"
 
         # Verify we have initialized state
         assert self.session._running is True
@@ -53,12 +53,10 @@ class TestClientSessionLifecycle(BaseSessionTest):
         # Assert: complete state reset
         assert self.session._running is False
         assert self.session._message_loop_task is None
-        assert self.session._initialized is False
 
     async def test_stop_is_idempotent_multiple_calls_are_safe(self):
         # Arrange: start the session
         await self.session._start()
-        self.session._initialized = True
         assert self.session._running is True
         assert self.session._message_loop_task is not None
 
@@ -70,7 +68,6 @@ class TestClientSessionLifecycle(BaseSessionTest):
         # Assert: clean state after all calls
         assert self.session._running is False
         assert self.session._message_loop_task is None
-        assert self.session._initialized is False
         assert self.session._initializing is None
 
     async def test_stop_calls_transport_close(self):

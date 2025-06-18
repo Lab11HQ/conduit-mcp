@@ -90,7 +90,6 @@ class ClientSession:
         self._running = False
         self._initializing: asyncio.Future[InitializeResult] | None = None
         self._initialize_result: InitializeResult | None = None
-        self._initialized = False
         self.notifications: asyncio.Queue[
             tuple[Notification, dict[str, Any] | None]
         ] = asyncio.Queue()
@@ -132,7 +131,6 @@ class ClientSession:
             self._message_loop_task = None
 
         # Reset session state
-        self._initialized = False
         self._initialize_result = None
         self._initializing = None
 
@@ -172,7 +170,7 @@ class ClientSession:
             without re-initializing. If initialization is already in progress,
             this waits for it to complete.
         """
-        if self._initialized and self._initialize_result is not None:
+        if self._initialize_result is not None:
             return self._initialize_result
 
         if self._initializing:
@@ -251,7 +249,7 @@ class ClientSession:
         """
         Ensure the session is initialized, triggering initialization if needed.
         """
-        if self._initialized:
+        if self._initialize_result is not None:
             return
 
         if self._initializing:
@@ -325,7 +323,6 @@ class ClientSession:
             initialized_notification = InitializedNotification()
             await self.send_notification(initialized_notification, transport_metadata)
 
-            self._initialized = True
             self._initialize_result = init_result
             return init_result
         except asyncio.TimeoutError:

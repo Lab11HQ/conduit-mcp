@@ -13,7 +13,7 @@ from .conftest import BaseSessionTest
 class TestResponseHandler(BaseSessionTest):
     async def test_resolves_successful_response_future(self):
         # Arrange
-        request_id = 42
+        request_id = "42"
         future = asyncio.Future()
         self.session._pending_requests[request_id] = (PingRequest, future)
 
@@ -35,7 +35,7 @@ class TestResponseHandler(BaseSessionTest):
 
     async def test_resolves_error_response_future(self):
         # Arrange
-        request_id = 123
+        request_id = "123"
         future = asyncio.Future()
         self.session._pending_requests[request_id] = (CallToolRequest, future)
 

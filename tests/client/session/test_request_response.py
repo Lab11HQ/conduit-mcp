@@ -51,7 +51,7 @@ class TestClientSessionRequestResponse(BaseSessionTest):
         monkeypatch.setattr("conduit.client.session.uuid.uuid4", lambda: next(counter))
 
         # Fake initialization
-        self.session._initialized = True
+        self.session._initialize_result = "NOT NONE"
 
         # Set up requests
         request1 = PingRequest()
@@ -76,7 +76,7 @@ class TestClientSessionRequestResponse(BaseSessionTest):
         await self.session.stop()
 
     async def test_request_timeout_send_cancellation_and_raises(self):
-        self.session._initialized = True
+        self.session._initialize_result = "NOT NONE"
 
         request = PingRequest()
         with pytest.raises(TimeoutError):
