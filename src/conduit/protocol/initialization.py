@@ -115,6 +115,40 @@ class ServerCapabilities(ProtocolModel):
 # --------- Initialization Types ----------
 
 
+class InitializedNotification(Notification):
+    """
+    Confirms successful MCP connection initialization.
+
+    Sent by the client after processing the server's InitializeResult.
+    """
+
+    method: Literal["notifications/initialized"] = "notifications/initialized"
+
+
+class InitializeResult(Result):
+    """
+    Server's response to initialization, completing the MCP handshake.
+
+    Contains server capabilities and optional setup instructions for the client.
+    """
+
+    protocol_version: str = Field(default=PROTOCOL_VERSION, alias="protocolVersion")
+    capabilities: ServerCapabilities
+    """
+    Capabilities the server supports.
+    """
+
+    server_info: Implementation = Field(alias="serverInfo")
+    """
+    Information about the server software.
+    """
+
+    instructions: str | None = None
+    """
+    Optional setup or usage instructions for the client.
+    """
+
+
 class InitializeRequest(Request):
     """
     Initial handshake request to establish MCP connection.
@@ -174,36 +208,6 @@ class InitializeRequest(Request):
             del params["capabilities"]["sampling"]
         return result
 
-
-class InitializedNotification(Notification):
-    """
-    Confirms successful MCP connection initialization.
-
-    Sent by the client after processing the server's InitializeResult.
-    """
-
-    method: Literal["notifications/initialized"] = "notifications/initialized"
-
-
-class InitializeResult(Result):
-    """
-    Server's response to initialization, completing the MCP handshake.
-
-    Contains server capabilities and optional setup instructions for the client.
-    """
-
-    protocol_version: str = Field(default=PROTOCOL_VERSION, alias="protocolVersion")
-    capabilities: ServerCapabilities
-    """
-    Capabilities the server supports.
-    """
-
-    server_info: Implementation = Field(alias="serverInfo")
-    """
-    Information about the server software.
-    """
-
-    instructions: str | None = None
-    """
-    Optional setup or usage instructions for the client.
-    """
+    @classmethod
+    def expected_result_type(cls) -> type[InitializeResult]:
+        return InitializeResult

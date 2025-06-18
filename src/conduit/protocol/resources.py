@@ -106,14 +106,6 @@ class ResourceTemplate(ProtocolModel):
         return self.model_dump(exclude_none=True, by_alias=True, mode="json")
 
 
-class ListResourcesRequest(PaginatedRequest):
-    """
-    Request to list available resources with optional pagination.
-    """
-
-    method: Literal["resources/list"] = "resources/list"
-
-
 class ListResourcesResult(PaginatedResult):
     """
     Response containing available resources and pagination info.
@@ -125,12 +117,16 @@ class ListResourcesResult(PaginatedResult):
     """
 
 
-class ListResourceTemplatesRequest(PaginatedRequest):
+class ListResourcesRequest(PaginatedRequest):
     """
-    Request to list available resource templates with optional pagination.
+    Request to list available resources with optional pagination.
     """
 
-    method: Literal["resources/templates/list"] = "resources/templates/list"
+    method: Literal["resources/list"] = "resources/list"
+
+    @classmethod
+    def expected_result_type(cls) -> type[ListResourcesResult]:
+        return ListResourcesResult
 
 
 class ListResourceTemplatesResult(PaginatedResult):
@@ -141,6 +137,29 @@ class ListResourceTemplatesResult(PaginatedResult):
     resource_templates: list[ResourceTemplate] = Field(alias="resourceTemplates")
     """
     List of available resource templates.
+    """
+
+
+class ListResourceTemplatesRequest(PaginatedRequest):
+    """
+    Request to list available resource templates with optional pagination.
+    """
+
+    method: Literal["resources/templates/list"] = "resources/templates/list"
+
+    @classmethod
+    def expected_result_type(cls) -> type[ListResourceTemplatesResult]:
+        return ListResourceTemplatesResult
+
+
+class ReadResourceResult(Result):
+    """
+    Response containing the content of a resource.
+    """
+
+    contents: list[TextResourceContents | BlobResourceContents]
+    """
+    The content of the resource.
     """
 
 
@@ -155,16 +174,9 @@ class ReadResourceRequest(Request):
     URI of the resource to read.
     """
 
-
-class ReadResourceResult(Result):
-    """
-    Response containing the content of a resource.
-    """
-
-    contents: list[TextResourceContents | BlobResourceContents]
-    """
-    The content of the resource.
-    """
+    @classmethod
+    def expected_result_type(cls) -> type[ReadResourceResult]:
+        return ReadResourceResult
 
 
 class ResourceListChangedNotification(Notification):
@@ -181,6 +193,10 @@ class SubscribeRequest(Request):
     method: Literal["resources/subscribe"] = "resources/subscribe"
     uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
 
+    @classmethod
+    def expected_result_type(cls) -> None:
+        return None
+
 
 class UnsubscribeRequest(Request):
     """
@@ -189,6 +205,10 @@ class UnsubscribeRequest(Request):
 
     method: Literal["resources/unsubscribe"] = "resources/unsubscribe"
     uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
+
+    @classmethod
+    def expected_result_type(cls) -> None:
+        return None
 
 
 class ResourceUpdatedNotification(Notification):

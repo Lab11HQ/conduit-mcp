@@ -26,6 +26,10 @@ class CompletionArgument(ProtocolModel):
     value: str
 
 
+class CompleteResult(Result):
+    completion: Completion
+
+
 class CompleteRequest(Request):
     """
     Request from client to server to ask for completion options.
@@ -35,6 +39,6 @@ class CompleteRequest(Request):
     ref: PromptReference | ResourceReference
     argument: CompletionArgument
 
-
-class CompleteResult(Result):
-    completion: Completion
+    @classmethod
+    def expected_result_type(cls) -> type[CompleteResult]:
+        return CompleteResult

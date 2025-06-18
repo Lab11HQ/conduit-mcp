@@ -36,6 +36,22 @@ class ModelPreferences(ProtocolModel):
         return v
 
 
+class CreateMessageResult(Result):
+    """The client's response to a sampling/create_message request from the server."""
+
+    # From SamplingMessage
+    role: Role
+    content: TextContent | ImageContent | AudioContent
+
+    # Own fields
+    model: str
+    """The name of the model that generated the message."""
+    stop_reason: Literal["endTurn", "stopSequence", "maxTokens"] | str | None = Field(
+        default=None, alias="stopReason"
+    )
+    """The reason why sampling stopped, if known."""
+
+
 class CreateMessageRequest(Request):
     """
     Request to create a message.
@@ -123,18 +139,6 @@ class CreateMessageRequest(Request):
 
         return result
 
-
-class CreateMessageResult(Result):
-    """The client's response to a sampling/create_message request from the server."""
-
-    # From SamplingMessage
-    role: Role
-    content: TextContent | ImageContent | AudioContent
-
-    # Own fields
-    model: str
-    """The name of the model that generated the message."""
-    stop_reason: Literal["endTurn", "stopSequence", "maxTokens"] | str | None = Field(
-        default=None, alias="stopReason"
-    )
-    """The reason why sampling stopped, if known."""
+    @classmethod
+    def expected_result_type(cls) -> type[CreateMessageResult]:
+        return CreateMessageResult

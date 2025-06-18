@@ -11,16 +11,6 @@ from conduit.protocol.base import (
 )
 
 
-class PingRequest(Request):
-    """
-    Heartbeat to check connection health. Sent by client or server.
-
-    Must be answered promptly to maintain connection.
-    """
-
-    method: Literal["ping"] = "ping"
-
-
 class CancelledNotification(Notification):
     """
     Notifies that a request was cancelled.
@@ -75,3 +65,17 @@ class EmptyResult(Result):
     """
 
     pass
+
+
+class PingRequest(Request):
+    """
+    Heartbeat to check connection health. Sent by client or server.
+
+    Must be answered promptly to maintain connection.
+    """
+
+    method: Literal["ping"] = "ping"
+
+    @classmethod
+    def expected_result_type(cls) -> type[EmptyResult]:
+        return EmptyResult

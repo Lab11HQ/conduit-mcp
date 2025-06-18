@@ -73,6 +73,10 @@ class SetLevelRequest(Request):
     The minimum severity level for log messages you want to receive.
     """
 
+    @classmethod
+    def expected_result_type(cls) -> None:
+        return None
+
 
 class LoggingMessageNotification(Notification):
     """

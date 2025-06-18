@@ -29,6 +29,14 @@ class Root(ProtocolModel):
         return v
 
 
+class ListRootsResult(Result):
+    """
+    Response containing the roots of the client.
+    """
+
+    roots: list[Root]
+
+
 class ListRootsRequest(Request):
     """
     Request to list the roots of the client.
@@ -36,13 +44,9 @@ class ListRootsRequest(Request):
 
     method: Literal["roots/list"] = "roots/list"
 
-
-class ListRootsResult(Result):
-    """
-    Response containing the roots of the client.
-    """
-
-    roots: list[Root]
+    @classmethod
+    def expected_result_type(cls) -> type[ListRootsResult]:
+        return ListRootsResult
 
 
 class RootsListChangedNotification(Notification):

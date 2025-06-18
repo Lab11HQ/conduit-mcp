@@ -122,16 +122,35 @@ class Tool(ProtocolModel):
     """
 
 
+class ListToolsResult(PaginatedResult):
+    """Server's response listing available tools."""
+
+    tools: list[Tool]
+
+
 class ListToolsRequest(PaginatedRequest):
     """Ask the server what tools are available."""
 
     method: Literal["tools/list"] = "tools/list"
 
+    @classmethod
+    def expected_result_type(cls) -> type[ListToolsResult]:
+        return ListToolsResult
 
-class ListToolsResult(PaginatedResult):
-    """Server's response listing available tools."""
 
-    tools: list[Tool]
+class CallToolResult(Result):
+    """Result from executing a tool."""
+
+    content: list[TextContent | ImageContent | AudioContent | EmbeddedResource]
+    """
+    The tool's output, which the LLM can read and understand.
+    """
+
+    is_error: bool = Field(default=False, alias="isError")
+    """
+    True if the tool execution failed. The LLM can see this and try a different
+    approach. Use this for tool-level errors, not protocol-level errors.
+    """
 
 
 class CallToolRequest(Request):
@@ -150,20 +169,9 @@ class CallToolRequest(Request):
     Arguments to pass to the tool, matching its input schema.
     """
 
-
-class CallToolResult(Result):
-    """Result from executing a tool."""
-
-    content: list[TextContent | ImageContent | AudioContent | EmbeddedResource]
-    """
-    The tool's output, which the LLM can read and understand.
-    """
-
-    is_error: bool = Field(default=False, alias="isError")
-    """
-    True if the tool execution failed. The LLM can see this and try a different
-    approach. Use this for tool-level errors, not protocol-level errors.
-    """
+    @classmethod
+    def expected_result_type(cls) -> type[CallToolResult]:
+        return CallToolResult
 
 
 class ToolListChangedNotification(Notification):
