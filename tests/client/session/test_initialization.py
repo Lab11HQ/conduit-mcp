@@ -36,7 +36,7 @@ class TestClientSessionInitialization(BaseSessionTest):
 
         # Act
         init_task = asyncio.create_task(self.session.initialize())
-        await self.wait_for_sent_request("initialize")
+        await self.wait_for_sent_message("initialize")
 
         # Now respond to the request
         self.server.send_message(payload=init_response)
@@ -80,7 +80,7 @@ class TestClientSessionInitialization(BaseSessionTest):
 
         # Act: start first initialization
         init_task = asyncio.create_task(self.session.initialize())
-        await self.wait_for_sent_request("initialize")
+        await self.wait_for_sent_message("initialize")
         self.server.send_message(payload=init_response)
 
         # Complete first initialization, then call again
@@ -118,7 +118,7 @@ class TestClientSessionInitialization(BaseSessionTest):
         task3 = asyncio.create_task(self.session.initialize())
 
         # Wait for the first request to be sent (only one should be sent)
-        await self.wait_for_sent_request("initialize")
+        await self.wait_for_sent_message("initialize")
 
         # Respond to the single request
         self.server.send_message(payload=init_response)
@@ -157,7 +157,7 @@ class TestClientSessionInitialization(BaseSessionTest):
         }
         # Act & Assert: initialization should fail
         init_task = asyncio.create_task(self.session.initialize())
-        await self.wait_for_sent_request("initialize")
+        await self.wait_for_sent_message("initialize")
         self.server.send_message(payload=init_response)
 
         with pytest.raises(ValueError, match="Protocol version mismatch"):
