@@ -38,9 +38,10 @@ class Request(ProtocolModel):
     and behavior.
 
     The key insight: MCP's TypeScript spec uses nested structures and camelCase that
-    feel foreign in Python. So we flatten complex hierarchies, use snake_case throughout,
-    and surface important fields at intuitive levels—like putting `progress_token` at
-    the top level instead of buried in `params._meta.progressToken`.
+    feel foreign in Python. So we flatten complex hierarchies, use snake_case
+    throughout, and surface important fields at intuitive levels—like putting
+    `progress_token` at the top level instead of buried in
+    `params._meta.progressToken`.
 
     When you create any MCP request, you're getting:
     - Clean, snake_case Python interfaces

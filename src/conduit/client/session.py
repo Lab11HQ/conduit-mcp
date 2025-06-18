@@ -191,19 +191,35 @@ class ClientSession:
         transport_metadata: dict[str, Any] | None = None,
         timeout: float = 30.0,
     ) -> Result | Error | None:
-        """Send a request and wait for a response.
+        """Send a request to the MCP server and handle the complete lifecycle.
 
-        Remove the request from the pending requests dictionary when the response is
-        received.
+        This method orchestrates the full request-response cycle: it ensures your
+        session is initialized, sends your request with a unique identifier, waits for
+        the server's response, and cleans up gracefully regardless of outcome. For
+        requests that don't expect responses (like logging level changes), it returns
+        immediately after sending.
+
+        The method handles MCP's bidirectional communication safely by generating UUID
+        request identifiers, preventing ID conflicts. If a request times out, the client
+        sends a cancellation notification to the server.
 
         Args:
-            request: The request to send
-            transport_metadata: Transport specific metadata to send with the request
-                (auth tokens, etc.)
-            timeout: Timeout in seconds for the request.
+            request: The MCP request to send to the server
+            transport_metadata: Optional transport-specific data like authentication
+                tokens or routing information
+            timeout: Maximum seconds to wait for a response before cancelling
 
         Returns:
-            Result | Error: The result or error from the server.
+            The server's result or error response. Returns None for requests that don't
+            expect responses (fire-and-forget operations).
+
+        Raises:
+            TimeoutError: When the server doesn't respond within the timeout period.
+                The client will send a cancellation notification to the server.
+
+        Note:
+            PingRequests are allowed before the session is initialized in accordance
+            with the MCP spec.
         """
         await self._start()
         if not isinstance(request, PingRequest):
@@ -213,7 +229,8 @@ class ClientSession:
         request_id = str(uuid.uuid4())
         jsonrpc_request = JSONRPCRequest.from_request(request, request_id)
 
-        # If the request doesn't have a result type, we don't need to wait for a response.
+        # If the request doesn't have a result type, we don't need to wait for a
+        # response.
         if request.expected_result_type() is None:
             await self.transport.send(jsonrpc_request.to_wire(), transport_metadata)
             return
@@ -363,8 +380,8 @@ class ClientSession:
                 # Check if we should stop processing
                 if not self._running:
                     break
-                # NOTE: If we call stop() while this is running, shutdown will happen after
-                # this message is processed. Shutdown not immediate.
+                # NOTE: If we call stop() while this is running, shutdown will happen
+                # after this message is processed. Shutdown not immediate.
                 try:
                     await self._handle_message(message)
                 except Exception as e:
@@ -406,7 +423,8 @@ class ClientSession:
         while fulfilling requests.
 
         Args:
-            message: Transport message containing JSON-RPC payload and transport metadata
+            message: Transport message containing JSON-RPC payload and transport
+            metadata
 
         Raises:
             ValueError: If message payload doesn't match any known JSON-RPC type
