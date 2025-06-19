@@ -62,13 +62,12 @@ class TestResponseHandler(BaseSessionTest):
             "id": unmatched_id,
             "result": {"data": "no matching request"},
         }
-        metadata = {"transport": "test"}
 
         # Ensure no pending request exists for this ID
         assert unmatched_id not in self.session._pending_requests
 
         # Act
-        await self.session._handle_response(unmatched_payload, metadata)
+        await self.session._handle_response(unmatched_payload)
 
         # Assert
         # Should complete without error and not create any futures

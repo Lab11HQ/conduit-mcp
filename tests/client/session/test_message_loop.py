@@ -155,21 +155,16 @@ class TestMessageHandler(BaseSessionTest):
             "id": "42",
             "result": {"status": "success", "data": "test_data"},
         }
-        transport_metadata = {"transport": "test", "timestamp": "2025-01-01"}
 
         # Act
         mock_handle_response = AsyncMock()
         monkeypatch.setattr(self.session, "_handle_response", mock_handle_response)
 
-        message = TransportMessage(
-            payload=response_payload, metadata=transport_metadata
-        )
+        message = TransportMessage(payload=response_payload)
         await self.session._handle_message(message)
 
         # Assert
-        mock_handle_response.assert_awaited_once_with(
-            response_payload, transport_metadata
-        )
+        mock_handle_response.assert_awaited_once_with(response_payload)
 
     async def test_routes_notification_to_handler(self, monkeypatch):
         # Arrange
@@ -178,7 +173,6 @@ class TestMessageHandler(BaseSessionTest):
             "method": "notifications/progress",
             "params": {"progressToken": "task-123", "value": 0.75},
         }
-        transport_metadata = {"source": "server", "timestamp": "2025-01-01"}
 
         # Act
         mock_handle_notification = AsyncMock()
@@ -186,35 +180,28 @@ class TestMessageHandler(BaseSessionTest):
             self.session, "_handle_notification", mock_handle_notification
         )
 
-        message = TransportMessage(
-            payload=notification_payload, metadata=transport_metadata
-        )
+        message = TransportMessage(payload=notification_payload)
         await self.session._handle_message(message)
 
         # Assert
-        mock_handle_notification.assert_awaited_once_with(
-            notification_payload, transport_metadata
-        )
+        mock_handle_notification.assert_awaited_once_with(notification_payload)
 
     async def test_routes_request_to_async_task(self, monkeypatch):
         # Arrange
         request_payload = {"jsonrpc": "2.0", "method": "ping", "id": "123"}
-        transport_metadata = {"auth": "token"}
 
         mock_handle_request = AsyncMock()
         monkeypatch.setattr(self.session, "_handle_request", mock_handle_request)
 
         # Act
-        message = TransportMessage(payload=request_payload, metadata=transport_metadata)
+        message = TransportMessage(payload=request_payload)
         await self.session._handle_message(message)
 
         # Give the task a moment to run
         await asyncio.sleep(0)
 
         # Assert
-        mock_handle_request.assert_awaited_once_with(
-            request_payload, transport_metadata
-        )
+        mock_handle_request.assert_awaited_once_with(request_payload)
 
     async def test_requests_dont_block_message_processing(self, monkeypatch):
         # Arrange

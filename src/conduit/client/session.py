@@ -90,9 +90,7 @@ class ClientSession:
         self._running = False
         self._initializing: asyncio.Future[InitializeResult] | None = None
         self._initialize_result: InitializeResult | None = None
-        self.notifications: asyncio.Queue[
-            tuple[Notification, dict[str, Any] | None]
-        ] = asyncio.Queue()
+        self.notifications: asyncio.Queue[Notification] = asyncio.Queue()
 
     async def _start(self) -> None:
         """
@@ -140,9 +138,7 @@ class ClientSession:
     def initialized(self) -> bool:
         return self._initialize_result is not None
 
-    async def initialize(
-        self, transport_metadata: dict[str, Any] | None = None, timeout: float = 30.0
-    ) -> InitializeResult:
+    async def initialize(self, timeout: float = 30.0) -> InitializeResult:
         """
         Initialize the MCP session with the server.
 
@@ -180,9 +176,7 @@ class ClientSession:
         if self._initializing:
             return await self._initializing
 
-        self._initializing = asyncio.create_task(
-            self._do_initialize(transport_metadata, timeout)
-        )
+        self._initializing = asyncio.create_task(self._do_initialize(timeout))
         try:
             result = await self._initializing
             return result
@@ -192,7 +186,6 @@ class ClientSession:
     async def send_request(
         self,
         request: Request,
-        transport_metadata: dict[str, Any] | None = None,
         timeout: float = 30.0,
     ) -> Result | Error | None:
         """Send a request to the MCP server and handle the complete lifecycle.
@@ -245,14 +238,14 @@ class ClientSession:
         # If the request doesn't have a result type, we don't need to wait for a
         # response.
         if request.expected_result_type() is None:
-            await self.transport.send(jsonrpc_request.to_wire(), transport_metadata)
+            await self.transport.send(jsonrpc_request.to_wire())
             return
 
         future: asyncio.Future[Result | Error] = asyncio.Future()
         self._pending_requests[request_id] = (request, future)
 
         try:
-            await self.transport.send(jsonrpc_request.to_wire(), transport_metadata)
+            await self.transport.send(jsonrpc_request.to_wire())
             result = await asyncio.wait_for(future, timeout)
             return result
         except asyncio.TimeoutError:
@@ -261,7 +254,7 @@ class ClientSession:
                     request_id=request_id,
                     reason="Request timed out",
                 )
-                await self.send_notification(cancelled_notification, transport_metadata)
+                await self.send_notification(cancelled_notification)
             except Exception as e:
                 print(f"Error sending cancellation notification: {e}")
             raise TimeoutError(f"Request {request_id} timed out after {timeout}s")
@@ -271,7 +264,6 @@ class ClientSession:
     async def send_notification(
         self,
         notification: Notification,
-        transport_metadata: dict[str, Any] | None = None,
     ) -> None:
         """Send a notification to the server without expecting a response.
 
@@ -290,7 +282,7 @@ class ClientSession:
         """
         await self._start()
         jsonrpc_notification = JSONRPCNotification.from_notification(notification)
-        await self.transport.send(jsonrpc_notification.to_wire(), transport_metadata)
+        await self.transport.send(jsonrpc_notification.to_wire())
 
     async def _ensure_initialized(self) -> None:
         """
@@ -305,9 +297,7 @@ class ClientSession:
 
         await self.initialize()
 
-    async def _do_initialize(
-        self, transport_metadata: dict[str, Any] | None = None, timeout: float = 30.0
-    ) -> InitializeResult:
+    async def _do_initialize(self, timeout: float = 30.0) -> InitializeResult:
         """
         Execute the complete MCP initialization sequence with timeout handling.
 
@@ -351,7 +341,7 @@ class ClientSession:
         self._pending_requests[request_id] = (init_request, future)
 
         try:
-            await self.transport.send(jsonrpc_request.to_wire(), transport_metadata)
+            await self.transport.send(jsonrpc_request.to_wire())
             response = await asyncio.wait_for(future, timeout)
             if isinstance(response, Error):
                 await self.stop()
@@ -368,7 +358,7 @@ class ClientSession:
                 )
 
             initialized_notification = InitializedNotification()
-            await self.send_notification(initialized_notification, transport_metadata)
+            await self.send_notification(initialized_notification)
 
             self._initialize_result = init_result
             return init_result
@@ -462,23 +452,23 @@ class ClientSession:
         payload = message.payload
 
         # FUTURE: Handle JSON-RPC batch requests/responses
-        # if isinstance(payload, list):
-        #     for item in payload:
-        #         # Create a new message for each batch item with same metadata
-        #         item_message = Message(payload=item, metadata=message.metadata)
-        #         await self._handle_message(item_message)  # Recursive call
-        #     return
+        if isinstance(payload, list):
+            for item in payload:
+                # Create a new message for each batch item with same metadata
+                item_message = TransportMessage(payload=item)
+                await self._handle_message(item_message)  # Recursive call
+            return
 
         try:
             if self._is_valid_response(payload):
-                await self._handle_response(payload, message.metadata)
+                await self._handle_response(payload)
             elif self._is_valid_request(payload):
                 asyncio.create_task(
-                    self._handle_request(payload, message.metadata),
+                    self._handle_request(payload),
                     name=f"handle_request_{payload.get('id', 'unknown')}",
                 )
             elif self._is_valid_notification(payload):
-                await self._handle_notification(payload, message.metadata)
+                await self._handle_notification(payload)
             else:
                 raise ValueError(f"Unknown message type: {payload}")
         except Exception as e:
@@ -544,9 +534,7 @@ class ClientSession:
         """
         return "method" in payload and "id" not in payload
 
-    async def _handle_response(
-        self, payload: dict[str, Any], transport_metadata: dict[str, Any] | None = None
-    ) -> None:
+    async def _handle_response(self, payload: dict[str, Any]) -> None:
         """Resolve a pending request with a typed response.
 
         Matches the server's response to the original request using the JSON-RPC ID,
@@ -603,9 +591,7 @@ class ClientSession:
             return result_type.from_protocol(payload)
         return Error.from_protocol(payload)
 
-    async def _handle_notification(
-        self, payload: dict[str, Any], transport_metadata: dict[str, Any] | None
-    ) -> None:
+    async def _handle_notification(self, payload: dict[str, Any]) -> None:
         """Parse and queue an incoming notification for client consumption.
 
         Notifications are fire-and-forget messages from the server about events
@@ -622,7 +608,7 @@ class ClientSession:
             UnknownNotificationError: If the notification method isn't recognized
         """
         notification = self._parse_notification(payload)
-        await self.notifications.put((notification, transport_metadata))
+        await self.notifications.put(notification)
 
     def _parse_notification(self, payload: dict[str, Any]) -> Notification:
         """Convert raw JSON-RPC notification payload into a typed notification object.
@@ -646,9 +632,7 @@ class ClientSession:
             raise UnknownNotificationError(method)
         return notification_class.from_protocol(payload)
 
-    async def _handle_request(
-        self, payload: dict[str, Any], transport_metadata: dict[str, Any] | None
-    ) -> None:
+    async def _handle_request(self, payload: dict[str, Any]) -> None:
         """Handle a complete request-response cycle from the server.
 
         When the server sends us a request (like asking for a ping, filesystem roots,

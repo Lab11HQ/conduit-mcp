@@ -13,13 +13,12 @@ class TestRequestHandler(BaseSessionTest):
     async def test_sends_success_response_for_valid_ping_request(self):
         # Arrange
         request_payload = {"jsonrpc": "2.0", "id": "42", "method": "ping"}
-        transport_metadata = {"transport": "test"}
 
         # Ensure no messages sent yet
         assert len(self.transport.client_sent_messages) == 0
 
         # Act
-        await self.session._handle_request(request_payload, transport_metadata)
+        await self.session._handle_request(request_payload)
 
         # Assert
         assert len(self.transport.client_sent_messages) == 1
@@ -40,13 +39,12 @@ class TestRequestHandler(BaseSessionTest):
     async def test_sends_method_not_found_for_unknown_request_method(self):
         # Arrange
         request_payload = {"jsonrpc": "2.0", "id": "123", "method": "unknown/method"}
-        transport_metadata = {"transport": "test"}
 
         # Ensure no messages sent yet
         assert len(self.transport.client_sent_messages) == 0
 
         # Act
-        await self.session._handle_request(request_payload, transport_metadata)
+        await self.session._handle_request(request_payload)
 
         # Assert
         assert len(self.transport.client_sent_messages) == 1
@@ -73,7 +71,6 @@ class TestRequestHandler(BaseSessionTest):
     ):
         # Arrange
         request_payload = {"jsonrpc": "2.0", "id": "456", "method": "ping"}
-        transport_metadata = {"transport": "test"}
 
         # Mock the ping handler to raise an exception
         async def failing_handler(request: PingRequest):
@@ -85,7 +82,7 @@ class TestRequestHandler(BaseSessionTest):
         assert len(self.transport.client_sent_messages) == 0
 
         # Act
-        await self.session._handle_request(request_payload, transport_metadata)
+        await self.session._handle_request(request_payload)
 
         # Assert
         assert len(self.transport.client_sent_messages) == 1
@@ -117,7 +114,7 @@ class TestRequestHandler(BaseSessionTest):
         request_payload = {"jsonrpc": "2.0", "id": "789", "method": "roots/list"}
 
         # Act
-        await self.session._handle_request(request_payload, None)
+        await self.session._handle_request(request_payload)
 
         # Assert
         assert len(self.transport.client_sent_messages) == 1
@@ -146,7 +143,7 @@ class TestRequestHandler(BaseSessionTest):
         request_payload = {"jsonrpc": "2.0", "id": "101", "method": "roots/list"}
 
         # Act
-        await self.session._handle_request(request_payload, None)
+        await self.session._handle_request(request_payload)
 
         # Assert
         assert len(self.transport.client_sent_messages) == 1
@@ -186,7 +183,7 @@ class TestRequestHandler(BaseSessionTest):
         }
 
         # Act
-        await self.session._handle_request(request_payload, None)
+        await self.session._handle_request(request_payload)
 
         # Assert
         assert len(self.transport.client_sent_messages) == 1
@@ -237,7 +234,7 @@ class TestRequestHandler(BaseSessionTest):
         }
 
         # Act
-        await self.session._handle_request(request_payload, None)
+        await self.session._handle_request(request_payload)
 
         # Assert
         assert len(self.transport.client_sent_messages) == 1
