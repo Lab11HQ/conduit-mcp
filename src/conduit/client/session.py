@@ -284,19 +284,6 @@ class ClientSession:
         jsonrpc_notification = JSONRPCNotification.from_notification(notification)
         await self.transport.send(jsonrpc_notification.to_wire())
 
-    async def _ensure_initialized(self) -> None:
-        """
-        Ensure the session is initialized, triggering initialization if needed.
-        """
-        if self._initialize_result is not None:
-            return
-
-        if self._initializing:
-            await self._initializing
-            return
-
-        await self.initialize()
-
     async def _do_initialize(self, timeout: float = 30.0) -> InitializeResult:
         """
         Execute the complete MCP initialization sequence with timeout handling.
