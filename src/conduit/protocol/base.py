@@ -1,3 +1,37 @@
+"""
+Core MCP protocol types for building robust JSON-RPC communication.
+
+This module defines the fundamental building blocks of Model Context Protocol:
+requests that ask for something, results that deliver what you asked for,
+notifications that broadcast events, and errors when things go wrong.
+
+## The MCP Conversation
+
+MCP communication follows a simple pattern:
+
+1. **Requests** - "Can you list your tools?" or "Please call this function"
+2. **Results** - "Here are my tools" or "Function returned this value"
+3. **Notifications** - "Progress update: 50% complete" (no response expected)
+4. **Errors** - "That tool doesn't exist" (when requests fail)
+
+## Key Design Principles
+
+**Pythonic First**: We translate MCP's TypeScript conventions into natural Python.
+Field names use snake_case, complex hierarchies get flattened, and progress tokens
+surface at intuitive levels.
+
+**Automatic Translation**: Every type converts seamlessly between Python objects
+and JSON-RPC protocol format. You work with clean Python and don't need to worry
+about the wire format.
+
+**Request-Response Pairing**: Every request knows what result type to expect through
+the `expected_result_type()` method. This enables downstream code to handle responses
+correctly and catch mismatches between what you send and what you're expecting back.
+
+Most applications build on these primitives rather than using them directly.
+But understanding this foundation helps when debugging or contributing.
+"""
+
 import traceback
 from typing import Annotated, Any, Literal, Self
 
@@ -9,13 +43,9 @@ from pydantic import (
 )
 
 PROTOCOL_VERSION = "2025-03-26"
-RequestId = Annotated[
-    int | str, "Unique identifier for a request. Can be a string or integer."
-]
-ProgressToken = Annotated[
-    str | int, "Token used to track progress of long-running operations."
-]
-Cursor = Annotated[str, "Opaque string used for pagination in list operations."]
+RequestId = int | str
+ProgressToken = int | str
+Cursor = str
 Role = Annotated[
     Literal["user", "assistant"],
     "Sender or recipient of messages and data in a conversation.",
@@ -32,25 +62,16 @@ class Request(ProtocolModel):
     """
     Foundation for all MCP request messages.
 
-    This base class bridges the gap between Python's natural idioms and the JSON-RPC
-    format for MCP requests. While you'll work with concrete request types like
-    `InitializeRequest` or `ListToolsRequest`, they all inherit this common structure
-    and behavior.
+    Every MCP request—from initialization handshakes to tool calls—inherits from
+    this base class. While you'll typically work with concrete types like
+    `InitializeRequest` or `ListToolsRequest`, they all share this common structure.
 
-    The key insight: MCP's TypeScript spec uses nested structures and camelCase that
-    feel foreign in Python. So we flatten complex hierarchies, use snake_case
-    throughout, and surface important fields at intuitive levels—like putting
-    `progress_token` at the top level instead of buried in
-    `params._meta.progressToken`.
+    We've designed this to feel naturally Pythonic: snake_case fields, flattened
+    hierarchies, and progress tokens surfaced where you'd expect them. Behind the
+    scenes, we handle the translation to MCP's nested JSON-RPC format.
 
-    When you create any MCP request, you're getting:
-    - Clean, snake_case Python interfaces
-    - Automatic translation to/from the nested protocol format
-    - Transparent progress token handling
-    - Validation that ensures spec compliance
-
-    The `from_protocol` and `to_protocol` methods handle the format translation—
-    you work with Pythonic objects, we handle JSON-RPC serialization.
+    When you create any request, you get automatic spec compliance, transparent
+    serialization, and Pythonic interfaces.
     """
 
     method: str
@@ -84,6 +105,16 @@ class Request(ProtocolModel):
     def validate_progress_token_in_metadata(
         cls, metadata: dict[str, Any] | None
     ) -> dict[str, Any] | None:
+        """Validate progress tokens in metadata and guide users to the right field.
+
+        While you can include a progressToken in metadata, we recommend using
+        the dedicated `progress_token` field instead. This validator ensures
+        any tokens in metadata are properly typed and reminds you about the
+        cleaner alternative.
+
+        Raises:
+            ValueError: If progressToken in metadata is not a string or integer
+        """
         if metadata and "progressToken" in metadata:
             token = metadata["progressToken"]
             if not isinstance(token, str | int):
@@ -96,21 +127,21 @@ class Request(ProtocolModel):
 
     @classmethod
     def from_protocol(cls, data: dict[str, Any]) -> Self:
-        """Create a request instance from JSON-RPC protocol data.
+        """Create a request instance from raw JSON-RPC protocol data.
 
-        This method handles the translation from MCP's nested JSON-RPC format
-        to our flattened Python representation. It extracts the method name,
-        pulls progress tokens out of the metadata hierarchy, and maps any
-        subclass-specific fields using their aliases.
+        Takes the nested JSON-RPC format that MCP servers expect and transforms
+        it into a clean Python object. Progress tokens get pulled up from the
+        metadata hierarchy, and all fields map to their Pythonic equivalents.
 
-        The heavy lifting happens here so that everywhere else we can work with
-        clean Python objects instead of nested dictionaries.
+
+        Note: This expects the full JSON-RPC message structure, while `to_protocol`
+        returns only the MCP request portion.
 
         Args:
             data: Raw JSON-RPC request data with method, params, and optional metadata
 
         Returns:
-            A properly constructed request instance with all fields populated
+            A properly constructed request instance
         """
 
         # Extract protocol structure
@@ -143,14 +174,12 @@ class Request(ProtocolModel):
     def to_protocol(self) -> dict[str, Any]:
         """Convert this request to MCP protocol format.
 
-        This method takes our clean Python representation and converts it to
-        the nested structure that MCP expects—progress tokens get moved into
-        `params._meta.progressToken`, field names use their camelCase aliases,
-        and everything gets properly nested.
+        Transforms our Pythonic representation into the nested JSON-RPC structure
+        that MCP expects. Progress tokens and metadata get properly positioned in
+        the `_meta` object, and field names use their protocol aliases.
 
         Note: This creates the MCP request structure, not the full JSON-RPC
-        envelope. The `jsonrpc` and `id` fields are handled separately by
-        the JSON-RPC layer.
+        envelope. The `jsonrpc` and `id` fields are handled separately.
 
         Returns:
             An MCP-compatible request dictionary with method and params
@@ -179,43 +208,79 @@ class Request(ProtocolModel):
 
     @classmethod
     def expected_result_type(cls) -> type["Result"] | None:
-        return None
+        """Return the result type this request expects.
+
+        This enables type-safe request-response pairing and helps downstream
+        code correctly handle responses. Each concrete request class overrides
+        this to return its specific result type, or None for requests that
+        don't expect a response (e.g., SetLevelRequest to set the log level).
+
+        Returns:
+            The Result subclass this request expects, or None if no response expected
+        """
+        raise NotImplementedError(
+            "Subclasses must define this method to return their expected result type."
+        )
 
 
 class PaginatedRequest(Request):
     """
-    Base class for MCP requests that support pagination.
+    Base class for MCP requests that handle large result sets through pagination.
 
-    Includes an opaque cursor representing the current pagination position.
-    If provided, the server should return results starting after this cursor.
+    When you're dealing with operations that might return hundreds or thousands
+    of items—like listing all available tools or resources—pagination keeps
+    responses manageable. Include a cursor to continue from where a previous
+    request left off.
+
+    The cursor is completely opaque: don't try to parse it or construct your own.
+    Just pass along whatever the sender gave you in the previous response.
     """
 
     cursor: Cursor | None = None
     """
-    Opaque pagination token for retrieving the next page of results.
+    Pagination token for continuing from a previous request.
+    
+    Leave this None for the first page, then use the cursor from the sender's
+    response to get subsequent pages.
     """
 
 
 class Notification(ProtocolModel):
     """
-    Base class for MCP notifications.
+    Base class for MCP notifications - fire-and-forget messages.
 
-    Notifications are one-way messages that don't expect a response.
+    Notifications handle events that don't need responses: progress updates,
+    resource changes, alerts, etc.
+
+    Think of them like broadcasting "hey, this happened" rather than asking
+    "can you do this?" The recipient processes the notification but doesn't
+    send anything back.
     """
 
     method: str
     """
-    The method of the notification.
+    The notification type, like "notifications/progress" or "notifications/cancelled".
     """
 
     metadata: dict[str, Any] | None = Field(default=None)
     """
-    Additional notification metadata.
+    Additional context for the notification.
     """
 
     @classmethod
     def from_protocol(cls, data: dict[str, Any]) -> Self:
-        """Convert from protocol-level representation"""
+        """Create a notification instance from raw JSON-RPC protocol data.
+
+        Transforms the nested JSON-RPC format into a clean Python object.
+        Unlike requests, notifications have simpler metadata handling since
+        they don't use progress tokens directly.
+
+        Args:
+            data: Raw JSON-RPC notification data with method and params
+
+        Returns:
+            A properly constructed notification instance
+        """
 
         # Extract params
         params = data.get("params", {})
@@ -242,7 +307,18 @@ class Notification(ProtocolModel):
         return cls(**kwargs)
 
     def to_protocol(self) -> dict[str, Any]:
-        """Convert to protocol-level representation"""
+        """Convert this notification to MCP protocol format.
+
+        Transforms our Pythonic representation into the nested JSON-RPC structure
+        that MCP expects. Metadata gets positioned in the `_meta` object, and
+        field names use their protocol aliases.
+
+        Note: Like requests, this creates the MCP notification structure without
+        the full JSON-RPC envelope.
+
+        Returns:
+            An MCP-compatible notification dictionary with method and params
+        """
         params = self.model_dump(
             exclude={"method", "metadata"},
             by_alias=True,
@@ -263,10 +339,14 @@ class Notification(ProtocolModel):
 
 class Result(ProtocolModel):
     """
-    Base class for MCP results.
+    Base class for MCP results - successful responses to requests.
 
-    Results are responses to requests. Each request type has a corresponding result
-    type.
+    When a server successfully handles your request, it sends back a result.
+    Each request type has its own result type: `InitializeRequest` gets an
+    `InitializeResult`, `ListToolsRequest` gets a `ListToolsResult`, and so on.
+
+    Results carry the actual data you requested - tool definitions, resource
+    content, initialization parameters, etc.
     """
 
     metadata: dict[str, Any] | None = Field(default=None)
@@ -276,7 +356,18 @@ class Result(ProtocolModel):
 
     @classmethod
     def from_protocol(cls, data: dict[str, Any]) -> Self:
-        """Convert from protocol-level representation."""
+        """Create a result instance from raw JSON-RPC protocol data.
+
+        Transforms the nested JSON-RPC format into a clean Python object.
+        Extracts the actual result data from the response envelope and maps
+        fields to their Pythonic equivalents.
+
+        Args:
+            data: Raw JSON-RPC response data with result and optional metadata
+
+        Returns:
+            A properly constructed result instance
+        """
 
         # Extract result
         result_data = data["result"]
@@ -305,7 +396,18 @@ class Result(ProtocolModel):
         return cls(**kwargs)
 
     def to_protocol(self) -> dict[str, Any]:
-        """Convert to protocol-level representation"""
+        """Convert this result to MCP protocol format.
+
+        Transforms our Pythonic representation into the nested structure that
+        MCP expects. Metadata gets positioned in the `_meta` object, and field
+        names use their protocol aliases.
+
+        Note: This creates the result payload that goes inside the JSON-RPC
+        response envelope.
+
+        Returns:
+            An MCP-compatible result dictionary
+        """
         result = self.model_dump(
             exclude={"metadata"},
             by_alias=True,
@@ -322,15 +424,21 @@ class Result(ProtocolModel):
 
 class PaginatedResult(Result):
     """
-    Base class for MCP results that support pagination.
+    Base class for MCP results that return data in chunks.
 
-    Includes an opaque token representing the pagination position after the last
-    returned result. If present, there may be more results available.
+    When you request a large dataset, the sender returns a page of results
+    along with a cursor. If there's a `next_cursor`, more data is available.
+    Just pass that cursor to your next request to continue where you left off.
+
+    No cursor means you've reached the end of the dataset.
     """
 
     next_cursor: Cursor | None = Field(default=None, alias="nextCursor")
     """
-    Token for retrieving the next page, if more results exist.
+    Cursor for the next page of results.
+    
+    None means you've got everything. Otherwise, use this value in your
+    next request to continue pagination.
     """
 
 
@@ -359,28 +467,65 @@ class Error(ProtocolModel):
     Human readable error message.
     """
 
-    data: str | dict[str, Any] | None = None
+    data: Any = None
     """
-    Additional error details. Accepts strings, dicts, or Exceptions.
-    Exceptions are automatically converted to formatted tracebacks.
+    Additional error context - can be any JSON-serializable value.
+
+    Python exceptions passed here get automatically formatted as tracebacks
+    for convenience, but any data type is valid per the MCP specification.
     """
 
     @field_validator("data", mode="before")
     @classmethod
     def transform_data(cls, value: Any) -> Any:
+        """Automatically format Python exceptions as readable tracebacks.
+
+        This convenience feature converts Exception objects into formatted
+        traceback strings, making error data more useful for debugging.
+        All other data types pass through unchanged.
+        """
         if isinstance(value, Exception):
             return cls._format_exception(value)
         return value
 
-    def to_protocol(self) -> dict[str, Any]:
-        return self.model_dump(exclude_none=True, mode="json")
-
     @staticmethod
     def _format_exception(exc: Exception) -> str:
+        """Format an exception as a complete traceback string.
+
+        Includes the exception type, message, and full stack trace in a
+        format similar to what Python prints for unhandled exceptions.
+        """
         return "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+
+    def to_protocol(self) -> dict[str, Any]:
+        """Convert this error to MCP protocol format.
+
+        Creates the error object that goes inside a JSON-RPC error response.
+        Unlike other message types, errors have a flat structure that maps
+        directly to the protocol format.
+
+        Note: This creates the error payload, not the full JSON-RPC error
+        envelope. The error gets wrapped at the JSON-RPC layer.
+
+        Returns:
+            An MCP-compatible error dictionary with code, message, and optional data
+        """
+        return self.model_dump(exclude_none=True, mode="json")
 
     @classmethod
     def from_protocol(cls, data: dict[str, Any]) -> "Error":
+        """Create an error instance from raw JSON-RPC protocol data.
+
+        Extracts error information from the JSON-RPC error envelope and
+        creates a properly typed Error instance. The automatic exception
+        formatting happens during construction if needed.
+
+        Args:
+            data: Raw JSON-RPC error response with error object
+
+        Returns:
+            A properly constructed Error instance
+        """
         error_data = data["error"]
         return cls.model_validate(
             {

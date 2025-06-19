@@ -7,7 +7,7 @@ import copy
 import pytest
 from pydantic import ValidationError
 
-from conduit.protocol.base import Error, Notification, Request
+from conduit.protocol.base import Error, Notification, PaginatedRequest, Request
 
 
 class TestBaseClassSerialization:
@@ -134,6 +134,34 @@ class TestBaseClassSerialization:
         assert reconstructed.progress_token == "123"
         assert reconstructed.method == "test"
 
+    def test_paginated_request_roundtrip(self):
+        # Arrange
+        request = PaginatedRequest(
+            method="test",
+            progress_token="123",
+            cursor="456",
+        )
+
+        # Act
+        serialized = request.to_protocol()
+        serialized["id"] = 1
+        serialized["jsonrpc"] = "2.0"
+        reconstructed = PaginatedRequest.from_protocol(serialized)
+
+        # Assert serialization matches expected wire format
+        assert serialized == {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "test",
+            "params": {"_meta": {"progressToken": "123"}, "cursor": "456"},
+        }
+
+        # Assert roundtrip
+        assert reconstructed == request
+        assert reconstructed.cursor == "456"
+        assert reconstructed.method == "test"
+        assert reconstructed.progress_token == "123"
+
     def test_notification_rejects_missing_method(self):
         # Arrange and Act and Assert
         with pytest.raises(KeyError):
@@ -181,16 +209,6 @@ class TestBaseClassSerialization:
                 "jsonrpc": "2.0",
                 "id": 1,
                 "error": {"code": -1, "data": "test"},
-            }
-            Error.from_protocol(wire_format)
-
-    def test_error_rejects_int_data(self):
-        # Arrange and Act and Assert
-        with pytest.raises(ValidationError):
-            wire_format = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "error": {"code": -1, "message": "test", "data": 1},
             }
             Error.from_protocol(wire_format)
 
