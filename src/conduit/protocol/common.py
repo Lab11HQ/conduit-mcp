@@ -1,3 +1,20 @@
+"""
+Common MCP message types used across different protocol areas.
+
+This module contains the fundamental message types that appear throughout
+MCP communication - notifications for progress updates and cancellations,
+ping requests for connection health, and empty results for operations
+that succeed without returning data.
+
+These types form the operational backbone of MCP sessions. Progress
+notifications keep long-running operations responsive, cancellation
+notifications provide clean termination, pings maintain connection health,
+and empty results acknowledge success without unnecessary payload.
+
+Unlike domain-specific types (tools, resources, etc.), these messages
+handle the mechanical aspects of protocol communication.
+"""
+
 from typing import Literal
 
 from pydantic import Field
