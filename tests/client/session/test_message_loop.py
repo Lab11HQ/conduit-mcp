@@ -145,6 +145,44 @@ class TestMessageLoop(BaseSessionTest):
         assert not self.session._running
         assert self.session._message_loop_task is None
 
+    async def test_message_loop_handles_batch_notifications(self):
+        """Batch notifications are unpacked and each item queued individually."""
+        # Act: start the session
+        await self.session._start()
+
+        # Act: send a batch of notifications from the server
+        batch_payload = [
+            {
+                "jsonrpc": "2.0",
+                "method": "notifications/progress",
+                "params": {"progressToken": "token1", "progress": 50},
+            },
+            {
+                "jsonrpc": "2.0",
+                "method": "notifications/progress",
+                "params": {"progressToken": "token2", "progress": 75},
+            },
+        ]
+        self.server.send_batch_message(batch_payload)
+
+        await asyncio.sleep(0.01)  # Let it process
+
+        # Assert: verify each notification was queued individually
+        assert self.session.notifications.qsize() == 2
+
+        # Assert: verify the notifications are the individual items
+        notification1 = await self.session.notifications.get()
+        notification2 = await self.session.notifications.get()
+
+        assert notification1.method == "notifications/progress"
+        assert notification1.progress_token == "token1"
+        assert notification1.progress == 50
+        assert notification2.method == "notifications/progress"
+        assert notification2.progress_token == "token2"
+        assert notification2.progress == 75
+        # Act: stop the session
+        await self.session.stop()
+
 
 class TestMessageHandler(BaseSessionTest):
     async def test_routes_response_to_handler(self, monkeypatch):

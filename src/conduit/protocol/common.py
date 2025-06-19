@@ -48,7 +48,7 @@ class ProgressNotification(Notification):
     Current progress amount.
     """
 
-    total: float | int
+    total: float | int | None = None
     """
     Total expected amount when complete.
     """

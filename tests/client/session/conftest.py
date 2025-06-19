@@ -60,6 +60,10 @@ class MockServer:
         """Simulate server sending a message to the client."""
         self.transport._receive_from_network(payload)
 
+    def send_batch_message(self, payload: list[dict[str, Any]]) -> None:
+        """Simulate server sending a batch message to the client."""
+        self.transport._receive_from_network(payload)
+
 
 class BaseSessionTest:
     @pytest.fixture(autouse=True)
