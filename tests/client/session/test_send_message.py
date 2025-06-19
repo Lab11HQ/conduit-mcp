@@ -4,7 +4,8 @@ import pytest
 
 from conduit.protocol.base import Error
 from conduit.protocol.common import EmptyResult, PingRequest
-from conduit.protocol.logging import LoggingMessageNotification, SetLevelRequest
+from conduit.protocol.logging import SetLevelRequest
+from conduit.protocol.roots import RootsListChangedNotification
 from conduit.protocol.tools import ListToolsRequest
 
 from .conftest import BaseSessionTest
@@ -90,10 +91,10 @@ class TestSendRequest(BaseSessionTest):
 
         # Act & Assert
         with pytest.raises(
-            TimeoutError, match="Request test-id-1 timed out after 0.1s"
+            TimeoutError, match="Request test-id-1 timed out after 0.05s"
         ):
             # Note: No response is sent from our mock server, so this will timeout.
-            await self.session.send_request(request, timeout=0.1)
+            await self.session.send_request(request, timeout=0.05)
 
         # Verify original request was sent
         await self.wait_for_sent_message("ping")
@@ -158,7 +159,7 @@ class TestSendRequest(BaseSessionTest):
 
         # Complete the request
         self.server.send_message({"jsonrpc": "2.0", "id": "test-id-1", "result": {}})
-        await request_task
+        _ = await request_task
 
         # Assert cleanup
         assert len(self.session._pending_requests) == 0
@@ -204,9 +205,9 @@ class TestSendRequest(BaseSessionTest):
 
         # Act & Assert
         with pytest.raises(
-            TimeoutError, match="Request test-id-1 timed out after 0.1s"
+            TimeoutError, match="Request test-id-1 timed out after 0.05s"
         ):
-            await self.session.send_request(request, timeout=0.1)
+            await self.session.send_request(request, timeout=0.05)
 
         # Verify both sends were attempted
         assert send_count == 2
@@ -228,22 +229,21 @@ class TestSendNotification(BaseSessionTest):
         """Notifications can be sent before session initialization."""
         # Arrange
         assert not self.session.initialized
-        notification = LoggingMessageNotification(level="info", data="test")
+        notification = RootsListChangedNotification()
 
         # Act
         await self.session.send_notification(notification)
 
         # Assert
-        await self.wait_for_sent_message("notifications/message")
+        await self.wait_for_sent_message("notifications/roots/list_changed")
         sent_message = self.transport.client_sent_messages[-1]
-        assert sent_message.payload["method"] == "notifications/message"
+        assert sent_message.payload["method"] == "notifications/roots/list_changed"
         assert "id" not in sent_message.payload  # No ID for notifications
-        assert sent_message.payload["params"]["level"] == "info"
 
     async def test_transport_errors_bubble_up_from_notifications(self):
         """Transport failures during notification send bubble up unchanged."""
         # Arrange
-        notification = LoggingMessageNotification(level="info", data="test")
+        notification = RootsListChangedNotification()
 
         # Mock transport to fail
         async def failing_send(*args, **kwargs):
