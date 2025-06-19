@@ -152,3 +152,47 @@ class TestInitialization:
         )
         serialized = result.to_protocol()
         assert "_meta" not in serialized
+
+    def test_initialize_request_roundtrip_with_sampling(self):
+        # Arrange
+        request = InitializeRequest(
+            client_info=Implementation(name="Test client", version="1"),
+            capabilities=ClientCapabilities(sampling=True),
+            protocol_version=PROTOCOL_VERSION,
+        )
+        # Act
+        serialized = request.to_protocol()
+        serialized["id"] = 1
+        serialized["jsonrpc"] = "2.0"
+        reconstructed = InitializeRequest.from_protocol(serialized)
+
+        # Assert on serialization
+        assert serialized == {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": PROTOCOL_VERSION,
+                "clientInfo": {"name": "Test client", "version": "1"},
+                "capabilities": {"sampling": {}},  # Note: Empty dict instead of bool
+            },
+        }
+
+        # Assert on deserialization
+        assert reconstructed.capabilities.sampling
+        assert reconstructed.protocol_version == PROTOCOL_VERSION
+
+    def test_initialize_request_roundtrip_with_no_sampling(self):
+        # Arrange
+        request = InitializeRequest(
+            client_info=Implementation(name="Test client", version="1"),
+            capabilities=ClientCapabilities(
+                sampling=False, roots=RootsCapability(list_changed=True)
+            ),
+            protocol_version=PROTOCOL_VERSION,
+        )
+        # Act
+        serialized = request.to_protocol()
+
+        assert "sampling" not in serialized["params"]["capabilities"]
+        assert serialized["params"]["capabilities"]["roots"]["listChanged"]

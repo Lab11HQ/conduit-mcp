@@ -36,22 +36,6 @@ class ModelPreferences(ProtocolModel):
         return v
 
 
-class CreateMessageResult(Result):
-    """The client's response to a sampling/create_message request from the server."""
-
-    # From SamplingMessage
-    role: Role
-    content: TextContent | ImageContent | AudioContent
-
-    # Own fields
-    model: str
-    """The name of the model that generated the message."""
-    stop_reason: Literal["endTurn", "stopSequence", "maxTokens"] | str | None = Field(
-        default=None, alias="stopReason"
-    )
-    """The reason why sampling stopped, if known."""
-
-
 class CreateMessageRequest(Request):
     """
     Request to create a message.
@@ -69,13 +53,23 @@ class CreateMessageRequest(Request):
     stop_sequences: list[str] | None = Field(default=None, alias="stopSequences")
     llm_metadata: dict[str, Any] | None = None
     """
-    Metadata to pass to the LLM provider. The format is provider-specific. This is not
-    MCP metadata (set that with `metadata`).
+    LLM provider-specific metadata (from the spec's "metadata" field).
+
+    This is separate from MCP metadata - use this for parameters that your
+    LLM provider understands but aren't part of the MCP specification.
+    The format depends entirely on your LLM provider.
     """
 
     @classmethod
     def from_protocol(cls, data: dict[str, Any]) -> "CreateMessageRequest":
-        """Convert from protocol-level representation."""
+        """Convert from protocol-level representation.
+
+        Handles the spec's dual metadata fields:
+        - `_meta` becomes our standard `metadata` field (MCP metadata)
+        - `metadata` becomes our `llm_metadata` field (LLM provider metadata)
+
+        This separation makes it clear which metadata goes where.
+        """
         # Extract protocol structure
         params = data.get("params", {})
         meta = params.get("_meta", {})
@@ -110,7 +104,14 @@ class CreateMessageRequest(Request):
         return cls(**kwargs)
 
     def to_protocol(self) -> dict[str, Any]:
-        """Convert to protocol-level representation"""
+        """Convert to protocol-level representation.
+
+        Handles the spec's dual metadata fields by mapping:
+        - Our `metadata` field → `_meta` (MCP metadata)
+        - Our `llm_metadata` field → `metadata` (LLM provider metadata)
+
+        This maintains wire compatibility while keeping the Python API clear.
+        """
         # Get the base params (excluding our special metadata handling)
         params = self.model_dump(
             exclude={"method", "progress_token", "metadata", "llm_metadata"},
@@ -140,5 +141,21 @@ class CreateMessageRequest(Request):
         return result
 
     @classmethod
-    def expected_result_type(cls) -> type[CreateMessageResult]:
+    def expected_result_type(cls) -> type["CreateMessageResult"]:
         return CreateMessageResult
+
+
+class CreateMessageResult(Result):
+    """The client's response to a sampling/create_message request from the server."""
+
+    # From SamplingMessage
+    role: Role
+    content: TextContent | ImageContent | AudioContent
+
+    # Own fields
+    model: str
+    """The name of the model that generated the message."""
+    stop_reason: Literal["endTurn", "stopSequence", "maxTokens"] | str | None = Field(
+        default=None, alias="stopReason"
+    )
+    """The reason why sampling stopped, if known."""
