@@ -64,9 +64,9 @@ class TestSendRequest(BaseSessionTest):
         # Verify the request was actually sent
         await self.wait_for_sent_message("logging/setLevel")
         sent_message = self.transport.client_sent_messages[-1]
-        assert sent_message.payload["method"] == "logging/setLevel"
-        assert sent_message.payload["params"]["level"] == "info"
-        assert "id" in sent_message.payload  # Should still have an ID
+        assert sent_message["method"] == "logging/setLevel"
+        assert sent_message["params"]["level"] == "info"
+        assert "id" in sent_message  # Should still have an ID
 
     async def test_raises_runtime_error_for_non_ping_before_init(self):
         """Non-ping requests fail before initialization."""
@@ -109,10 +109,10 @@ class TestSendRequest(BaseSessionTest):
         cancellation_msg = next(
             msg
             for msg in self.transport.client_sent_messages
-            if msg.payload.get("method") == "notifications/cancelled"
+            if msg.get("method") == "notifications/cancelled"
         )
-        assert cancellation_msg.payload["params"]["requestId"] == "test-id-1"
-        assert "timed out" in cancellation_msg.payload["params"]["reason"]
+        assert cancellation_msg["params"]["requestId"] == "test-id-1"
+        assert "timed out" in cancellation_msg["params"]["reason"]
 
     async def test_handles_error_responses_from_server(self):
         """Processes and returns error responses from server."""
@@ -214,8 +214,8 @@ class TestSendRequest(BaseSessionTest):
 
         # Verify the first message was the ping
         first_message = self.transport.client_sent_messages[0]
-        assert first_message.payload["method"] == "ping"
-        assert first_message.payload["id"] == "test-id-1"
+        assert first_message["method"] == "ping"
+        assert first_message["id"] == "test-id-1"
 
         # Note: We can't verify the cancellation message was attempted since
         # the mock transport failed before recording it, but send_count proves
@@ -237,8 +237,8 @@ class TestSendNotification(BaseSessionTest):
         # Assert
         await self.wait_for_sent_message("notifications/roots/list_changed")
         sent_message = self.transport.client_sent_messages[-1]
-        assert sent_message.payload["method"] == "notifications/roots/list_changed"
-        assert "id" not in sent_message.payload  # No ID for notifications
+        assert sent_message["method"] == "notifications/roots/list_changed"
+        assert "id" not in sent_message  # No ID for notifications
 
     async def test_transport_errors_bubble_up_from_notifications(self):
         """Transport failures during notification send bubble up unchanged."""

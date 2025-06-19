@@ -47,14 +47,14 @@ class TestClientSessionInitialization(BaseSessionTest):
 
         # First message should be InitializeRequest
         init_request = self.transport.client_sent_messages[0]
-        assert init_request.payload["method"] == "initialize"
-        assert init_request.payload["params"]["clientInfo"]["name"] == "test-client"
-        assert init_request.payload["id"] == "0"
+        assert init_request["method"] == "initialize"
+        assert init_request["params"]["clientInfo"]["name"] == "test-client"
+        assert init_request["id"] == "0"
 
         # Second message should be InitializedNotification
         init_notification = self.transport.client_sent_messages[1]
-        assert init_notification.payload["method"] == "notifications/initialized"
-        assert "id" not in init_notification.payload  # notifications have no id
+        assert init_notification["method"] == "notifications/initialized"
+        assert "id" not in init_notification  # notifications have no id
 
         # Session should be marked as initialized
         assert self.session._initialize_result is not None
@@ -170,7 +170,7 @@ class TestClientSessionInitialization(BaseSessionTest):
 
         # Should have sent initialize request but no initialized notification
         assert len(self.transport.client_sent_messages) == 1
-        assert self.transport.client_sent_messages[0].payload["method"] == "initialize"
+        assert self.transport.client_sent_messages[0]["method"] == "initialize"
 
         # Assert: pending request should be cleaned up
         assert len(self.session._pending_requests) == 0
@@ -188,8 +188,8 @@ class TestClientSessionInitialization(BaseSessionTest):
         assert len(self.transport.client_sent_messages) == 1
 
         init_request = self.transport.client_sent_messages[0]
-        assert init_request.payload["method"] == "initialize"
-        assert init_request.payload["id"] == "0"
+        assert init_request["method"] == "initialize"
+        assert init_request["id"] == "0"
 
         # Assert: session should be cleanly stopped
         assert self.transport.closed is True

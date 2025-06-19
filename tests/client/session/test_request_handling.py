@@ -23,17 +23,14 @@ class TestRequestHandler(BaseSessionTest):
         # Assert
         assert len(self.transport.client_sent_messages) == 1
 
-        sent_message = self.transport.client_sent_messages[0]
-        response_payload = sent_message.payload
+        response_payload = self.transport.client_sent_messages[0]
 
         # Verify JSON-RPC response structure
         assert response_payload["jsonrpc"] == "2.0"
         assert response_payload["id"] == "42"
         assert "result" in response_payload
+        assert response_payload["result"] == {}
         assert "error" not in response_payload
-
-        # Verify response metadata is None (not echoed)
-        assert sent_message.metadata is None
 
     # Error handling
     async def test_sends_method_not_found_for_unknown_request_method(self):
@@ -49,8 +46,7 @@ class TestRequestHandler(BaseSessionTest):
         # Assert
         assert len(self.transport.client_sent_messages) == 1
 
-        sent_message = self.transport.client_sent_messages[0]
-        response_payload = sent_message.payload
+        response_payload = self.transport.client_sent_messages[0]
 
         # Verify JSON-RPC error response structure
         assert response_payload["jsonrpc"] == "2.0"
@@ -62,9 +58,6 @@ class TestRequestHandler(BaseSessionTest):
         error = response_payload["error"]
         assert error["code"] == METHOD_NOT_FOUND
         assert "Unknown request method: unknown/method" in error["message"]
-
-        # Verify response metadata is None
-        assert sent_message.metadata is None
 
     async def test_sends_internal_error_when_handler_raises_exception(
         self, monkeypatch
@@ -87,8 +80,7 @@ class TestRequestHandler(BaseSessionTest):
         # Assert
         assert len(self.transport.client_sent_messages) == 1
 
-        sent_message = self.transport.client_sent_messages[0]
-        response_payload = sent_message.payload
+        response_payload = self.transport.client_sent_messages[0]
 
         # Verify JSON-RPC error response structure
         assert response_payload["jsonrpc"] == "2.0"
@@ -100,9 +92,6 @@ class TestRequestHandler(BaseSessionTest):
         error = response_payload["error"]
         assert error["code"] == INTERNAL_ERROR
         assert "Internal error processing request" in error["message"]
-
-        # Verify response metadata is None
-        assert sent_message.metadata is None
 
     # Capability-specific handling
     async def test_sends_success_response_for_list_roots_with_capability(self):
@@ -119,8 +108,7 @@ class TestRequestHandler(BaseSessionTest):
         # Assert
         assert len(self.transport.client_sent_messages) == 1
 
-        sent_message = self.transport.client_sent_messages[0]
-        response_payload = sent_message.payload
+        response_payload = self.transport.client_sent_messages[0]
 
         # Verify successful response
         assert response_payload["jsonrpc"] == "2.0"
@@ -148,8 +136,7 @@ class TestRequestHandler(BaseSessionTest):
         # Assert
         assert len(self.transport.client_sent_messages) == 1
 
-        sent_message = self.transport.client_sent_messages[0]
-        response_payload = sent_message.payload
+        response_payload = self.transport.client_sent_messages[0]
 
         # Verify error response
         assert response_payload["jsonrpc"] == "2.0"
@@ -161,9 +148,6 @@ class TestRequestHandler(BaseSessionTest):
         error = response_payload["error"]
         assert error["code"] == METHOD_NOT_FOUND
         assert "Client does not support roots capability" in error["message"]
-
-        # Verify response metadata is None
-        assert sent_message.metadata is None
 
     async def test_sends_method_not_found_for_create_message_without_capability(self):
         # Arrange
@@ -188,8 +172,7 @@ class TestRequestHandler(BaseSessionTest):
         # Assert
         assert len(self.transport.client_sent_messages) == 1
 
-        sent_message = self.transport.client_sent_messages[0]
-        response_payload = sent_message.payload
+        response_payload = self.transport.client_sent_messages[0]
 
         # Verify error response
         assert response_payload["jsonrpc"] == "2.0"
@@ -239,8 +222,7 @@ class TestRequestHandler(BaseSessionTest):
         # Assert
         assert len(self.transport.client_sent_messages) == 1
 
-        sent_message = self.transport.client_sent_messages[0]
-        response_payload = sent_message.payload
+        response_payload = self.transport.client_sent_messages[0]
 
         # Verify successful response
         assert response_payload["jsonrpc"] == "2.0"

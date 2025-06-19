@@ -36,7 +36,7 @@ from conduit.protocol.roots import ListRootsRequest, ListRootsResult, Root
 from conduit.protocol.sampling import CreateMessageRequest, CreateMessageResult
 from conduit.protocol.tools import ToolListChangedNotification
 from conduit.shared.exceptions import UnknownNotificationError, UnknownRequestError
-from conduit.transport.base import Transport, TransportMessage
+from conduit.transport.base import Transport
 
 NOTIFICATION_CLASSES = {
     "notifications/cancelled": CancelledNotification,
@@ -427,7 +427,9 @@ class ClientSession:
                 )
         self._pending_requests.clear()
 
-    async def _handle_message(self, message: TransportMessage) -> None:
+    async def _handle_message(
+        self, payload: dict[str, Any] | list[dict[str, Any]]
+    ) -> None:
         """Route incoming transport message to appropriate handler based on JSON-RPC
         type.
 
@@ -443,20 +445,15 @@ class ClientSession:
         while fulfilling requests.
 
         Args:
-            message: Transport message containing JSON-RPC payload and transport
-            metadata
+            payload: JSON-RPC payload
 
         Raises:
             ValueError: If message payload doesn't match any known JSON-RPC type
         """
-        payload = message.payload
-
         # FUTURE: Handle JSON-RPC batch requests/responses
         if isinstance(payload, list):
             for item in payload:
-                # Create a new message for each batch item with same metadata
-                item_message = TransportMessage(payload=item)
-                await self._handle_message(item_message)  # Recursive call
+                await self._handle_message(item)
             return
 
         try:

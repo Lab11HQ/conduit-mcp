@@ -3,8 +3,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from conduit.transport.base import TransportMessage
-
 from .conftest import BaseSessionTest
 
 
@@ -14,8 +12,8 @@ class TestMessageLoop(BaseSessionTest):
         # Arrange: mock the handler method
         handler_calls = []
 
-        async def mock_handler(message):
-            handler_calls.append(message.payload)
+        async def mock_handler(payload):
+            handler_calls.append(payload)
 
         self.session._handle_message = mock_handler
 
@@ -45,8 +43,8 @@ class TestMessageLoop(BaseSessionTest):
         # Arrange: mock the handler method
         handler_calls = []
 
-        async def mock_handler(message):
-            handler_calls.append(message.payload)
+        async def mock_handler(payload):
+            handler_calls.append(payload)
             # Crash on the second message
             if len(handler_calls) == 2:
                 raise ValueError("Handler crashed!")
@@ -80,8 +78,8 @@ class TestMessageLoop(BaseSessionTest):
         # Arrange: mock the handler method
         handler_calls = []
 
-        async def mock_handler(message):
-            handler_calls.append(message.payload)
+        async def mock_handler(payload):
+            handler_calls.append(payload)
 
         self.session._handle_message = mock_handler
 
@@ -89,11 +87,12 @@ class TestMessageLoop(BaseSessionTest):
         await self.session._start()
 
         # Act: send a message to confirm loop is running
-        self.server.send_message({"jsonrpc": "2.0", "method": "notifications/test1"})
+        msg = {"jsonrpc": "2.0", "method": "notifications/test1"}
+        self.server.send_message(msg)
         await asyncio.sleep(0.01)  # Let it process
 
         # Act: simulate transport failure by closing it
-        await self.transport.close()
+        self.transport.simulate_error()
 
         # Act: give the loop time to detect the failure and shut down
         await asyncio.sleep(0.01)
@@ -107,15 +106,15 @@ class TestMessageLoop(BaseSessionTest):
 
         # Assert: verify we processed the message before the transport failed
         assert len(handler_calls) == 1
-        assert handler_calls[0] == {"jsonrpc": "2.0", "method": "notifications/test1"}
+        assert handler_calls[0] == msg
 
     async def test_loop_respects_running_flag_on_stop(self):
         """Loop exits cleanly when stop() is called, even with queued messages."""
         # Arrange: mock the handler method
         handler_calls = []
 
-        async def mock_handler(message):
-            handler_calls.append(message.payload)
+        async def mock_handler(payload):
+            handler_calls.append(payload)
 
         self.session._handle_message = mock_handler
 
@@ -153,15 +152,14 @@ class TestMessageHandler(BaseSessionTest):
         response_payload = {
             "jsonrpc": "2.0",
             "id": "42",
-            "result": {"status": "success", "data": "test_data"},
+            "result": {"success": "yes"},
         }
 
         # Act
         mock_handle_response = AsyncMock()
         monkeypatch.setattr(self.session, "_handle_response", mock_handle_response)
 
-        message = TransportMessage(payload=response_payload)
-        await self.session._handle_message(message)
+        await self.session._handle_message(response_payload)
 
         # Assert
         mock_handle_response.assert_awaited_once_with(response_payload)
@@ -180,13 +178,12 @@ class TestMessageHandler(BaseSessionTest):
             self.session, "_handle_notification", mock_handle_notification
         )
 
-        message = TransportMessage(payload=notification_payload)
-        await self.session._handle_message(message)
+        await self.session._handle_message(notification_payload)
 
         # Assert
         mock_handle_notification.assert_awaited_once_with(notification_payload)
 
-    async def test_routes_request_to_async_task(self, monkeypatch):
+    async def test_routes_request_to_handler(self, monkeypatch):
         # Arrange
         request_payload = {"jsonrpc": "2.0", "method": "ping", "id": "123"}
 
@@ -194,8 +191,7 @@ class TestMessageHandler(BaseSessionTest):
         monkeypatch.setattr(self.session, "_handle_request", mock_handle_request)
 
         # Act
-        message = TransportMessage(payload=request_payload)
-        await self.session._handle_message(message)
+        await self.session._handle_message(request_payload)
 
         # Give the task a moment to run
         await asyncio.sleep(0)
@@ -222,12 +218,8 @@ class TestMessageHandler(BaseSessionTest):
         monkeypatch.setattr(self.session, "_handle_notification", notification_handler)
 
         # Act
-        request_msg = TransportMessage(
-            payload={"jsonrpc": "2.0", "method": "long/running/request", "id": "1"}
-        )
-        notification_msg = TransportMessage(
-            payload={"jsonrpc": "2.0", "method": "important/notification"}
-        )
+        request_msg = {"jsonrpc": "2.0", "method": "long/running/request", "id": "1"}
+        notification_msg = {"jsonrpc": "2.0", "method": "important/notification"}
 
         await self.session._handle_message(request_msg)
         await self.session._handle_message(notification_msg)
@@ -252,10 +244,9 @@ class TestMessageHandler(BaseSessionTest):
         malformed_payload = {
             "jsonrpc": "2.0",
             "id": "123",
-            "unknown_field": "data",
+            "not-result-error-or-method": "BOOM",
         }
 
         # Act & Assert
-        message = TransportMessage(payload=malformed_payload)
         with pytest.raises(ValueError, match="Unknown message type"):
-            await self.session._handle_message(message)
+            await self.session._handle_message(malformed_payload)

@@ -54,9 +54,9 @@ class TestResponseHandler(BaseSessionTest):
         result = future.result()
         assert isinstance(result, Error)
 
-    async def test_handles_unmatched_response_gracefully(self):
+    async def test_ignores_unmatched_response(self):
         # Arrange
-        unmatched_id = "999"
+        unmatched_id = "not-in-pending-requests"
         unmatched_payload = {
             "jsonrpc": "2.0",
             "id": unmatched_id,
@@ -144,7 +144,7 @@ class TestResponseValidator(BaseSessionTest):
             "jsonrpc": "2.0",
             "id": "42",
             "result": {"data": "success"},
-            "error": {"code": -1, "message": "Also an error"},  # Invalid per spec
+            "error": {"code": -1, "message": "Also an error"},
         }
 
         # Act & Assert

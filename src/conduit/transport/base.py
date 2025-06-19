@@ -1,16 +1,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Self
-
-
-@dataclass
-class TransportMessage:
-    """A message with specific metadata for transport-specific features."""
-
-    payload: dict[str, Any] | list[dict[str, Any]]
-    metadata: dict[str, Any] | None = None
 
 
 class Transport(ABC):
@@ -28,9 +19,7 @@ class Transport(ABC):
     """
 
     @abstractmethod
-    async def send(
-        self, payload: dict[str, Any], metadata: dict[str, Any] | None = None
-    ) -> None:
+    async def send(self, payload: dict[str, Any]) -> None:
         """Send a message with any transport-specific metadata.
 
         Raises:
@@ -38,13 +27,13 @@ class Transport(ABC):
         """
 
     @abstractmethod
-    def messages(self) -> AsyncIterator[TransportMessage]:
+    def messages(self) -> AsyncIterator[dict[str, Any] | list[dict[str, Any]]]:
         """Stream of incoming messages with transport-specific metadata.
 
         Yields messages as they arrive. Iterator ends when transport closes.
 
         Yields:
-            TransportMessage: Each incoming message with metadata
+            dict[str, Any] | list[dict[str, Any]]: Each incoming message
 
         Raises:
             ConnectionError: When transport connection fails
