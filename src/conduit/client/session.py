@@ -437,7 +437,7 @@ class ClientSession:
         Raises:
             ValueError: If message payload doesn't match any known JSON-RPC type
         """
-        # FUTURE: Handle JSON-RPC batch requests/responses
+        # TODO: Add a recursion limit
         if isinstance(payload, list):
             for item in payload:
                 await self._handle_message(item)

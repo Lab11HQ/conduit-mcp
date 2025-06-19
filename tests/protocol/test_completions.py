@@ -20,10 +20,21 @@ class TestCompletions:
 
         # Act
         serialized = request.to_protocol()
-        wire_format = {"jsonrpc": "2.0", "id": 1, **serialized}
-        reconstructed = CompleteRequest.from_protocol(wire_format)
+        serialized["id"] = 1
+        serialized["jsonrpc"] = "2.0"
+        reconstructed = CompleteRequest.from_protocol(serialized)
 
         # Assert
+        assert serialized == {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "completion/complete",
+            "params": {
+                "ref": {"type": "ref/prompt", "name": "test-prompt"},
+                "argument": {"name": "arg1", "value": "partial_value"},
+            },
+        }
+
         assert reconstructed == request
 
     def test_complete_result_round_trip(self):

@@ -69,17 +69,6 @@ class PromptMessage(ProtocolModel):
     content: TextContent | ImageContent | AudioContent | EmbeddedResource
 
 
-class ListPromptsResult(PaginatedResult):
-    """
-    Response containing available prompts and pagination info.
-    """
-
-    prompts: list[Prompt]
-    """
-    List of available prompts.
-    """
-
-
 class ListPromptsRequest(PaginatedRequest):
     """
     Sent by client to list available prompts and prompt templates on the server.
@@ -88,23 +77,18 @@ class ListPromptsRequest(PaginatedRequest):
     method: Literal["prompts/list"] = "prompts/list"
 
     @classmethod
-    def expected_result_type(cls) -> type[ListPromptsResult]:
+    def expected_result_type(cls) -> type["ListPromptsResult"]:
         return ListPromptsResult
 
 
-class GetPromptResult(Result):
+class ListPromptsResult(PaginatedResult):
     """
-    Response containing the prompt or prompt template.
-    """
-
-    description: str | None = None
-    """
-    Human-readable description of the prompt or prompt template.
+    Response containing available prompts and pagination info.
     """
 
-    messages: list[PromptMessage]
+    prompts: list[Prompt]
     """
-    The prompt or prompt template messages.
+    List of available prompts.
     """
 
 
@@ -128,8 +112,24 @@ class GetPromptRequest(Request):
     """
 
     @classmethod
-    def expected_result_type(cls) -> type[GetPromptResult]:
+    def expected_result_type(cls) -> type["GetPromptResult"]:
         return GetPromptResult
+
+
+class GetPromptResult(Result):
+    """
+    Response containing the prompt or prompt template.
+    """
+
+    description: str | None = None
+    """
+    Human-readable description of the prompt or prompt template.
+    """
+
+    messages: list[PromptMessage]
+    """
+    The prompt or prompt template messages.
+    """
 
 
 class PromptListChangedNotification(Notification):
