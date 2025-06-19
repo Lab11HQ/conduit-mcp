@@ -72,6 +72,12 @@ class BaseSessionTest:
         )
         self.server = MockServer(transport=self.transport)
 
+    @pytest.fixture(autouse=True)
+    async def teardown_session(self):
+        yield
+        if hasattr(self, "session"):
+            await self.session.stop()
+
     async def wait_for_sent_message(self, method: str) -> None:
         """Wait for a message to be sent - simple test sync helper."""
         for _ in range(100):  # Max 100ms wait
@@ -82,17 +88,6 @@ class BaseSessionTest:
                 return
             await asyncio.sleep(0.001)
         raise AssertionError(f"Message with method '{method}' never sent")
-
-    @pytest.fixture
-    def mock_ensure_initialized(self, monkeypatch):
-        """Mock _ensure_initialized to prevent hanging on initialization."""
-
-        async def mock():
-            if self.session._initialize_result is None:
-                self.session._initialize_result = "mocked_init_result"
-
-        monkeypatch.setattr(self.session, "_ensure_initialized", mock)
-        return mock
 
 
 # def numbered_ids(count):

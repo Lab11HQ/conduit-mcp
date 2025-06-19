@@ -136,6 +136,10 @@ class ClientSession:
 
         await self.transport.close()
 
+    @property
+    def initialized(self) -> bool:
+        return self._initialize_result is not None
+
     async def initialize(
         self, transport_metadata: dict[str, Any] | None = None, timeout: float = 30.0
     ) -> InitializeResult:
@@ -193,15 +197,20 @@ class ClientSession:
     ) -> Result | Error | None:
         """Send a request to the MCP server and handle the complete lifecycle.
 
-        This method orchestrates the full request-response cycle: it ensures your
-        session is initialized, sends your request with a unique identifier, waits for
-        the server's response, and cleans up gracefully regardless of outcome. For
-        requests that don't expect responses (like logging level changes), it returns
-        immediately after sending.
+        This method orchestrates the full request-response cycle: it starts the
+        message loop if needed, sends your request with a unique identifier, waits
+        for the server's response, and cleans up gracefully regardless of outcome.
+        For requests that don't expect responses (like logging level changes), it
+        returns immediately after sending.
 
-        The method handles MCP's bidirectional communication safely by generating UUID
-        request identifiers, preventing ID conflicts. If a request times out, the client
-        sends a cancellation notification to the server.
+        The session must be initialized before sending most requests, with one
+        exception: PingRequests are allowed at any time since they're designed to
+        test basic connectivity. All other requests will fail if sent before the
+        initialization handshake is complete.
+
+        The method handles MCP's bidirectional communication safely by generating
+        UUID request identifiers, preventing ID conflicts. If a request times out,
+        the client sends a cancellation notification to the server.
 
         Args:
             request: The MCP request to send to the server
@@ -210,20 +219,23 @@ class ClientSession:
             timeout: Maximum seconds to wait for a response before cancelling
 
         Returns:
-            The server's result or error response. Returns None for requests that don't
-            expect responses (fire-and-forget operations).
+            The server's result or error response. Returns None for requests that
+            don't expect responses (fire-and-forget requests like logging level
+            changes).
 
         Raises:
+            RuntimeError: When the session isn't initialized and the request isn't
+                a PingRequest. Initialize the session first with initialize().
             TimeoutError: When the server doesn't respond within the timeout period.
                 The client will send a cancellation notification to the server.
-
-        Note:
-            PingRequests are allowed before the session is initialized in accordance
-            with the MCP spec.
         """
         await self._start()
-        if not isinstance(request, PingRequest):
-            await self._ensure_initialized()
+
+        if not self.initialized and not isinstance(request, PingRequest):
+            raise RuntimeError(
+                "Session must be initialized before sending non-ping requests. "
+                "Call initialize() first."
+            )
 
         # Generate request ID and create JSON-RPC wrapper
         request_id = str(uuid.uuid4())
