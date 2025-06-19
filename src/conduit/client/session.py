@@ -227,7 +227,8 @@ class ClientSession:
             RuntimeError: When the session isn't initialized and the request isn't
                 a PingRequest. Initialize the session first with initialize().
             TimeoutError: When the server doesn't respond within the timeout period.
-                The client will send a cancellation notification to the server.
+                The client attempts to send a cancellation notification to the server,
+                but will still raise TimeoutError even if the cancellation fails.
         """
         await self._start()
 
@@ -255,11 +256,14 @@ class ClientSession:
             result = await asyncio.wait_for(future, timeout)
             return result
         except asyncio.TimeoutError:
-            cancelled_notification = CancelledNotification(
-                request_id=request_id,
-                reason="Request timed out",
-            )
-            await self.send_notification(cancelled_notification, transport_metadata)
+            try:
+                cancelled_notification = CancelledNotification(
+                    request_id=request_id,
+                    reason="Request timed out",
+                )
+                await self.send_notification(cancelled_notification, transport_metadata)
+            except Exception as e:
+                print(f"Error sending cancellation notification: {e}")
             raise TimeoutError(f"Request {request_id} timed out after {timeout}s")
         finally:
             self._pending_requests.pop(request_id, None)
@@ -269,7 +273,21 @@ class ClientSession:
         notification: Notification,
         transport_metadata: dict[str, Any] | None = None,
     ) -> None:
-        """Send a notification to the server."""
+        """Send a notification to the server without expecting a response.
+
+        Notifications are fire-and-forget messages that don't get response IDs or
+        expect replies. The method starts the message loop if needed and sends
+        immediately. Unlike requests, notifications can be sent at any time—no
+        initialization required.
+
+        Args:
+            notification: The MCP notification to send
+            transport_metadata: Optional transport-specific data like authentication
+                tokens or routing information
+
+        Raises:
+            Transport errors bubble up unchanged if sending fails.
+        """
         await self._start()
         jsonrpc_notification = JSONRPCNotification.from_notification(notification)
         await self.transport.send(jsonrpc_notification.to_wire(), transport_metadata)

@@ -4,7 +4,7 @@ import pytest
 
 from conduit.protocol.base import Error
 from conduit.protocol.common import EmptyResult, PingRequest
-from conduit.protocol.logging import SetLevelRequest
+from conduit.protocol.logging import LoggingMessageNotification, SetLevelRequest
 from conduit.protocol.tools import ListToolsRequest
 
 from .conftest import BaseSessionTest
@@ -180,3 +180,77 @@ class TestSendRequest(BaseSessionTest):
 
         # Verify no cleanup needed - request never got tracked
         assert len(self.session._pending_requests) == 0
+
+    async def test_timeout_raises_timeout_error_even_if_cancellation_fails(self):
+        """TimeoutError is raised even when cancellation notification fails to send."""
+        # Arrange
+        await self.session._start()
+        self.session._initialize_result = "NOT NONE"
+        request = PingRequest()
+
+        # Mock transport to fail on second send (the cancellation)
+        send_count = 0
+        original_send = self.transport.send
+
+        async def selective_failing_send(*args, **kwargs):
+            nonlocal send_count
+            send_count += 1
+            if send_count == 1:
+                return await original_send(*args, **kwargs)  # Original request succeeds
+            else:
+                raise ConnectionError("Transport died")  # Cancellation fails
+
+        self.transport.send = selective_failing_send
+
+        # Act & Assert
+        with pytest.raises(
+            TimeoutError, match="Request test-id-1 timed out after 0.1s"
+        ):
+            await self.session.send_request(request, timeout=0.1)
+
+        # Verify both sends were attempted
+        assert send_count == 2
+
+        # Verify the first message was the ping
+        first_message = self.transport.client_sent_messages[0]
+        assert first_message.payload["method"] == "ping"
+        assert first_message.payload["id"] == "test-id-1"
+
+        # Note: We can't verify the cancellation message was attempted since
+        # the mock transport failed before recording it, but send_count proves
+        # it was tried.
+
+
+class TestSendNotification(BaseSessionTest):
+    """Tests for ClientSession.send_notification method."""
+
+    async def test_sends_notification_without_initialization(self):
+        """Notifications can be sent before session initialization."""
+        # Arrange
+        assert not self.session.initialized
+        notification = LoggingMessageNotification(level="info", data="test")
+
+        # Act
+        await self.session.send_notification(notification)
+
+        # Assert
+        await self.wait_for_sent_message("notifications/message")
+        sent_message = self.transport.client_sent_messages[-1]
+        assert sent_message.payload["method"] == "notifications/message"
+        assert "id" not in sent_message.payload  # No ID for notifications
+        assert sent_message.payload["params"]["level"] == "info"
+
+    async def test_transport_errors_bubble_up_from_notifications(self):
+        """Transport failures during notification send bubble up unchanged."""
+        # Arrange
+        notification = LoggingMessageNotification(level="info", data="test")
+
+        # Mock transport to fail
+        async def failing_send(*args, **kwargs):
+            raise ConnectionError("Network down")
+
+        self.transport.send = failing_send
+
+        # Act & Assert
+        with pytest.raises(ConnectionError, match="Network down"):
+            await self.session.send_notification(notification)
