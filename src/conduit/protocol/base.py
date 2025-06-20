@@ -14,22 +14,8 @@ MCP communication follows a simple pattern:
 3. **Notifications** - "Progress update: 50% complete" (no response expected)
 4. **Errors** - "That tool doesn't exist" (when requests fail)
 
-## Key Design Principles
-
-**Pythonic First**: We translate MCP's TypeScript conventions into natural Python.
-Field names use snake_case, complex hierarchies get flattened, and progress tokens
-surface at intuitive levels.
-
-**Automatic Translation**: Every type converts seamlessly between Python objects
-and JSON-RPC protocol format. You work with clean Python and don't need to worry
-about the wire format.
-
-**Request-Response Pairing**: Every request knows what result type to expect through
-the `expected_result_type()` method. This enables downstream code to handle responses
-correctly and catch mismatches between what you send and what you're expecting back.
-
-Most applications build on these primitives rather than using them directly.
-But understanding this foundation helps when debugging or contributing.
+Most applications build on these primitives rather than using them directly,
+but understanding this foundation helps when debugging and contributing.
 """
 
 import traceback
@@ -66,12 +52,13 @@ class Request(ProtocolModel):
     this base class. While you'll typically work with concrete types like
     `InitializeRequest` or `ListToolsRequest`, they all share this common structure.
 
-    We've designed this to feel naturally Pythonic: snake_case fields, flattened
-    hierarchies, and progress tokens surfaced where you'd expect them. Behind the
-    scenes, we handle the translation to MCP's nested JSON-RPC format.
+    Progress tokens surface at the top level for easy access. Metadata stays
+    flexible for whatever context you need to pass along. The protocol translation
+    happens automatically—you work with clean Python objects, and the JSON-RPC
+    formatting takes care of itself.
 
-    When you create any request, you get automatic spec compliance, transparent
-    serialization, and Pythonic interfaces.
+    Create any request and get spec compliance, serialization, and proper response
+    pairing.
     """
 
     method: str
@@ -232,8 +219,8 @@ class PaginatedRequest(Request):
     responses manageable. Include a cursor to continue from where a previous
     request left off.
 
-    The cursor is completely opaque: don't try to parse it or construct your own.
-    Just pass along whatever the sender gave you in the previous response.
+    The cursor is opaque: don't try to parse it or construct your own. Just pass along
+    whatever the sender gave you in the previous response.
     """
 
     cursor: Cursor | None = None
@@ -345,8 +332,8 @@ class Result(ProtocolModel):
     Each request type has its own result type: `InitializeRequest` gets an
     `InitializeResult`, `ListToolsRequest` gets a `ListToolsResult`, and so on.
 
-    Results carry the actual data you requested - tool definitions, resource
-    content, initialization parameters, etc.
+    Results carry the actual data you requested: tool lists, resource content,
+    initialization parameters, etc.
     """
 
     metadata: dict[str, Any] | None = Field(default=None)
@@ -451,10 +438,11 @@ INTERNAL_ERROR = -32603
 
 class Error(ProtocolModel):
     """
-    MCP error with automatic exception formatting.
+    Base class for MCP errors - when requests can't be completed.
 
-    Example:
-        Error(code=500, message="Server error", data=some_exception)
+    Errors tell you what went wrong and why. They carry error codes, human-readable
+    messages, and optional data for debugging. Python exceptions get formatted
+    automatically into the data field for easy troubleshooting.
     """
 
     code: int
