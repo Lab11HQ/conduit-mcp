@@ -1,6 +1,3 @@
-import pytest
-from pydantic import ValidationError
-
 from conduit.protocol.roots import (
     ListRootsRequest,
     ListRootsResult,
@@ -47,28 +44,29 @@ class TestRoots:
         assert reconstructed.roots[2].name == "Data Directory"
         assert reconstructed == result
 
-    def test_root_uri_must_be_file_uri(self):
-        # Arrange
-        valid_root = Root(uri="file:///path/to/directory")
+    # NOTE: We don't enforce file:// URIs anymore.
+    # def test_root_uri_must_be_file_uri(self):
+    #     # Arrange
+    #     valid_root = Root(uri="file:///path/to/directory")
 
-        # Act
-        assert str(valid_root.uri) == "file:///path/to/directory"
+    #     # Act
+    #     assert str(valid_root.uri) == "file:///path/to/directory"
 
-        # Assert
-        with pytest.raises(ValidationError) as exc_info:
-            Root(uri="https://example.com/path")
+    #     # Assert
+    #     with pytest.raises(ValidationError) as exc_info:
+    #         Root(uri="https://example.com/path")
 
-        # Assert
-        error_details = str(exc_info.value)
-        assert "file://" in error_details
+    #     # Assert
+    #     error_details = str(exc_info.value)
+    #     assert "file://" in error_details
 
-        # Act
-        with pytest.raises(ValidationError) as exc_info:
-            Root(uri="ftp://server/path")
+    #     # Act
+    #     with pytest.raises(ValidationError) as exc_info:
+    #         Root(uri="ftp://server/path")
 
-        # Assert
-        error_details = str(exc_info.value)
-        assert "file://" in error_details
+    #     # Assert
+    #     error_details = str(exc_info.value)
+    #     assert "file://" in error_details
 
     def test_roots_list_changed_notification_round_trip(self):
         # Arrange
