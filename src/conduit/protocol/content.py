@@ -1,4 +1,4 @@
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import AnyUrl, Field, UrlConstraints, field_validator
 
@@ -103,7 +103,7 @@ class TextContent(ProtocolModel):
     explanations, or any readable text you want to include in messages.
     """
 
-    type: str = Field(default="text", frozen=True)
+    type: Literal["text"] = "text"
     text: str
     """The text content."""
 
@@ -120,7 +120,7 @@ class ImageContent(ProtocolModel):
     base64-encoded for transmission.
     """
 
-    type: str = Field(default="image", frozen=True)
+    type: Literal["image"] = "image"
     mime_type: str = Field(alias="mimeType")
     """
     Image format like 'image/png' or 'image/jpeg'.
@@ -145,7 +145,7 @@ class AudioContent(ProtocolModel):
     or audio generation tasks. Audio is base64-encoded for transmission.
     """
 
-    type: str = Field(default="audio", frozen=True)
+    type: Literal["audio"] = "audio"
     mime_type: str = Field(alias="mimeType")
     """
     Audio format like 'audio/wav' or 'audio/mp3'.
@@ -170,7 +170,7 @@ class EmbeddedResource(ProtocolModel):
     database results, images—rather than just being static templates.
     """
 
-    type: str = Field(default="resource", frozen=True)
+    type: Literal["resource"] = "resource"
     resource: TextResourceContents | BlobResourceContents
     """
     The actual resource content - text or binary data.
