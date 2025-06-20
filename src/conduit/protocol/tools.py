@@ -12,7 +12,7 @@ The flow is straightforward:
 1. **Discovery**: LLM asks "What can I do?" via `ListToolsRequest`
 2. **Decision**: LLM reads tool descriptions and decides which to use
 3. **Execution**: LLM calls the tool with `CallToolRequest`
-4. **Learning**: Tool returns results (or errors) that LLM can see and learn from
+4. **Use**: Tool returns results (or errors) that LLM can see and use
 
 Note: LLMs consume both results and errors so they can learn from failures and adjust
 their approach. The quality of your tool outputs, descriptions, and error messages

@@ -7,11 +7,22 @@ from conduit.protocol.base import ProtocolModel, Role
 
 class ResourceContents(ProtocolModel):
     """
-    Base class for resource contents.
+    Base information for any resource content.
+
+    Resources are data that servers can provide - files, database results, API
+    responses, or any content identified by a URI. This base class captures the
+    essential metadata that all resource content shares.
     """
 
     uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
+    """
+    The URI that identifies this specific resource.
+    """
+
     mime_type: str | None = Field(default=None, alias="mimeType")
+    """
+    Content type of the resource, when known.
+    """
 
 
 class TextResourceContents(ResourceContents):
