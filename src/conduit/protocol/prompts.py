@@ -21,33 +21,65 @@ from conduit.protocol.content import (
 
 class PromptArgument(ProtocolModel):
     """
-    Describes an argument that a prompt can accept.
+    An argument that customizes a prompt template.
+
+    Arguments let you adapt generic prompt expertise to your specific context.
+    For example, a code review prompt might take 'language' and 'focus_areas'
+    arguments to tailor the review style.
     """
 
     name: str
     description: str | None = None
-    """
-    Human-readable description of the argument.
-    """
+    """Human-readable description of what this argument controls."""
 
     required: bool = Field(default=False)
-    """
-    Whether the argument must be provided. Defaults to False.
-    """
+    """Whether this argument must be provided. Defaults to False."""
 
 
 class Prompt(ProtocolModel):
     """
-    A prompt or prompt template the server offers.
+    A reusable prompt template that encapsulates domain expertise.
 
-    Note the prompt content is in PromptMessage objects.
+    Servers offer prompts as a way to share proven prompting strategies.
+    Instead of crafting prompts from scratch, clients can leverage templates
+    that domain experts have refined and tested.
     """
 
     name: str
     description: str | None = None
+    """
+    Human-readable description of what this prompt does.
+    """
+
     arguments: list[PromptArgument] | None = None
     """
-    List of arguments used for templating the prompt.
+    Arguments that customize this prompt for specific use cases.
+    """
+
+
+class ListPromptsRequest(PaginatedRequest):
+    """
+    Request the catalog of prompts a server offers.
+
+    Use this to discover what prompting expertise is available before
+    deciding which prompts to use in your application.
+    """
+
+    method: Literal["prompts/list"] = "prompts/list"
+
+    @classmethod
+    def expected_result_type(cls) -> type["ListPromptsResult"]:
+        return ListPromptsResult
+
+
+class ListPromptsResult(PaginatedResult):
+    """
+    The server's catalog of available prompts.
+    """
+
+    prompts: list[Prompt]
+    """
+    List of available prompts.
     """
 
 
@@ -62,53 +94,38 @@ class PromptReference(ProtocolModel):
 
 class PromptMessage(ProtocolModel):
     """
-    Describes a message as a part of a prompt.
+    One message in a multi-turn prompt conversation.
+
+    Prompts can simulate entire conversations between user and assistant to
+    establish context, provide examples, or guide specific workflows. Each
+    message represents one turn in that conversation and can contain dynamic,
+    server-sourced content like embedded resources.
     """
 
     role: Role
     content: TextContent | ImageContent | AudioContent | EmbeddedResource
 
 
-class ListPromptsRequest(PaginatedRequest):
-    """
-    Sent by client to list available prompts and prompt templates on the server.
-    """
-
-    method: Literal["prompts/list"] = "prompts/list"
-
-    @classmethod
-    def expected_result_type(cls) -> type["ListPromptsResult"]:
-        return ListPromptsResult
-
-
-class ListPromptsResult(PaginatedResult):
-    """
-    Response containing available prompts and pagination info.
-    """
-
-    prompts: list[Prompt]
-    """
-    List of available prompts.
-    """
-
-
 class GetPromptRequest(Request):
     """
-    Sent by client to get a specific prompt or prompt template from the server.
+    Request a specific prompt, customized with your arguments.
 
-    If the prompt is a template, the server will return a prompt with the arguments
-    filled in.
+    The server takes your arguments and builds a complete, ready-to-use prompt.
+    This might include static template text plus dynamic content like file
+    contents, API responses, or other data the server can access.
+
+    The result is a fully materialized prompt you can send directly to your LLM.
     """
 
     method: Literal["prompts/get"] = "prompts/get"
     name: str
     """
-    The name of the prompt or prompt template.
+    Name of the prompt template to instantiate.
     """
 
     arguments: dict[str, str] | None = None
     """
-    Arguments to use for templating the prompt.
+    Arguments that customize the prompt for your specific use case.
     """
 
     @classmethod
@@ -118,21 +135,35 @@ class GetPromptRequest(Request):
 
 class GetPromptResult(Result):
     """
-    Response containing the prompt or prompt template.
+    A complete, ready-to-use prompt with all dynamic content resolved.
+
+    The server has taken your template and arguments and built you a full prompt
+    that might include embedded resources, media, or other content you couldn't
+    access directly. Just present it to your user and pass it to your LLM.
     """
 
     description: str | None = None
     """
-    Human-readable description of the prompt or prompt template.
+    What this prompt is designed to accomplish.
     """
 
     messages: list[PromptMessage]
     """
-    The prompt or prompt template messages.
+    The complete prompt messages, with all dynamic content embedded.
     """
 
 
 class PromptListChangedNotification(Notification):
+    """
+    Server notification that its prompt catalog has changed.
+
+    Servers send this when they add, remove, or modify their available prompts.
+    Clients can respond by refreshing their prompt list to discover new
+    capabilities or handle removed prompts gracefully.
+
+    Note: Servers can send this anytime, even without a subscription request.
+    """
+
     method: Literal["notifications/prompts/list_changed"] = (
         "notifications/prompts/list_changed"
     )

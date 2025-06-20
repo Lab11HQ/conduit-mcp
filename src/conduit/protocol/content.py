@@ -16,42 +16,51 @@ class ResourceContents(ProtocolModel):
 
 class TextResourceContents(ResourceContents):
     """
-    Resource contents represented as text (not binary text).
+    Resource contents as readable text.
+
+    Use this for files, API responses, database results, or any content
+    that can be meaningfully displayed as text to users and LLMs.
     """
 
     text: str
     """
-    The text of the resource. Only set if the resource can be represented as text
-    (not binary text).
+    The text content of the resource.
     """
 
 
 class BlobResourceContents(ResourceContents):
     """
-    Resource contents represented as a binary blob.
+    Resource contents as binary data.
+
+    Use this for images, documents, audio files, or any content that
+    needs to be base64-encoded for transmission.
     """
 
     blob: str
     """
-    Base64-encoded string representing the binary data of the resource.
+    Base64-encoded binary data.
     """
 
 
 class Annotations(ProtocolModel):
     """
-    Display hints for client rendering.
+    Hints about how to handle content in prompts and responses.
 
-    Guides how clients should use or present objects.
+    Helps clients decide what to show users versus what to send directly
+    to the LLM, and how important different pieces of content are for
+    accomplishing the task at hand.
     """
 
     audience: list[Role] | Role | None = None
     """
-    Target audience roles. Single role or list of roles.
+    Who this content is intended for: "user" (show in UI), "assistant" 
+    (send to LLM), or both.
     """
 
     priority: float | int | None = None
     """
-    Priority level from 0 (lowest) to 1 (highest).
+    How essential this content is for the task, from 0 (optional) to 1 (required).
+    Helps clients handle resource loading failures or display constraints gracefully.
     """
 
     @field_validator("audience", mode="before")
@@ -76,73 +85,89 @@ class Annotations(ProtocolModel):
 
 
 class TextContent(ProtocolModel):
-    """Text provided to or from an LLM."""
+    """
+    Plain text content for prompts and responses.
+
+    The most common content type - use this for instructions, examples,
+    explanations, or any readable text you want to include in messages.
+    """
 
     type: str = Field(default="text", frozen=True)
     text: str
-    """
-    The text content of the message.
-    """
+    """The text content."""
 
     annotations: Annotations | None = None
-    """
-    Display hints for client use and rendering.
-    """
+    """Hints about how clients should handle this text."""
 
 
 class ImageContent(ProtocolModel):
     """
-    An image provided to or from an LLM.
+    Image content for visual prompts and responses.
 
-    Image is provided as base64-encoded data.
+    Useful for prompts that need visual context - screenshots for debugging,
+    diagrams for analysis, photos for description tasks, etc. Images are
+    base64-encoded for transmission.
     """
 
-    type: str = Field("image", frozen=True)
+    type: str = Field(default="image", frozen=True)
     mime_type: str = Field(alias="mimeType")
+    """
+    Image format like 'image/png' or 'image/jpeg'.
+    """
+
     data: str
     """
-    The base64-encoded image data.
+    Base64-encoded image data.
     """
 
     annotations: Annotations | None = None
     """
-    Display hints for client use and rendering.
+    Hints about how clients should handle this image.
     """
 
 
 class AudioContent(ProtocolModel):
     """
-    Audio provided to or from an LLM.
+    Audio content for speech-enabled prompts and responses.
 
-    Audio is provided as base64-encoded data.
+    Enable prompts that work with voice recordings, sound analysis,
+    or audio generation tasks. Audio is base64-encoded for transmission.
     """
 
-    type: str = Field("audio", frozen=True)
+    type: str = Field(default="audio", frozen=True)
     mime_type: str = Field(alias="mimeType")
+    """
+    Audio format like 'audio/wav' or 'audio/mp3'.
+    """
+
     data: str
     """
-    The base64-encoded audio data
+    Base64-encoded audio data.
     """
 
     annotations: Annotations | None = None
     """
-    Display hints for client use and rendering.
+    Hints about how clients should handle this audio.
     """
 
 
 class EmbeddedResource(ProtocolModel):
     """
-    The contents of a resource that is embedded in a prompt or tool call result.
+    Server-sourced content embedded directly into prompts or tool call results.
 
-    Client determines how to display the resource for the benefit of the LLM and/or
-    user.
+    This lets prompts and tool calls pull in real data—file contents,
+    database results, images—rather than just being static templates.
     """
 
-    type: str = Field("resource", frozen=True)
+    type: str = Field(default="resource", frozen=True)
     resource: TextResourceContents | BlobResourceContents
+    """
+    The actual resource content - text or binary data.
+    """
+
     annotations: Annotations | None = None
     """
-    Display hints for client use and rendering.
+    Hints about how clients should handle this resource.
     """
 
 
