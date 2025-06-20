@@ -30,10 +30,14 @@ class PromptArgument(ProtocolModel):
 
     name: str
     description: str | None = None
-    """Human-readable description of what this argument controls."""
+    """
+    Human-readable description of what this argument controls.
+    """
 
     required: bool = Field(default=False)
-    """Whether this argument must be provided. Defaults to False."""
+    """
+    Whether this argument must be provided. Defaults to False.
+    """
 
 
 class Prompt(ProtocolModel):

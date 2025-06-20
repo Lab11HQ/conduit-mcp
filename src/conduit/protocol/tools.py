@@ -54,132 +54,183 @@ class InputSchema(ProtocolModel):
 
 class ToolAnnotations(ProtocolModel):
     """
-    Behavioral hints about a tool to help LLMs make better decisions.
+    Behavioral hints that guide LLM tool selection and usage patterns.
 
-    These are advisory only—never trust hints from untrusted servers for security
-    decisions. They help LLMs understand tool characteristics like safety and scope,
-    but don't guarantee the tool's behavior.
+    When LLMs have multiple tools available, these hints inform strategic
+    decision-making. A read-only database tool can be called speculatively
+    during information gathering. An idempotent configuration tool can be
+    safely retried on failure. A destructive cleanup tool requires careful
+    consideration of timing and necessity.
+
+    **Security note**: These are optimization hints, not security guarantees.
+    Never rely on annotations from untrusted servers for access control decisions.
     """
 
     title: str | None = None
     """
-    Human-readable title for the tool.
+    Display name for the tool.
     """
 
     read_only_hint: bool = Field(default=False, alias="readOnlyHint")
     """
-    True if the tool only reads data without making changes.
+    Indicates tools that observe but don't modify their environment.
     """
 
     destructive_hint: bool = Field(default=True, alias="destructiveHint")
     """
-    True if the tool might delete or overwrite existing data. Defaults to True for
-    safety.
+    Marks tools that may delete or overwrite existing data.
+    
+    When False, indicates additive-only operations. Defaults to True for
+    conservative behavior.
     """
 
     idempotent_hint: bool = Field(default=False, alias="idempotentHint")
     """
-    True if calling the tool multiple times with same arguments has no additional
-    effect.
+    Indicates operations that can be safely repeated.
+    
+    Enables automatic retry logic and simplifies error recovery patterns.
     """
 
     open_world_hint: bool = Field(default=True, alias="openWorldHint")
     """
-    True if the tool interacts with external systems (web, APIs). False for contained
-    tools like memory or math.
+    Distinguishes tools that interact with external systems versus
+    those operating within controlled boundaries.
+    
+    Web APIs and third-party services are open-world. Internal databases
+    and computational tools are closed-world.
     """
 
 
 class Tool(ProtocolModel):
     """
-    A function that LLMs can call to interact with your system.
+    A callable function that extends LLM capabilities beyond text generation.
 
-    Tools are how you extend an LLM's capabilities beyond text generation.
-    Each tool defines what it does, what inputs it expects, and provides
-    hints about its behavior to help LLMs use it effectively.
+    Tools solve the fundamental limitation of language models: they can describe
+    actions but can't perform them. By defining tools, you create a controlled
+    interface for LLMs to interact with your systems, APIs, and data sources.
+
+    The LLM automatically determines when to call tools based on conversation
+    context, eliminating the need for explicit command parsing or user input.
     """
 
     name: str
     """
-    Unique identifier for the tool. Use clear, descriptive names like 'search_web' or
-    'send_email'.
+    Function identifier used in tool calls.
+    
+    Choose names that clearly indicate purpose: 'query_inventory',
+    'create_support_ticket', 'analyze_performance_metrics'.
     """
 
     description: str | None = None
     """
-    Human-readable description of the tool. Clients can use this to improve LLM
-    understanding of the tool.
+    Guides the LLM's understanding of when and how to use this tool.
+    
+    Effective descriptions explain the tool's purpose, appropriate use cases,
+    and any relevant constraints or considerations.
     """
 
     input_schema: InputSchema = Field(alias="inputSchema")
     """
-    JSON schema for the tool's input parameters.
+    JSON Schema defining the tool's parameter structure.
     """
 
     annotations: ToolAnnotations | None = Field(default=None)
     """
-    Optional behavioral hints to help LLMs make better decisions about tool usage.
+    Behavioral hints that inform LLM tool selection strategies.
     """
 
 
-class ListToolsResult(PaginatedResult):
-    """Server's response listing available tools."""
-
-    tools: list[Tool]
-
-
 class ListToolsRequest(PaginatedRequest):
-    """Ask the server what tools are available."""
+    """
+    Discover what capabilities a server offers.
+
+    This is typically the start of the tool usage process. Clients use this to
+    ask "what can you do?" The response shapes how the LLM will interact
+    with the server throughout the session.
+    """
 
     method: Literal["tools/list"] = "tools/list"
 
     @classmethod
-    def expected_result_type(cls) -> type[ListToolsResult]:
+    def expected_result_type(cls) -> type["ListToolsResult"]:
         return ListToolsResult
 
 
-class CallToolResult(Result):
-    """Result from executing a tool."""
+class ListToolsResult(PaginatedResult):
+    """
+    The server's catalog of available capabilities.
 
-    content: list[TextContent | ImageContent | AudioContent | EmbeddedResource]
-    """
-    The tool's output, which the LLM can read and understand.
+    Each tool in this list becomes a function the LLM can call. The server
+    is essentially saying "here's what I can do for you"—whether that's
+    querying databases, calling APIs, or manipulating files.
     """
 
-    is_error: bool = Field(default=False, alias="isError")
-    """
-    True if the tool execution failed. The LLM can see this and try a different
-    approach. Use this for tool-level errors, not protocol-level errors.
-    """
+    tools: list[Tool]
 
 
 class CallToolRequest(Request):
     """
     Execute a specific tool with given arguments.
+
+    This is where the LLM puts tools to work—calling functions, querying
+    data, or performing actions based on the conversation context.
     """
 
     method: Literal["tools/call"] = "tools/call"
     name: str
     """
-    Name of the tool to call.
+    Name of the tool to execute.
     """
 
     arguments: dict[str, Any] | None = None
     """
-    Arguments to pass to the tool, matching its input schema.
+    Arguments for the tool call, structured according to the tool's input schema.
     """
 
     @classmethod
-    def expected_result_type(cls) -> type[CallToolResult]:
+    def expected_result_type(cls) -> type["CallToolResult"]:
         return CallToolResult
+
+
+class CallToolResult(Result):
+    """
+    The outcome of a tool execution.
+
+    Tools can return rich content—text, images, audio, or embedded resources—
+    that becomes part of the conversation context. The LLM processes this
+    output and decides how to proceed.
+    """
+
+    content: list[TextContent | ImageContent | AudioContent | EmbeddedResource]
+    """
+    Tool output that becomes part of the conversation context.
+
+    Content can mix any combination of formats—text, images, audio, or embedded
+    resources. Multimodal LLMs can work directly with images and audio, while
+    text-focused LLMs may need clients to provide descriptions or transcriptions.
+    """
+
+    is_error: bool = Field(default=False, alias="isError")
+    """
+    Indicates tool execution failure while keeping the error visible to the LLM.
+    
+    When True, the LLM can see what went wrong and attempt recovery—trying
+    different arguments, switching tools, or asking for clarification.
+    Use this for business logic errors, not protocol-level failures.
+    """
 
 
 class ToolListChangedNotification(Notification):
     """
-    Server notification that available tools have changed.
+    Server notification that its tool catalog has changed.
 
-    Servers can send this anytime without the client subscribing first.
-    Useful when tools are added, removed, or modified dynamically.
+    Servers send this when tools are added, removed, or modified—perhaps
+    when new integrations come online or capabilities are dynamically
+    enabled. Clients typically respond by fetching the updated tool list
+    to keep the LLM's understanding current.
+
+    Note: No subscription required—servers can broadcast this notification at
+    any time during the session.
     """
 
     method: Literal["notifications/tools/list_changed"] = (
