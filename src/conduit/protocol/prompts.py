@@ -157,7 +157,7 @@ class PromptListChangedNotification(Notification):
     """
     Server notification that its prompt catalog has changed.
 
-    Servers send this when they add, remove, or modify their available prompts.
+    Servers send this when they add or remove some of their available prompts.
     Clients can respond by refreshing their prompt list to discover new
     capabilities or handle removed prompts gracefully.
 

@@ -1,4 +1,33 @@
-from typing import Annotated, Any, Literal
+"""
+Resource management for accessing server-side data.
+
+Resources are how MCP servers expose their data to clients and LLMs - files,
+database records, API endpoints, or any content that can be identified by URI.
+The resource system provides discovery, templates for dynamic access, and
+real-time change tracking.
+
+## The Resource Workflow
+
+1. **Discovery** - List available resources and templates to see what data the server
+    provides
+2. **Access** - Read specific resources or expand templates to get content
+3. **Tracking** - Subscribe to resources that change over time for live updates
+
+## Static vs Dynamic Resources
+
+**Static resources** have fixed URIs that you discover through listing - individual
+files, specific database records, or named API endpoints.
+
+**Dynamic resources** use templates with variables like `file:///logs/{date}.log`,
+letting you access large or infinite resource spaces without pre-listing every
+possibility.
+
+Resources provide the metadata (name, description, size), while the content
+comes back as text or binary data when you read them. This separation keeps
+discovery fast and lets applications decide what data they need.
+"""
+
+from typing import Annotated, Literal
 
 from pydantic import AnyUrl, Field, UrlConstraints
 
@@ -19,39 +48,46 @@ from conduit.protocol.content import (
 
 class Resource(ProtocolModel):
     """
-    A known resource the server can read from.
+    A data source that the server can provide to clients and LLMs.
+
+    Resources are how servers expose their data - files, database records,
+    API endpoints, or any content that can be referenced by URI. Servers
+    advertise what resources they have available, and clients can request
+    the actual content when needed.
+
+    Think of this as metadata about what's available, not the content itself.
     """
 
     uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
     """
-    Resource identifier (file path, URL, etc.).
+    Unique identifier for this resource (file path, URL, database URI, etc.).
     """
 
     name: str
     """
-    Human-readable resource name. Client can display this to the user.
+    Human-readable name for display in client UIs.
     """
 
     description: str | None = None
     """
-    Optional resource description. Clients can use this to improve LLM understanding
-    of the resource.
+    What this resource contains or represents. Helps LLMs understand
+    when and how to use this resource effectively.
     """
 
     mime_type: str | None = Field(default=None, alias="mimeType")
     """
-    MIME type of the resource content.
+    Content type, when known (text/plain, image/png, etc.).
     """
 
     annotations: Annotations | None = None
     """
-    Display hints for client use and rendering.
+    Hints about how clients should handle this resource.
     """
 
     size_in_bytes: int | None = Field(default=None, alias="size")
     """
-    Resource size in bytes. Used by Hosts to display file size and estimate token
-    usage.
+    Raw content size in bytes. Helps clients estimate context usage
+    and display file sizes to users.
     """
 
 
@@ -69,117 +105,143 @@ class ResourceReference(ProtocolModel):
 
 class ResourceTemplate(ProtocolModel):
     """
-    A template for a set of resources that the server can read from.
+    A pattern for generating multiple related resources dynamically.
+
+    Instead of listing every possible resource individually, servers can offer
+    templates that clients expand with specific values. For example, a template
+    like "file:///logs/{date}.log" lets clients access any date's log file
+    without the server pre-listing every possible date.
+
+    This enables access to large or infinite resource spaces efficiently.
     """
 
     uri_template: str = Field(alias="uriTemplate")
     """
-    URI template following RFC 6570 specification (e.g., "file:///logs/{date}.log").
-    Template variables are enclosed in braces and will be expanded when requesting
-    the actual resource.
+    URI pattern following RFC 6570 (e.g., "file:///logs/{date}.log").
+    Clients substitute values for variables in braces to create specific URIs.
     """
 
     name: str
     """
-    Human-readable name for the type of resource this template refers to. Clients can
-    use this to populate UI elements.
+    Human-readable name for this type of resource pattern.
     """
 
     description: str | None = None
     """
-    Human-readable description of what this template is for. Clients can use this to
-    improve LLM understanding of the available resources.
+    What resources this template provides access to. Helps LLMs understand
+    when and how to use this template effectively.
     """
 
     mime_type: str | None = Field(default=None, alias="mimeType")
     """
-    MIME type of the resource content. Only include if all resources matching this
-    template have the same type.
+    Content type for all resources matching this template, when consistent
+    across the entire pattern.
     """
 
     annotations: Annotations | None = None
     """
-    Display hints for client use and rendering.
-    """
-
-    def to_protocol(self) -> dict[str, Any]:
-        return self.model_dump(exclude_none=True, by_alias=True, mode="json")
-
-
-class ListResourcesResult(PaginatedResult):
-    """
-    Response containing available resources and pagination info.
-    """
-
-    resources: list[Resource]
-    """
-    List of available resources.
+    Hints about how clients should handle resources from this template.
     """
 
 
 class ListResourcesRequest(PaginatedRequest):
     """
-    Request to list available resources with optional pagination.
+    Discover what data sources the server can provide.
+
+    Use this to build catalogs, populate UI dropdowns, or let LLMs know
+    what information they can request from this server.
     """
 
     method: Literal["resources/list"] = "resources/list"
 
     @classmethod
-    def expected_result_type(cls) -> type[ListResourcesResult]:
+    def expected_result_type(cls) -> type["ListResourcesResult"]:
         return ListResourcesResult
 
 
-class ListResourceTemplatesResult(PaginatedResult):
+class ListResourcesResult(PaginatedResult):
     """
-    Response containing available resource templates and pagination info.
+    The server's catalog of available data sources.
     """
 
-    resource_templates: list[ResourceTemplate] = Field(alias="resourceTemplates")
+    resources: list[Resource]
     """
-    List of available resource templates.
+    Individual resources the server can provide.
     """
 
 
 class ListResourceTemplatesRequest(PaginatedRequest):
     """
-    Request to list available resource templates with optional pagination.
+    Discover what dynamic resource patterns the server offers.
+
+    Templates let you access large resource spaces efficiently - like
+    requesting any date's logs or any user's profile without the server
+    pre-listing every possibility.
     """
 
     method: Literal["resources/templates/list"] = "resources/templates/list"
 
     @classmethod
-    def expected_result_type(cls) -> type[ListResourceTemplatesResult]:
+    def expected_result_type(cls) -> type["ListResourceTemplatesResult"]:
         return ListResourceTemplatesResult
 
 
-class ReadResourceResult(Result):
+class ListResourceTemplatesResult(PaginatedResult):
     """
-    Response containing the content of a resource.
+    The server's catalog of dynamic resource patterns.
     """
 
-    contents: list[TextResourceContents | BlobResourceContents]
+    resource_templates: list[ResourceTemplate] = Field(alias="resourceTemplates")
     """
-    The content of the resource.
+    Template patterns you can expand to access specific resources.
     """
 
 
 class ReadResourceRequest(Request):
     """
-    Request to read a resource at a given URI.
+    Request the content of a specific resource.
+
+    This is where you move from discovery to action - taking a URI from
+    the resource catalog or expanding a template and getting the real data
+    to use in prompts or analysis.
     """
 
     method: Literal["resources/read"] = "resources/read"
     uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
     """
-    URI of the resource to read.
+    URI of the resource to fetch content from.
     """
 
     @classmethod
-    def expected_result_type(cls) -> type[ReadResourceResult]:
+    def expected_result_type(cls) -> type["ReadResourceResult"]:
         return ReadResourceResult
 
 
+class ReadResourceResult(Result):
+    """
+    The content of a resource, ready to use.
+
+    Resources can contain multiple pieces of content (like a directory
+    with multiple files), so this always returns a list even for single items.
+    """
+
+    contents: list[TextResourceContents | BlobResourceContents]
+    """
+    The resource content - text, binary data, or both.
+    """
+
+
 class ResourceListChangedNotification(Notification):
+    """
+    Server notification that its resource catalog has changed.
+
+    Servers send this when they add or remove available resources. Clients can
+    respond by refreshing their resource list to discover new data sources or
+    handle removed ones gracefully.
+
+    Note: Servers can send this anytime, even without a subscription request.
+    """
+
     method: Literal["notifications/resources/list_changed"] = (
         "notifications/resources/list_changed"
     )
@@ -187,11 +249,20 @@ class ResourceListChangedNotification(Notification):
 
 class SubscribeRequest(Request):
     """
-    Request to subscribe to resource update notifications for a given resource.
+    Watch a specific resource for changes.
+
+    Use this when your application needs to stay current with dynamic data -
+    log files that grow, databases that update, or any resource that changes
+    over time. The server will notify you when the content changes.
+
+    Note: Does not expect a response.
     """
 
     method: Literal["resources/subscribe"] = "resources/subscribe"
     uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
+    """
+    URI of the resource to monitor for changes.
+    """
 
     @classmethod
     def expected_result_type(cls) -> None:
@@ -200,11 +271,20 @@ class SubscribeRequest(Request):
 
 class UnsubscribeRequest(Request):
     """
-    Request to unsubscribe from resource update notifications for a given resource.
+    Stop watching a resource for changes.
+
+    Send this when you no longer need updates about a resource, typically
+    when cleaning up subscriptions or when users navigate away from data
+    that's no longer relevant.
+
+    Note: Does not expect a response.
     """
 
     method: Literal["resources/unsubscribe"] = "resources/unsubscribe"
     uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
+    """
+    URI of the resource to stop monitoring.
+    """
 
     @classmethod
     def expected_result_type(cls) -> None:
@@ -213,10 +293,21 @@ class UnsubscribeRequest(Request):
 
 class ResourceUpdatedNotification(Notification):
     """
-    Notification that a resource has been updated.
+    Server notification that a watched resource has changed.
+
+    Signals that you should re-read the resource to get current data.
+    The URI might be more specific than what you originally subscribed to -
+    for example, subscribing to a directory might generate notifications
+    for individual files within it.
+
+    Note: Servers should only send this if a client has explicitly
+    subscribed to a resource.
     """
 
     method: Literal["notifications/resources/updated"] = (
         "notifications/resources/updated"
     )
     uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
+    """
+    URI of the resource that changed.
+    """

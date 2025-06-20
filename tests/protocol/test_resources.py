@@ -163,20 +163,28 @@ class TestResources:
             # Assert
             assert str(resource.uri) == expected_uri
 
-    def test_resource_template_serializes_with_uri_template(self):
+    def test_list_resource_template_result_serializes_with_uri_template(self):
         # Arrange
         resource_template = ResourceTemplate(
             name="Test",
             uri_template="https://example.com/{resource_id}",
         )
+        result = ListResourceTemplatesResult(
+            resource_templates=[resource_template],
+        )
 
         # Act
-        serialized = resource_template.to_protocol()
+        serialized = result.to_protocol()
+        wire_format = {"jsonrpc": "2.0", "id": 1, "result": serialized}
 
         # Assert
-        assert serialized == {
-            "name": "Test",
-            "uriTemplate": "https://example.com/{resource_id}",
+        assert wire_format["result"] == {
+            "resourceTemplates": [
+                {
+                    "name": "Test",
+                    "uriTemplate": "https://example.com/{resource_id}",
+                }
+            ]
         }
 
     def test_list_resource_template_result_roundtrips(self):
