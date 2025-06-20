@@ -1,22 +1,38 @@
 """
-MCP Tools: Turn your LLM into an agent that can actually do things.
+Tool system for extending LLM capabilities beyond text generation.
 
-Instead of just generating text, your LLM can now:
-- Search the web and read documents
-- Query databases and APIs
-- Write files and run calculations
-- Send emails and create calendar events
+Tools solve a fundamental limitation: LLMs can describe actions but can't perform them.
+By defining callable functions through MCP, you enable LLMs to interact with your
+systems, APIs, and data sources automatically based on conversation context.
 
-The flow is straightforward:
+## The Tool Lifecycle
 
-1. **Discovery**: LLM asks "What can I do?" via `ListToolsRequest`
-2. **Decision**: LLM reads tool descriptions and decides which to use
-3. **Execution**: LLM calls the tool with `CallToolRequest`
-4. **Use**: Tool returns results (or errors) that LLM can see and use
+1. **Discovery** - Clients ask servers "what can you do?" via ListToolsRequest
+2. **Selection** - LLMs choose appropriate tools based on descriptions and behavioral
+    hints
+3. **Execution** - Clients invoke tools with CallToolRequest, passing structured
+    arguments
+4. **Integration** - Tool results become conversation context the LLM can build upon
 
-Note: LLMs consume both results and errors so they can learn from failures and adjust
-their approach. The quality of your tool outputs, descriptions, and error messages
-determines how effectively the LLM can use your tools.
+## Designing Effective Tools
+
+Tools work best when they represent clear, focused capabilities. Instead of a generic
+"database" tool, create specific tools like "search_customers" or "update_inventory".
+
+Remember that LLMs consume your tool outputs. Instead of returning raw JSON payloads
+or deeply nested data structures, format results as readable text that an LLM can
+understand and work with. A customer search tool should return "Found 3 customers
+matching 'Smith': John Smith (ID: 1234, email: john@example.com)..." rather than
+a complex object hierarchy.
+
+Use ToolAnnotations to guide LLM decision-making. For example, mark tools as
+read-only, destructive, or open-world to help LLMs understand when and how to
+use them.
+
+Tool results can include rich content: text responses, images, audio, or embedded
+server resources. The error handling model keeps failures visible to the LLM rather
+than breaking the conversation flow, enabling intelligent recovery and alternative
+approaches.
 """
 
 from typing import Any, Literal
