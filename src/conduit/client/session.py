@@ -1,3 +1,14 @@
+"""Low-level MCP client session implementation.
+
+This module contains the internal protocol engine that handles MCP communication.
+Most users should use the higher-level MCPClient class instead—this is for when you
+need direct control over the protocol lifecycle.
+
+The ClientSession manages JSON-RPC message routing, maintains connection state,
+and handles the MCP initialization handshake. It's designed to be wrapped by
+more user-friendly interfaces.
+"""
+
 import asyncio
 import uuid
 from collections.abc import Awaitable, Callable
@@ -56,8 +67,27 @@ REQUEST_CLASSES = {
 
 
 class ClientSession:
-    """
-    MCP client session handling request/response over a transport.
+    """Manages the low-level MCP client protocol and connection lifecycle.
+
+    Handles JSON-RPC message routing, request/response correlation, and
+    server communication over a transport. This is the internal engine—
+    most users should use the higher-level MCPClient class instead.
+
+    Key responsibilities:
+    - MCP initialization handshake
+    - Bidirectional message processing (requests, responses, notifications)
+    - Request timeout and cancellation handling
+    - Type-safe protocol parsing and routing
+
+    Args:
+        transport: Communication channel to the MCP server.
+        client_info: Client identification and version info.
+        capabilities: What MCP features this client supports.
+        create_message_handler: LLM sampling handler (required if sampling enabled).
+        roots: Filesystem roots to expose (if roots capability enabled).
+
+    Raises:
+        ValueError: Sampling capability enabled without handler.
     """
 
     def __init__(
