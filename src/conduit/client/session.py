@@ -93,13 +93,10 @@ class ClientSession:
         self.notifications: asyncio.Queue[Notification] = asyncio.Queue()
 
     async def _start(self) -> None:
-        """
-        Start the session's background message processing loop.
+        """Start the background message loop if not already running.
 
-        Creates a task to continuously process incoming messages, enabling
-        real-time handling of server requests and notifications.
-
-        Called automatically by initialize(). Idempotent - safe to call multiple times.
+        Enables real-time handling of server requests, responses, and notifications.
+        Safe to call multiple times.
         """
         if self._running:
             return
@@ -107,14 +104,12 @@ class ClientSession:
         self._message_loop_task = asyncio.create_task(self._message_loop())
 
     async def stop(self) -> None:
-        """
-        Stop the session and clean up all resources.
+        """Stop the session and clean up all resources.
 
-        Terminates the background message loop, cancels any pending requests,
-        and closes the transport connection. After calling this, the session
-        cannot be restarted.
+        Cancels pending requests, closes the transport, and shuts down the message
+        loop. Once stopped, you'll need to create a new session to reconnect.
 
-        Safe to call multiple times - subsequent calls do nothing.
+        Safe to call multiple times.
         """
         if not self._running and self._message_loop_task is None:
             return
@@ -139,37 +134,24 @@ class ClientSession:
         return self._initialize_result is not None
 
     async def initialize(self, timeout: float = 30.0) -> InitializeResult:
-        """
-        Initialize the MCP session with the server.
+        """Initialize your MCP session with the server.
 
-        Performs the required MCP handshake: sends an InitializeRequest with this
-        client's capabilities, waits for the server's InitializeResult, validates
-        protocol compatibility, and sends the final InitializedNotification.
-
-        This automatically starts the session's message loop if it isn't already
-        running. After successful initialization, the session is ready for normal
-        operation.
+        Call this once after creating your session—it handles the handshake and
+        starts the message loop. Safe to call multiple times.
 
         Args:
-            transport_metadata: Optional metadata to include with initialization
-                messages. The meaning depends on your transport implementation.
-            timeout: Maximum time in seconds to wait for server response.
-                Defaults to 30 seconds.
+            timeout: How long to wait for the server (seconds).
 
         Returns:
-            The server's initialization result, containing its capabilities, name,
-            version, and protocol version.
+            Server capabilities and connection details.
 
         Raises:
-            TimeoutError: If the server doesn't respond within the timeout period.
-            ValueError: If the server uses an incompatible protocol version.
-            ConnectionError: If the transport fails during initialization.
-
-        Note:
-            This method is idempotent. Multiple calls return the same result
-            without re-initializing. If initialization is already in progress,
-            this waits for it to complete.
+            TimeoutError: Server didn't respond in time.
+            ValueError: Server uses incompatible protocol version.
+            ConnectionError: Connection failed during handshake.
         """
+        await self._start()
+
         if self._initialize_result is not None:
             return self._initialize_result
 
@@ -188,40 +170,25 @@ class ClientSession:
         request: Request,
         timeout: float = 30.0,
     ) -> Result | Error | None:
-        """Send a request to the MCP server and handle the complete lifecycle.
+        """Send a request to the server and wait for its response.
 
-        This method orchestrates the full request-response cycle: it starts the
-        message loop if needed, sends your request with a unique identifier, waits
-        for the server's response, and cleans up gracefully regardless of outcome.
-        For requests that don't expect responses (like logging level changes), it
-        returns immediately after sending.
+        Handles the complete request lifecycle for you—generates IDs, manages
+        timeouts, and cleans up automatically. Returns None for fire-and-forget
+        requests like logging changes.
 
-        The session must be initialized before sending most requests, with one
-        exception: PingRequests are allowed at any time since they're designed to
-        test basic connectivity. All other requests will fail if sent before the
-        initialization handshake is complete.
-
-        The method handles MCP's bidirectional communication safely by generating
-        UUID request identifiers, preventing ID conflicts. If a request times out,
-        the client sends a cancellation notification to the server.
+        Most requests require an initialized session. PingRequests work anytime
+        since they test basic connectivity.
 
         Args:
-            request: The MCP request to send to the server
-            transport_metadata: Optional transport-specific data like authentication
-                tokens or routing information
-            timeout: Maximum seconds to wait for a response before cancelling
+            request: The MCP request to send
+            timeout: How long to wait for a response (seconds)
 
         Returns:
-            The server's result or error response. Returns None for requests that
-            don't expect responses (fire-and-forget requests like logging level
-            changes).
+            Server's response, or None for requests that don't expect replies.
 
         Raises:
-            RuntimeError: When the session isn't initialized and the request isn't
-                a PingRequest. Initialize the session first with initialize().
-            TimeoutError: When the server doesn't respond within the timeout period.
-                The client attempts to send a cancellation notification to the server,
-                but will still raise TimeoutError even if the cancellation fails.
+            RuntimeError: Session not initialized (call initialize() first)
+            TimeoutError: Server didn't respond in time
         """
         await self._start()
 
@@ -265,55 +232,37 @@ class ClientSession:
         self,
         notification: Notification,
     ) -> None:
-        """Send a notification to the server without expecting a response.
+        """Send a notification to the server.
 
-        Notifications are fire-and-forget messages that don't get response IDs or
-        expect replies. The method starts the message loop if needed and sends
-        immediately. Unlike requests, notifications can be sent at any time—no
-        initialization required.
+        Fire-and-forget messaging—no initialization required, no response expected.
 
         Args:
             notification: The MCP notification to send
-            transport_metadata: Optional transport-specific data like authentication
-                tokens or routing information
 
         Raises:
-            Transport errors bubble up unchanged if sending fails.
+            Transport errors if sending fails.
         """
         await self._start()
         jsonrpc_notification = JSONRPCNotification.from_notification(notification)
         await self.transport.send(jsonrpc_notification.to_wire())
 
     async def _do_initialize(self, timeout: float = 30.0) -> InitializeResult:
-        """
-        Execute the complete MCP initialization sequence with timeout handling.
+        """Execute the MCP initialization handshake.
 
-        Implements the three-step MCP handshake protocol:
-        1. Send InitializeRequest with client info and capabilities
-        2. Receive and validate InitializeResult from server (with timeout)
-        3. Send InitializedNotification to complete the handshake
-
-        This method handles the low-level protocol details including request ID
-        management, response correlation, and protocol version validation. If the
-        server doesn't respond within the timeout, we stop the session. On any failure,
-        we stop the session to prevent partial initialization states.
+        Performs the three-step protocol: send request, validate response,
+        send completion notification. Stops the session on any failure to
+        prevent partial initialization.
 
         Args:
-            transport_metadata: Optional metadata passed to transport operations.
-            timeout: Maximum time in seconds to wait for server response.
+            timeout: Maximum seconds to wait for server response.
 
         Returns:
-            The validated server initialization result.
+            Validated server initialization result.
 
         Raises:
-            TimeoutError: If server doesn't respond within the timeout period.
-            ValueError: If server protocol version is incompatible.
-            ConnectionError: If transport operations fail.
-            Any exception raised by the server or transport layer.
-
-        Note:
-            This is an internal implementation method. Use initialize() instead,
-            which provides idempotency and concurrent call handling.
+            TimeoutError: Server didn't respond in time.
+            ValueError: Protocol version mismatch or server error.
+            ConnectionError: Transport failure.
         """
         await self._start()
         init_request = InitializeRequest(
@@ -359,41 +308,20 @@ class ClientSession:
             self._pending_requests.pop(request_id, None)
 
     async def _message_loop(self) -> None:
-        """Keeps the session alive by processing messages from the server.
+        """Process incoming messages until the session stops.
 
-        This runs continuously in the background, receiving messages from the transport
-        and handing them to the message handler. Think of it as the session's main
-        thread—it never stops listening until the connection dies or you shut it down.
-
-        When a message arrives, the loop hands it off to `_handle_message()` and keeps
-        going. If the message handler crashes on a given message, the loop logs the
-        error and moves on to the next message. One bad message won't kill your session.
-
-        But transport failures are different. If the connection breaks or the transport
-        itself fails, the loop shuts down cleanly. It cancels any requests still waiting
-        for responses so your code doesn't hang forever.
-
-        The loop processes messages sequentially. The message handler decides how each
-        message type should be processed (some may spawn concurrent tasks, others run
-        inline).
-
-        Stops when:
-        - You call `stop()`
-        - Connection breaks
-        - Transport fails catastrophically
+        Runs continuously in the background, handling server requests, responses,
+        and notifications. Recovers from message handling errors but stops on
+        transport failures.
         """
         try:
             async for message in self.transport.messages():
-                # Check if we should stop processing
                 if not self._running:
                     break
-                # NOTE: If we call stop() while this is running, shutdown will happen
-                # after this message is processed. Shutdown not immediate.
                 try:
                     await self._handle_message(message)
                 except Exception as e:
                     print(f"Error handling message: {e}")
-                    # Continue processing other messages
                     continue
 
         except ConnectionError:
@@ -401,14 +329,22 @@ class ClientSession:
         except Exception as e:
             print("Transport error while receiving message:", e)
         finally:
+            # TODO: Send error messages of some kind? Clean up better more gracefully.
             self._running = False
             self._cancel_pending_requests("Message loop terminated")
 
     def _cancel_pending_requests(self, reason: str) -> None:
+        """Cancel all pending requests with a CancelledError.
+
+        Called during shutdown to prevent requests from hanging forever.
+
+        Args:
+            reason: Human-readable explanation for the cancellation.
+        """
         for request_id, (request, future) in self._pending_requests.items():
             if not future.done():
                 future.set_exception(
-                    ConnectionError(
+                    asyncio.CancelledError(
                         f"Request {request_id} cancelled: {reason} for {request.method}"
                     )
                 )
@@ -417,25 +353,17 @@ class ClientSession:
     async def _handle_message(
         self, payload: dict[str, Any] | list[dict[str, Any]]
     ) -> None:
-        """Route incoming transport message to appropriate handler based on JSON-RPC
-        type.
+        """Route incoming messages to the appropriate handler.
 
-        This is the central message dispatch point for the client session. It examines
-        the message payload to determine the JSON-RPC message type and routes
-        accordingly:
-
-        - **Responses**: Resolves pending request futures with the complete response
-        - **Requests**: Creates async task to handle server requests and send responses
-        - **Notifications**: Parses and queues notifications for client consumption
-
-        Request handling is done in background tasks to avoid blocking the message loop
-        while fulfilling requests.
+        Central dispatch point that identifies JSON-RPC message types and
+        routes to response, request, or notification handlers. Handles
+        batched messages recursively.
 
         Args:
-            payload: JSON-RPC payload
+            payload: JSON-RPC message or batch of messages.
 
         Raises:
-            ValueError: If message payload doesn't match any known JSON-RPC type
+            ValueError: Unknown message type.
         """
         # TODO: Add a recursion limit
         if isinstance(payload, list):
@@ -460,42 +388,36 @@ class ClientSession:
             raise
 
     def _is_valid_response(self, payload: dict[str, Any]) -> bool:
-        """Check if payload is a structurally valid response for routing.
+        """Check if payload is a valid JSON-RPC response.
 
-        A valid response must have a int or string ID (to match against pending
-        requests) and exactly one of 'result' or 'error' fields. This validation
-        ensures we can safely route the response to the right pending request.
+        Validates ID field and ensures exactly one of 'result' or 'error'
+        is present for safe routing to pending requests.
 
         Args:
-            payload: JSON-RPC message payload from transport
+            payload: JSON-RPC message payload.
 
         Returns:
-            True if payload can be processed as a response, False otherwise
+            True if valid response structure.
         """
         has_valid_id = payload.get("id") is not None and isinstance(
             payload.get("id"), int | str
         )
         has_result = "result" in payload
         has_error = "error" in payload
-
-        # Must have exactly one of result or error (not both, not neither)
         has_exactly_one_response_field = has_result ^ has_error
 
         return has_valid_id and has_exactly_one_response_field
 
     def _is_valid_request(self, payload: dict[str, Any]) -> bool:
-        """Check if payload is a structurally valid JSON-RPC request.
+        """Check if payload is a valid JSON-RPC request.
 
-        A valid request must have a 'method' field (to identify what operation
-        the client wants to perform) and a int or string 'id' field (to match against
-        the response). This validation ensures we can safely route the request
-        to the appropriate handler.
+        Validates required 'method' and 'id' fields for safe routing.
 
         Args:
-            payload: JSON-RPC message payload from transport
+            payload: JSON-RPC message payload.
 
         Returns:
-            True if payload can be processed as a request, False otherwise
+            True if valid request structure.
         """
         has_valid_id = payload.get("id") is not None and isinstance(
             payload.get("id"), int | str
@@ -503,35 +425,27 @@ class ClientSession:
         return "method" in payload and has_valid_id
 
     def _is_valid_notification(self, payload: dict[str, Any]) -> bool:
-        """Check if payload is a structurally valid JSON-RPC notification.
+        """Check if payload is a valid JSON-RPC notification.
 
-        A valid notification must have a 'method' field (to identify what happened)
-        and must NOT have an 'id' field (notifications are fire-and-forget, so no
-        response is expected). This validation ensures we can safely parse and
-        queue the notification.
+        Validates 'method' field is present and 'id' field is absent
+        (notifications don't expect responses).
 
         Args:
-            payload: JSON-RPC message payload from transport
+            payload: JSON-RPC message payload.
 
         Returns:
-            True if payload can be processed as a notification, False otherwise
+            True if valid notification structure.
         """
         return "method" in payload and "id" not in payload
 
     async def _handle_response(self, payload: dict[str, Any]) -> None:
-        """Resolve a pending request with a typed response.
+        """Resolve a pending request with the server's response.
 
-        Matches the server's response to the original request using the JSON-RPC ID,
-        parses it into the appropriate Result or Error type, and resolves the
-        waiting future.
+        Matches response to original request by ID, parses into Result or Error,
+        and resolves the waiting future. Logs unmatched responses.
 
         Args:
-            payload: Complete JSON-RPC response (validated by _is_valid_response)
-            transport_metadata: Transport-specific metadata (currently unused)
-        Note:
-            If no pending request matches the response ID, logs the unmatched
-            response and continues. This can happen with request timeouts or
-            edge cases in transport behavior.
+            payload: Validated JSON-RPC response.
         """
         message_id = payload["id"]
 
@@ -545,24 +459,20 @@ class ClientSession:
     def _parse_response(
         self, payload: dict[str, Any], original_request: Request
     ) -> Result | Error:
-        """Transform raw JSON-RPC responses into typed objects.
+        """Parse JSON-RPC response into typed Result or Error objects.
 
-        Instead of forcing you to parse JSON dictionaries and handle protocol
-        details, this uses the original request's type information to build
-        properly typed Result objects for successful responses or Error objects
-        for failures.
+        Uses the original request's type information to return the specific
+        Result subclass (e.g., ListToolsResult) rather than generic dictionaries.
 
         Args:
-            payload: The raw JSON-RPC response from the server
-            original_request: The request that triggered this response. This is used
-                to determine the expected result type.
+            payload: Raw JSON-RPC response from server.
+            original_request: Request that triggered this response.
 
         Returns:
-            A typed Result object for success, or an Error object for failures
+            Typed Result object for success, or Error object for failures.
 
         Raises:
-            ValueError: When a request type is missing its expected_result_type()
-                    implementation - indicates a bug in the request class
+            ValueError: Request does not expect a result.
         """
         if "result" in payload:
             result_type = original_request.expected_result_type()
@@ -576,39 +486,31 @@ class ClientSession:
         return Error.from_protocol(payload)
 
     async def _handle_notification(self, payload: dict[str, Any]) -> None:
-        """Parse and queue an incoming notification for client consumption.
-
-        Notifications are fire-and-forget messages from the server about events
-        that happened (like resource changes or progress updates). We parse the
-        raw payload into a typed notification object and queue it with any
-        transport metadata so client code can process notifications at their
-        own pace.
+        """Parse notification and queue it for client consumption.
 
         Args:
-            payload: JSON-RPC notification payload (validated by _is_valid_notification)
-            transport_metadata: Transport-specific metadata or None
+            payload: Validated JSON-RPC notification.
 
         Raises:
-            UnknownNotificationError: If the notification method isn't recognized
+            UnknownNotificationError: Unrecognized notification method.
         """
         notification = self._parse_notification(payload)
         await self.notifications.put(notification)
 
     def _parse_notification(self, payload: dict[str, Any]) -> Notification:
-        """Convert raw JSON-RPC notification payload into a typed notification object.
+        """Parse JSON-RPC notification into typed notification object.
 
-        Looks up the notification method in our registry of known notification types
-        and uses the appropriate class to parse the payload. This gives client code
-        strongly-typed notification objects instead of raw dictionaries.
+        Looks up the method in the notification registry and returns the
+        appropriate typed object instead of raw dictionaries.
 
         Args:
-            payload: JSON-RPC notification payload with 'method' field
+            payload: JSON-RPC notification with 'method' field.
 
         Returns:
-            Typed notification object corresponding to the method
+            Typed notification object for the method.
 
         Raises:
-            UnknownNotificationError: If the notification method isn't recognized
+            UnknownNotificationError: Unrecognized notification method.
         """
         method = payload["method"]
         notification_class = NOTIFICATION_CLASSES.get(method)
@@ -617,28 +519,14 @@ class ClientSession:
         return notification_class.from_protocol(payload)
 
     async def _handle_request(self, payload: dict[str, Any]) -> None:
-        """Handle a complete request-response cycle from the server.
+        """Handle server request and send back a response.
 
-        When the server sends us a request (like asking for a ping, filesystem roots,
-        or LLM sampling), this method orchestrates the full response cycle. We parse
-        the request, route it to the appropriate handler, execute the handler, and
-        send back a properly formatted JSON-RPC response.
-
-        The server always gets a response, even when things go wrong. Unknown methods
-        get METHOD_NOT_FOUND errors, handler exceptions become INTERNAL_ERROR
-        responses, and successful operations return the handler's result. This prevents
-        the server from hanging on malformed or failed requests.
-
-        This runs in a background task (created by _handle_message) so request
-        processing doesn't block the main message loop.
+        Parses the request, routes to appropriate handler, and always sends
+        a response—either the handler result or an error for unknown methods
+        and exceptions.
 
         Args:
-            payload: JSON-RPC request payload (validated by _is_valid_request)
-            transport_metadata: Transport-specific metadata or None
-
-        Note:
-            Always sends a response to the server using the request ID from the
-            original payload.
+            payload: Validated JSON-RPC request.
         """
         message_id = payload["id"]
 
@@ -670,20 +558,19 @@ class ClientSession:
             await self.transport.send(error_response.to_wire())
 
     def _parse_request(self, payload: dict[str, Any]) -> Request:
-        """Parse raw JSON-RPC request payload into a typed request object.
+        """Parse JSON-RPC request into typed request object.
 
-        Looks up the request method in our registry of known request types and
-        uses the appropriate class to parse the payload. This gives us strongly-
-        typed request objects instead of raw dictionaries for handler methods.
+        Looks up the method in the request registry and returns the
+        appropriate typed object instead of raw dictionaries.
 
         Args:
-            payload: JSON-RPC request payload with 'method' field
+            payload: JSON-RPC request with 'method' field.
 
         Returns:
-            Typed request object corresponding to the method
+            Typed request object for the method.
 
         Raises:
-            UnknownRequestError: If the request method isn't recognized
+            UnknownRequestError: Unrecognized request method.
         """
         method = payload["method"]
         request_class = REQUEST_CLASSES.get(method)
@@ -692,19 +579,16 @@ class ClientSession:
         return request_class.from_protocol(payload)
 
     async def _route_request(self, request: Request) -> Result | Error:
-        """Route parsed request to the appropriate handler method.
+        """Route request to the appropriate handler method.
 
-        Maps request methods to their corresponding handler functions. This
-        provides a second layer of method checking after parsing - if we can
-        parse a request type but don't have a handler for it, we return an
-        Error rather than crashing.
+        Maps request methods to handler functions. Returns METHOD_NOT_FOUND
+        error for unsupported methods instead of crashing.
 
         Args:
-            request: Typed request object from _parse_request
+            request: Typed request object.
 
         Returns:
-            Result object for success, Error object for failure (including
-            methods we can parse but choose not to handle)
+            Handler result or Error for unsupported methods.
         """
         handler_method = {
             "ping": self._handle_ping,
@@ -723,15 +607,14 @@ class ClientSession:
     async def _handle_list_roots(self, request: ListRootsRequest) -> Result | Error:
         """Handle server request for filesystem roots.
 
-        Returns the list of filesystem roots this client can provide access to,
-        but only if the client advertised roots capability during initialization.
-        If roots capability wasn't enabled, returns METHOD_NOT_FOUND.
+        Returns available roots if client advertised roots capability,
+        otherwise METHOD_NOT_FOUND error.
 
         Args:
-            request: Parsed roots/list request from server
+            request: Parsed roots/list request.
 
         Returns:
-            ListRootsResult with available roots, or Error if capability missing
+            ListRootsResult with roots, or Error if capability missing.
         """
         if self.capabilities.roots is None:
             return Error(
@@ -743,14 +626,13 @@ class ClientSession:
     async def _handle_ping(self, request: PingRequest) -> Result:
         """Handle server ping request.
 
-        Simple connectivity test - always returns success. Used by servers to
-        verify the client connection is alive and responsive.
+        Simple connectivity test—always returns success.
 
         Args:
-            request: Parsed ping request from server
+            request: Parsed ping request.
 
         Returns:
-            EmptyResult indicating successful ping response
+            EmptyResult indicating successful response.
         """
         return EmptyResult()
 
@@ -759,15 +641,14 @@ class ClientSession:
     ) -> Result | Error:
         """Handle server request for LLM message generation.
 
-        Delegates to the user-provided create message handler to generate a response
-        using the client's LLM. Only available if sampling capability was enabled
-        and a handler was provided during initialization.
+        Delegates to user-provided handler if sampling capability and handler
+        are both configured, otherwise returns METHOD_NOT_FOUND.
 
         Args:
-            request: Parsed sampling/createMessage request with prompt and parameters
+            request: Parsed sampling/createMessage request.
 
         Returns:
-            CreateMessageResult with generated response, or Error if capability missing
+            CreateMessageResult from user handler, or Error if not configured.
         """
         if not self.capabilities.sampling:
             return Error(

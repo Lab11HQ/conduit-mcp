@@ -11,3 +11,6 @@ wheels/
 
 # Type checking
 pyright-output.txt
+
+# Cursor
+.cursor/
