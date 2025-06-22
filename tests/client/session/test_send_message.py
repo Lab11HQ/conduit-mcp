@@ -84,7 +84,7 @@ class TestSendRequest(BaseSessionTest):
         # Verify nothing was sent
         assert len(self.transport.client_sent_messages) == 0
 
-    async def test_timeout_sends_cancellation_and_raises_timeout_error(self):
+    async def test_request_timeout_raises_timeout_error_and_sends_cancellation(self):
         """Times out waiting for response and sends cancellation notification."""
         # Arrange
         request = PingRequest()

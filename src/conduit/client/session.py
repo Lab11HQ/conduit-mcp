@@ -373,11 +373,11 @@ class ClientSession:
         """
         for request_id, (request, future) in self._pending_requests.items():
             if not future.done():
-                future.set_exception(
-                    asyncio.CancelledError(
-                        f"Request {request_id} cancelled: {reason} for {request.method}"
-                    )
+                error = Error(
+                    code=INTERNAL_ERROR,
+                    message=f"Cancelled because: {reason}",
                 )
+                future.set_result(error)
         self._pending_requests.clear()
 
     async def _handle_message(
