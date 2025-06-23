@@ -90,22 +90,27 @@ class ServerCapabilities(ProtocolModel):
     """
     Experimental or non-standard capabilities.
     """
+
     logging: dict[str, Any] | None = None
     """
-    Loggin capability configuration.
+    Logging capability configuration.
     """
+
     completions: dict[str, Any] | None = None
     """
     Completion capabilities.
     """
+
     prompts: PromptsCapability | None = None
     """
     Prompt management capabilities.
     """
+
     resources: ResourcesCapability | None = None
     """
     Resource access capabilities.
     """
+
     tools: ToolsCapability | None = None
     """
     Tool execution capabilities.
