@@ -100,6 +100,22 @@ class TestResources:
         assert serialized_resource["mimeType"] == "text/plain"
         assert serialized_resource["size"] == 1
 
+    def test_list_resources_serializes_with_resource_metadata_and_result_metadata(self):
+        # Arrange
+        resource = Resource(
+            uri="https://example.com",
+            name="Example",
+            metadata={"ack": "barnacle"},
+        )
+        result = ListResourcesResult(resources=[resource], metadata={"crazy": "pants"})
+
+        # Act
+        serialized = result.to_protocol()
+
+        # Assert
+        assert serialized["_meta"] == {"crazy": "pants"}
+        assert serialized["resources"][0]["_meta"] == {"ack": "barnacle"}
+
     def test_list_resource_result_serialize_uri_to_string_not_anyurl(self):
         # Arrange
         resource = Resource(

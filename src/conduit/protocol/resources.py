@@ -27,11 +27,12 @@ comes back as text or binary data when you read them. This separation keeps
 discovery fast and lets applications decide what data they need.
 """
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import AnyUrl, Field, UrlConstraints
 
 from conduit.protocol.base import (
+    BaseMetadata,
     Notification,
     PaginatedRequest,
     PaginatedResult,
@@ -46,7 +47,7 @@ from conduit.protocol.content import (
 )
 
 
-class Resource(ProtocolModel):
+class Resource(BaseMetadata):
     """
     A data source that the server can provide to clients and LLMs.
 
@@ -61,11 +62,6 @@ class Resource(ProtocolModel):
     uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
     """
     Unique identifier for this resource (file path, URL, database URI, etc.).
-    """
-
-    name: str
-    """
-    Human-readable name for display in client UIs.
     """
 
     description: str | None = None
@@ -90,6 +86,11 @@ class Resource(ProtocolModel):
     and display file sizes to users.
     """
 
+    metadata: dict[str, Any] | None = Field(default=None, alias="_meta")
+    """
+    Additional metadata about the resource.
+    """
+
 
 class ResourceReference(ProtocolModel):
     """
@@ -103,7 +104,7 @@ class ResourceReference(ProtocolModel):
     """
 
 
-class ResourceTemplate(ProtocolModel):
+class ResourceTemplate(BaseMetadata):
     """
     A pattern for generating multiple related resources dynamically.
 
@@ -119,11 +120,6 @@ class ResourceTemplate(ProtocolModel):
     """
     URI pattern following RFC 6570 (e.g., "file:///logs/{date}.log").
     Clients substitute values for variables in braces to create specific URIs.
-    """
-
-    name: str
-    """
-    Human-readable name for this type of resource pattern.
     """
 
     description: str | None = None
@@ -142,6 +138,8 @@ class ResourceTemplate(ProtocolModel):
     """
     Hints about how clients should handle resources from this template.
     """
+
+    metadata: dict[str, Any] | None = Field(default=None, alias="_meta")
 
 
 class ListResourcesRequest(PaginatedRequest):

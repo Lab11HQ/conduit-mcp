@@ -24,6 +24,11 @@ class ResourceContents(ProtocolModel):
     Content type of the resource, when known.
     """
 
+    metadata: dict[str, Any] | None = Field(default=None, alias="_meta")
+    """
+    Additional metadata about the resource.
+    """
+
 
 class TextResourceContents(ResourceContents):
     """
