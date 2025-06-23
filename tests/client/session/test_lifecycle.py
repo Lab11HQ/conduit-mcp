@@ -20,7 +20,7 @@ class TestClientSessionLifecycle(BaseSessionTest):
         assert self.session._running is True
 
         # Cleanup
-        await self.session.stop_message_loop()
+        await self.session.close()
 
     async def test_start_is_idempotent_does_not_create_multiple_tasks(self):
         # Act: start multiple times
@@ -36,7 +36,7 @@ class TestClientSessionLifecycle(BaseSessionTest):
         assert not first_task.done()
 
         # Cleanup
-        await self.session.stop_message_loop()
+        await self.session.close()
 
     async def test_stop_resets_session_to_clean_uninitialized_state(self):
         # Arrange: start session and initialize it
@@ -48,7 +48,7 @@ class TestClientSessionLifecycle(BaseSessionTest):
         assert self.session._message_loop_task is not None
 
         # Act
-        await self.session.stop_message_loop()
+        await self.session.close()
 
         # Assert: complete state reset
         assert self.session._running is False
@@ -61,9 +61,8 @@ class TestClientSessionLifecycle(BaseSessionTest):
         assert self.session._message_loop_task is not None
 
         # Act: stop multiple times
-        await self.session.stop_message_loop()
-        await self.session.stop_message_loop()
-        await self.session.stop_message_loop()
+        await self.session.close()
+        await self.session.close()
 
         # Assert: clean state after all calls
         assert self.session._running is False
@@ -78,7 +77,7 @@ class TestClientSessionLifecycle(BaseSessionTest):
         assert not self.transport.closed
 
         # Act
-        await self.session.stop_message_loop()
+        await self.session.close()
 
         # Assert: transport was closed
         self.transport.close.assert_awaited_once()
@@ -91,7 +90,7 @@ class TestClientSessionLifecycle(BaseSessionTest):
         assert not background_task.done()
 
         # Act
-        await self.session.stop_message_loop()
+        await self.session.close()
 
         # Assert: task was cancelled and cleaned up
         assert background_task.done()

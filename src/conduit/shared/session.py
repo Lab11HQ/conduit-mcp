@@ -36,14 +36,36 @@ class BaseSession(ABC):
         self.notifications: asyncio.Queue[Notification] = asyncio.Queue()
 
     async def start_message_loop(self) -> None:
-        """Start the background message loop if not already running."""
+        """Start the background message processing loop.
+
+        Begins continuous processing of incoming messages from the transport.
+        The loop handles JSON-RPC requests, responses, and notifications
+        concurrently while the session remains active.
+
+        Safe to call multiple times - subsequent calls are ignored if the
+        loop is already running.
+
+        Note: This only starts message processing. For clients, you'll still
+        need to call initialize() to complete the MCP handshake.
+        """
         if self._running:
             return
         self._running = True
         self._message_loop_task = asyncio.create_task(self._message_loop())
 
-    async def stop_message_loop(self) -> None:
-        """Stop the session and clean up all resources."""
+    async def close(self) -> None:
+        """Stop the message processing loop and clean up resources.
+
+        Gracefully shuts down the session by:
+        1. Stopping the background message loop
+        2. Cancelling any pending requests with errors
+        3. Closing the underlying transport connection
+
+        Once stopped, the session cannot be restarted - create a new
+        session to reconnect.
+
+        Safe to call multiple times.
+        """
         if not self._running and self._message_loop_task is None:
             return
 
@@ -65,7 +87,18 @@ class BaseSession(ABC):
         await self.transport.send(jsonrpc_notification.to_wire())
 
     async def _message_loop(self) -> None:
-        """Process incoming messages until the session stops."""
+        """Core message processing loop that runs in the background.
+
+        Continuously reads messages from the transport and routes them
+        to appropriate handlers. Handles three types of JSON-RPC messages:
+
+        - Responses: Matched to pending requests by ID and resolved
+        - Requests: Processed concurrently in separate tasks
+        - Notifications: Parsed and queued for application consumption
+
+        The loop is resilient to message handling errors but will terminate
+        on transport failures. All pending requests are cancelled on exit.
+        """
         try:
             async for transport_message in self.transport.messages():
                 if not self._running:
@@ -98,7 +131,20 @@ class BaseSession(ABC):
     async def _handle_message(
         self, payload: dict[str, Any] | list[dict[str, Any]]
     ) -> None:
-        """Route incoming messages to the appropriate handler."""
+        """Route incoming JSON-RPC messages to appropriate handlers.
+
+        Central dispatch point that identifies message types and routes to:
+        - _handle_response() for responses to our requests
+        - _handle_request() for incoming requests (processed as tasks)
+        - _handle_notification() for notifications
+
+        Supports both single messages and batched message arrays.
+        Individual message handling errors are logged but don't stop
+        the message loop.
+
+        Args:
+            payload: Raw JSON-RPC message(s) from the transport.
+        """
         # TODO: Add a recursion limit
         if isinstance(payload, list):
             for item in payload:

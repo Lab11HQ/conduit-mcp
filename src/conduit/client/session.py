@@ -247,14 +247,14 @@ class ClientSession(BaseSession):
             await self.transport.send(jsonrpc_request.to_wire())
             response = await asyncio.wait_for(future, timeout)
             if isinstance(response, Error):
-                await self.stop_message_loop()
+                await self.close()
                 raise ValueError(f"Initialization failed: {response}")
 
             init_result = cast(InitializeResult, response)
             if (
                 init_result.protocol_version != PROTOCOL_VERSION
             ):  # TODO: Handle this better. SEND A INVALID_PARAMS ERROR.
-                await self.stop_message_loop()
+                await self.close()
                 raise ValueError(
                     f"Protocol version mismatch: client version {PROTOCOL_VERSION} !="
                     f" server version {init_result.protocol_version}"
@@ -266,10 +266,10 @@ class ClientSession(BaseSession):
             self._initialize_result = init_result
             return init_result
         except asyncio.TimeoutError:
-            await self.stop_message_loop()
+            await self.close()
             raise TimeoutError(f"Initialization timed out after {timeout}s")
         except Exception:
-            await self.stop_message_loop()
+            await self.close()
             raise
         finally:
             self._pending_requests.pop(request_id, None)

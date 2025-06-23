@@ -28,7 +28,7 @@ class TestMessageLoop(BaseSessionTest):
         await asyncio.sleep(0.01)
 
         # Act: stop the session
-        await self.session.stop_message_loop()
+        await self.session.close()
 
         # Assert: verify handler was called for each message
         assert len(handler_calls) == 3
@@ -63,7 +63,7 @@ class TestMessageLoop(BaseSessionTest):
         await asyncio.sleep(0.01)
 
         # Act: stop the session
-        await self.session.stop_message_loop()
+        await self.session.close()
 
         # Assert: verify all messages were attempted (including the one that crashed)
         assert len(handler_calls) == 3
@@ -128,7 +128,7 @@ class TestMessageLoop(BaseSessionTest):
         await asyncio.sleep(0.01)
 
         # Act: stop the session immediately
-        await self.session.stop_message_loop()
+        await self.session.close()
 
         # Act: queue up more messages after the session is stopped
         self.server.send_message({"jsonrpc": "2.0", "method": "notifications/queued1"})
@@ -181,7 +181,7 @@ class TestMessageLoop(BaseSessionTest):
         assert notification2.progress_token == "token2"
         assert notification2.progress == 75
         # Act: stop the session
-        await self.session.stop_message_loop()
+        await self.session.close()
 
 
 class TestMessageHandler(BaseSessionTest):
