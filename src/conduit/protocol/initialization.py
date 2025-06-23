@@ -5,6 +5,7 @@ from pydantic import Field
 
 from conduit.protocol.base import (
     PROTOCOL_VERSION,
+    BaseMetadata,
     Notification,
     ProtocolModel,
     Request,
@@ -23,10 +24,9 @@ class RootsCapability(ProtocolModel):
     """
 
 
-class Implementation(ProtocolModel):
+class Implementation(BaseMetadata):
     """Name and version string of the server or client."""
 
-    name: str
     version: str
 
 
@@ -48,6 +48,11 @@ class ClientCapabilities(ProtocolModel):
     sampling: bool = False
     """
     LLM sampling support from the host.
+    """
+
+    elicitation: bool = False
+    """
+    Whether the client supports elicitation.
     """
 
 
@@ -173,6 +178,9 @@ class InitializeRequest(Request):
         if "sampling" in capabilities:
             transformed_data["params"]["capabilities"]["sampling"] = True
 
+        if "elicitation" in capabilities:
+            transformed_data["params"]["capabilities"]["elicitation"] = True
+
         return super().from_protocol(transformed_data)
 
     def to_protocol(self) -> dict[str, Any]:
@@ -184,10 +192,19 @@ class InitializeRequest(Request):
         """
         result = super().to_protocol()
         params = result["params"]
+
+        # Handle sampling capability
         if self.capabilities.sampling:
             params["capabilities"]["sampling"] = {}
         else:
             params["capabilities"].pop("sampling", None)
+
+        # Handle elicitation capability
+        if self.capabilities.elicitation:
+            params["capabilities"]["elicitation"] = {}
+        else:
+            params["capabilities"].pop("elicitation", None)
+
         return result
 
     @classmethod

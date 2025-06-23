@@ -17,14 +17,17 @@ from conduit.protocol.initialization import (
 class TestInitialization:
     def test_initialize_request_roundtrip(self):
         request = InitializeRequest(
-            client_info=Implementation(name="Test client", version="1"),
+            client_info=Implementation(
+                name="Test client name", title="Test client title", version="1"
+            ),
             capabilities=ClientCapabilities(),
             protocol_version=PROTOCOL_VERSION,
         )
         protocol_data = request.to_protocol()
         reconstructed = InitializeRequest.from_protocol(protocol_data)
         assert reconstructed == request
-        assert reconstructed.client_info.name == "Test client"
+        assert reconstructed.client_info.name == "Test client name"
+        assert reconstructed.client_info.title == "Test client title"
 
     def test_initialize_request_serializes_bool_sampling_as_dict(self):
         # Arrange

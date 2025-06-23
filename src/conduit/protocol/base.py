@@ -522,3 +522,29 @@ class Error(ProtocolModel):
                 "data": error_data.get("data"),
             }
         )
+
+
+class BaseMetadata(ProtocolModel):
+    """
+    Base interface for metadata with name (identifier) and title (display name).
+
+    This interface is used across multiple MCP types to provide consistent
+    naming and display conventions.
+    """
+
+    name: str
+    """
+    Identifier intended for programmatic or logical use.
+    
+    Used as a display name in past specs or as a fallback when title isn't present.
+    """
+
+    title: str | None = None
+    """
+    Human-readable display name optimized for UI and end-user contexts.
+    
+    Designed to be easily understood even by those unfamiliar with domain-specific
+    terminology. If not provided, the name should be used for display (except for
+    Tool, where `annotations.title` should be given precedence over using `name`,
+    if present).
+    """
