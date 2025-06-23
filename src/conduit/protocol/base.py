@@ -28,7 +28,7 @@ from pydantic import (
     field_validator,
 )
 
-PROTOCOL_VERSION = "2025-03-26"
+PROTOCOL_VERSION = "2025-06-18"
 RequestId = int | str
 ProgressToken = int | str
 Cursor = str
