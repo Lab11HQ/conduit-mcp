@@ -1,6 +1,6 @@
 import asyncio
 import uuid
-from typing import Any
+from typing import Any, Callable
 
 from conduit.protocol.base import METHOD_NOT_FOUND, Error, Notification, Request, Result
 from conduit.protocol.common import CancelledNotification, PingRequest
@@ -10,6 +10,7 @@ from conduit.protocol.initialization import (
     ServerCapabilities,
 )
 from conduit.protocol.jsonrpc import JSONRPCRequest
+from conduit.protocol.tools import CallToolRequest, Tool
 from conduit.shared.session import BaseSession
 from conduit.transport.base import Transport
 
@@ -36,9 +37,13 @@ class ServerSession(BaseSession):
 
         # Handler registries
         self._tool_handlers = {}
-        self._prompt_handlers = {}
-        self._resource_handlers = {}
-        self._completion_handlers = {}
+
+        # Tool definitions - for list operations
+        self._registered_tools: dict[str, Tool] = {}
+
+    @property
+    def initialized(self) -> bool:
+        return self._received_initialized_notification
 
     async def send_request(
         self,
@@ -113,10 +118,6 @@ class ServerSession(BaseSession):
 
         await self.notifications.put(notification)
 
-    @property
-    def initialized(self) -> bool:
-        return self._received_initialized_notification
-
     def _get_supported_notifications(self) -> dict[str, type[Notification]]:
         return NOTIFICATION_CLASSES
 
@@ -129,3 +130,13 @@ class ServerSession(BaseSession):
             code=METHOD_NOT_FOUND,
             message=f"Unknown request: {request.method}",
         )
+
+    def register_tool(
+        self, name: str, handler: Callable[[Tool], Result | Error], tool_def: Tool
+    ) -> None:
+        self._tool_handlers[name] = handler
+        self._registered_tools[name] = tool_def
+
+    def _handle_call_tool(self, request: CallToolRequest) -> Result | Error:
+        # Capability check and handler execution
+        ...
