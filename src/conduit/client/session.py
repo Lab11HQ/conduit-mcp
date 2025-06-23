@@ -345,11 +345,11 @@ class ClientSession:
         transport failures.
         """
         try:
-            async for message in self.transport.messages():
+            async for transport_message in self.transport.messages():
                 if not self._running:
                     break
                 try:
-                    await self._handle_message(message)
+                    await self._handle_message(transport_message.payload)
                 except Exception as e:
                     print(f"Error handling message: {e}")
                     continue
@@ -359,7 +359,6 @@ class ClientSession:
         except Exception as e:
             print("Transport error while receiving message:", e)
         finally:
-            # TODO: Send error messages of some kind? Clean up better more gracefully.
             self._running = False
             self._cancel_pending_requests("Message loop terminated")
 

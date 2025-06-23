@@ -6,7 +6,7 @@ import pytest
 
 from conduit.client.session import ClientSession
 from conduit.protocol.initialization import ClientCapabilities, Implementation
-from conduit.transport.base import Transport
+from conduit.transport.base import Transport, TransportMessage
 
 
 class MockTransport(Transport):
@@ -14,7 +14,7 @@ class MockTransport(Transport):
 
     def __init__(self):
         self.client_sent_messages: list[dict[str, Any]] = []
-        self._incoming_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        self._incoming_queue: asyncio.Queue[TransportMessage] = asyncio.Queue()
         self.closed = False
         self._should_raise_error = False
 
@@ -22,7 +22,10 @@ class MockTransport(Transport):
         """Internal: simulate a message arriving from the network."""
         if self.closed:
             return
-        self._incoming_queue.put_nowait(payload)
+        transport_message = TransportMessage(
+            payload=payload, metadata={"source": "mock", "timestamp": 0}
+        )
+        self._incoming_queue.put_nowait(transport_message)
 
     async def send(self, payload: dict[str, Any]) -> None:
         if self.closed:
@@ -35,16 +38,16 @@ class MockTransport(Transport):
         """
         self._should_raise_error = True
 
-    async def messages(self) -> AsyncIterator[dict[str, Any] | list[dict[str, Any]]]:
+    async def messages(self) -> AsyncIterator[TransportMessage]:
         """Stream of incoming messages - stays alive until closed."""
         while not self.closed:
             if self._should_raise_error:
                 raise ConnectionError("Network down")
             try:
-                payload = await asyncio.wait_for(
+                transport_message = await asyncio.wait_for(
                     self._incoming_queue.get(), timeout=0.01
                 )
-                yield payload
+                yield transport_message
             except asyncio.TimeoutError:
                 continue  # Keep waiting for messages
 

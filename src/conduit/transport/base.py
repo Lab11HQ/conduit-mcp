@@ -1,7 +1,20 @@
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Self
+
+
+@dataclass
+class TransportMessage:
+    """Container for messages with transport-specific metadata.
+
+    Separates the core MCP message payload from transport-specific
+    information like headers, connection state, timing, etc.
+    """
+
+    payload: dict[str, Any] | list[dict[str, Any]]
+    metadata: dict[str, Any]
 
 
 class Transport(ABC):
@@ -20,20 +33,23 @@ class Transport(ABC):
 
     @abstractmethod
     async def send(self, payload: dict[str, Any]) -> None:
-        """Send a message with any transport-specific metadata.
+        """Send a message. Transport handles all metadata internally.
+
+        Args:
+            payload: The MCP message to send
 
         Raises:
             ConnectionError: If transport is closed or connection failed
         """
 
     @abstractmethod
-    def messages(self) -> AsyncIterator[dict[str, Any] | list[dict[str, Any]]]:
+    def messages(self) -> AsyncIterator[TransportMessage]:
         """Stream of incoming messages with transport-specific metadata.
 
         Yields messages as they arrive. Iterator ends when transport closes.
 
         Yields:
-            dict[str, Any] | list[dict[str, Any]]: Each incoming message
+            TransportMessage: Each incoming message with metadata
 
         Raises:
             ConnectionError: When transport connection fails
