@@ -18,7 +18,7 @@ class TestMessageLoop(BaseSessionTest):
         self.session._handle_message = mock_handler
 
         # Act: start the session (which starts the message loop)
-        await self.session._start()
+        await self.session.start_message_loop()
 
         # Act: send a few messages from the server
         self.server.send_message({"jsonrpc": "2.0", "method": "notifications/test1"})
@@ -28,7 +28,7 @@ class TestMessageLoop(BaseSessionTest):
         await asyncio.sleep(0.01)
 
         # Act: stop the session
-        await self.session.stop()
+        await self.session.stop_message_loop()
 
         # Assert: verify handler was called for each message
         assert len(handler_calls) == 3
@@ -52,7 +52,7 @@ class TestMessageLoop(BaseSessionTest):
         self.session._handle_message = mock_handler
 
         # Act: start the session
-        await self.session._start()
+        await self.session.start_message_loop()
 
         # Act: send messages - second one will crash the handler
         self.server.send_message({"jsonrpc": "2.0", "method": "notifications/test1"})
@@ -63,7 +63,7 @@ class TestMessageLoop(BaseSessionTest):
         await asyncio.sleep(0.01)
 
         # Act: stop the session
-        await self.session.stop()
+        await self.session.stop_message_loop()
 
         # Assert: verify all messages were attempted (including the one that crashed)
         assert len(handler_calls) == 3
@@ -84,7 +84,7 @@ class TestMessageLoop(BaseSessionTest):
         self.session._handle_message = mock_handler
 
         # Act: start the session
-        await self.session._start()
+        await self.session.start_message_loop()
 
         # Act: send a message to confirm loop is running
         msg = {"jsonrpc": "2.0", "method": "notifications/test1"}
@@ -119,7 +119,7 @@ class TestMessageLoop(BaseSessionTest):
         self.session._handle_message = mock_handler
 
         # Act: start the session
-        await self.session._start()
+        await self.session.start_message_loop()
 
         # Act: send one message and let it process
         self.server.send_message(
@@ -128,7 +128,7 @@ class TestMessageLoop(BaseSessionTest):
         await asyncio.sleep(0.01)
 
         # Act: stop the session immediately
-        await self.session.stop()
+        await self.session.stop_message_loop()
 
         # Act: queue up more messages after the session is stopped
         self.server.send_message({"jsonrpc": "2.0", "method": "notifications/queued1"})
@@ -148,7 +148,7 @@ class TestMessageLoop(BaseSessionTest):
     async def test_message_loop_handles_batch_notifications(self):
         """Batch notifications are unpacked and each item queued individually."""
         # Act: start the session
-        await self.session._start()
+        await self.session.start_message_loop()
 
         # Act: send a batch of notifications from the server
         batch_payload = [
@@ -181,7 +181,7 @@ class TestMessageLoop(BaseSessionTest):
         assert notification2.progress_token == "token2"
         assert notification2.progress == 75
         # Act: stop the session
-        await self.session.stop()
+        await self.session.stop_message_loop()
 
 
 class TestMessageHandler(BaseSessionTest):

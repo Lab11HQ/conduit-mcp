@@ -185,7 +185,7 @@ class TestSendRequest(BaseSessionTest):
     async def test_timeout_raises_timeout_error_even_if_cancellation_fails(self):
         """TimeoutError is raised even when cancellation notification fails to send."""
         # Arrange
-        await self.session._start()
+        await self.session.start_message_loop()
         self.session._initialize_result = "NOT NONE"
         request = PingRequest()
 
