@@ -1,14 +1,11 @@
-from conduit.protocol.base import INTERNAL_ERROR, METHOD_NOT_FOUND
+from conduit.protocol.base import INTERNAL_ERROR, METHOD_NOT_FOUND, Error, Result
 from conduit.protocol.common import PingRequest
 from conduit.protocol.content import TextContent
 from conduit.protocol.elicitation import (
     ElicitRequest,
     ElicitResult,
-    NumberSchema,
-    RequestedSchema,
 )
 from conduit.protocol.initialization import RootsCapability
-from conduit.protocol.jsonrpc import JSONRPCRequest
 from conduit.protocol.roots import Root
 from conduit.protocol.sampling import (
     CreateMessageRequest,
@@ -208,7 +205,7 @@ class TestRequestHandler(BaseSessionTest):
             content=TextContent(type="text", text="Hello! How can I help you?"),
         )
 
-        async def mock_handler(request: CreateMessageRequest):
+        async def mock_handler(request: CreateMessageRequest) -> Result | Error:
             return mock_result
 
         self.session.set_sampling_handler(mock_handler)
@@ -251,7 +248,6 @@ class TestRequestHandler(BaseSessionTest):
         assert result["content"]["type"] == "text"
         assert result["content"]["text"] == "Hello! How can I help you?"
 
-    # TODO: Don't use JSONRPCRequest here. Construct the request payload directly.
     async def test_success_response_for_elicitation_with_capability(self):
         # Arrange
         # Set up session with elicitation capability
@@ -262,24 +258,30 @@ class TestRequestHandler(BaseSessionTest):
             content={"number": 1},
         )
 
-        async def mock_handler(request: ElicitRequest):
+        async def mock_handler(request: ElicitRequest) -> Result | Error:
             return mock_result
 
         self.session.set_elicitation_handler(mock_handler)
 
-        request = ElicitRequest(
-            message="Please enter a number",
-            requested_schema=RequestedSchema(
-                properties={
-                    "number": NumberSchema(default=True, name="number", type="number")
+        payload = {
+            "jsonrpc": "2.0",
+            "id": "42",
+            "method": "elicitation/create",
+            "params": {
+                "message": "Please enter a number",
+                "requestedSchema": {
+                    "type": "object",
+                    "properties": {
+                        "number_schema": {
+                            "type": "integer",
+                        },
+                    },
                 },
-                required=["number"],
-            ),
-        )
-        jsonrpc_request = JSONRPCRequest.from_request(request, "42")
+            },
+        }
 
         # Act
-        await self.session._handle_request(jsonrpc_request.to_wire())
+        await self.session._handle_request(payload)
 
         # Assert: Verify response was sent
         assert len(self.transport.client_sent_messages) == 1
@@ -295,20 +297,25 @@ class TestRequestHandler(BaseSessionTest):
         # Ensure session has no elicitation capability
         self.session.capabilities.elicitation = False
 
-        request = ElicitRequest(
-            message="Please enter a number",
-            requested_schema=RequestedSchema(
-                properties={
-                    "number": NumberSchema(default=True, name="number", type="number")
+        payload = {
+            "jsonrpc": "2.0",
+            "id": "42",
+            "method": "elicitation/create",
+            "params": {
+                "message": "Please enter a number",
+                "requestedSchema": {
+                    "type": "object",
+                    "properties": {
+                        "number_schema": {
+                            "type": "integer",
+                        },
+                    },
                 },
-                required=["number"],
-            ),
-        )
-
-        jsonrpc_request = JSONRPCRequest.from_request(request, "42")
+            },
+        }
 
         # Act
-        await self.session._handle_request(jsonrpc_request.to_wire())
+        await self.session._handle_request(payload)
 
         # Assert: Verify response was sent
         assert len(self.transport.client_sent_messages) == 1
