@@ -12,7 +12,7 @@ more user-friendly interfaces.
 import asyncio
 import uuid
 from collections.abc import Awaitable, Callable
-from typing import cast
+from typing import Any, TypeVar, cast
 
 from conduit.protocol.base import (
     METHOD_NOT_FOUND,
@@ -28,7 +28,7 @@ from conduit.protocol.common import (
     PingRequest,
     ProgressNotification,
 )
-from conduit.protocol.elicitation import ElicitRequest, ElicitResult
+from conduit.protocol.elicitation import ElicitRequest
 from conduit.protocol.initialization import (
     ClientCapabilities,
     Implementation,
@@ -44,10 +44,15 @@ from conduit.protocol.resources import (
     ResourceUpdatedNotification,
 )
 from conduit.protocol.roots import ListRootsRequest, ListRootsResult, Root
-from conduit.protocol.sampling import CreateMessageRequest, CreateMessageResult
+from conduit.protocol.sampling import CreateMessageRequest
 from conduit.protocol.tools import ToolListChangedNotification
+from conduit.shared.exceptions import UnknownRequestError
 from conduit.shared.session import BaseSession
 from conduit.transport.base import Transport
+
+T = TypeVar("T", bound=Request)
+RequestHandler = Callable[[T], Awaitable[Result | Error]]
+RequestRegistryEntry = tuple[type[T], RequestHandler[T]]
 
 CLIENT_NOTIFICATION_CLASSES: dict[str, type[Notification]] = {
     "notifications/cancelled": CancelledNotification,
@@ -57,13 +62,6 @@ CLIENT_NOTIFICATION_CLASSES: dict[str, type[Notification]] = {
     "notifications/resources/list_changed": ResourceListChangedNotification,
     "notifications/tools/list_changed": ToolListChangedNotification,
     "notifications/prompts/list_changed": PromptListChangedNotification,
-}
-
-CLIENT_REQUEST_CLASSES: dict[str, type[Request]] = {
-    "ping": PingRequest,
-    "roots/list": ListRootsRequest,
-    "sampling/createMessage": CreateMessageRequest,
-    "elicitation/create": ElicitRequest,
 }
 
 
@@ -84,7 +82,6 @@ class ClientSession(BaseSession):
         transport: Communication channel to the MCP server.
         client_info: Client identification and version info.
         capabilities: What MCP features this client supports.
-        create_message_handler: LLM sampling handler (required if sampling enabled).
         roots: Filesystem roots to expose (if roots capability enabled).
 
     Raises:
@@ -96,32 +93,14 @@ class ClientSession(BaseSession):
         transport: Transport,
         client_info: Implementation,
         capabilities: ClientCapabilities,
-        create_message_handler: Callable[
-            [CreateMessageRequest], Awaitable[CreateMessageResult]
-        ]
-        | None = None,
         roots: list[Root] | None = None,
-        elicitation_handler: Callable[[ElicitRequest], Awaitable[ElicitResult]]
-        | None = None,
     ):
         super().__init__(transport)
         self.client_info = client_info
         self.capabilities = capabilities
-
-        if capabilities.sampling and create_message_handler is None:
-            raise ValueError(
-                "create_message_handler required when sampling capability is enabled."
-                " Either provide a handler or disable sampling in ClientCapabilities."
-            )
-        if capabilities.elicitation and elicitation_handler is None:
-            raise ValueError(
-                "elicitation_handler required when elicitation capability is enabled."
-                " Either provide a handler or disable elicitation in "
-                "ClientCapabilities."
-            )
-        self._create_message_handler = create_message_handler
-        self._elicitation_handler = elicitation_handler
         self.roots = roots or []  # TODO: Hook this up to notifcations.
+        self._custom_handlers = {}
+
         self._initializing: asyncio.Future[InitializeResult] | None = None
         self._initialize_result: InitializeResult | None = None
 
@@ -288,23 +267,17 @@ class ClientSession(BaseSession):
     def _get_supported_notifications(self) -> dict[str, type[Notification]]:
         return CLIENT_NOTIFICATION_CLASSES
 
-    def _get_supported_requests(self) -> dict[str, type[Request]]:
-        return CLIENT_REQUEST_CLASSES
-
-    async def _handle_session_request(self, request: Request) -> Result | Error:
+    async def _handle_session_request(self, payload: dict[str, Any]) -> Result | Error:
         """Handle client-specific requests."""
-        handler_method = {
-            "ping": self._handle_ping,
-            "roots/list": self._handle_list_roots,
-            "sampling/createMessage": self._handle_create_message,
-            "elicitation/create": self._handle_elicitation,
-        }.get(request.method)
-        if not handler_method:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message=f"Unknown request method: {request.method}",
-            )
-        return await handler_method(request)
+        method = payload["method"]
+
+        registry = self._get_request_registry()
+        if method not in registry:
+            raise UnknownRequestError(method)
+
+        request_class, handler = registry[method]
+        request = request_class.from_protocol(payload)
+        return await handler(request)
 
     async def _handle_ping(self, request: PingRequest) -> Result | Error:
         """Handle server request for ping.
@@ -333,53 +306,55 @@ class ClientSession(BaseSession):
             )
         return ListRootsResult(roots=self.roots)
 
-    async def _handle_create_message(
-        self, request: CreateMessageRequest
-    ) -> Result | Error:
-        """Handle server request for LLM message generation.
+    def _get_request_registry(self) -> dict[str, RequestRegistryEntry]:
+        return {
+            "ping": (PingRequest, self._handle_ping),
+            "roots/list": (ListRootsRequest, self._handle_list_roots),
+            "sampling/createMessage": (
+                CreateMessageRequest,
+                self._handle_sampling,
+            ),
+            "elicitation/create": (ElicitRequest, self._handle_elicitation),
+        }
 
-        Delegates to user-provided handler if sampling capability and handler
-        are both configured, otherwise returns METHOD_NOT_FOUND.
-
-        Args:
-            request: Parsed sampling/createMessage request.
-
-        Returns:
-            CreateMessageResult from user handler, or Error if not configured.
-        """
+    async def _handle_sampling(self, request: CreateMessageRequest) -> Result | Error:
         if not self.capabilities.sampling:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Client does not support sampling capability",
             )
 
-        if self._create_message_handler is None:
+        if "sampling/createMessage" not in self._custom_handlers:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Client not configured with a create message handler",
             )
 
-        return await self._create_message_handler(request)
+        return await self._custom_handlers["sampling/createMessage"](request)
 
     async def _handle_elicitation(self, request: ElicitRequest) -> Result | Error:
-        """Handle server request for elicitation.
-
-        Args:
-            request: Parsed elicitation/create request.
-
-        Returns:
-            ElicitResult from user handler, or Error if not configured.
-        """
-        # check if the client supports elicitation
+        """Handle server request for elicitation."""
         if not self.capabilities.elicitation:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Client does not support elicitation capability",
             )
-        # check if the client has a elicitation handler
-        if self._elicitation_handler is None:
+
+        if "elicitation/create" not in self._custom_handlers:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Client not configured with a elicitation handler",
             )
-        return await self._elicitation_handler(request)
+
+        return await self._custom_handlers["elicitation/create"](request)
+
+    # Handler registration methods
+    def set_sampling_handler(self, handler: RequestHandler[CreateMessageRequest]):
+        """Register a handler for sampling/createMessage requests."""
+        self._custom_handlers["sampling/createMessage"] = handler
+        return self  # For method chaining
+
+    def set_elicitation_handler(self, handler: RequestHandler[ElicitRequest]):
+        """Register a handler for elicitation/create requests."""
+        self._custom_handlers["elicitation/create"] = handler
+        return self  # For method chaining

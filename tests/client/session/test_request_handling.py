@@ -1,9 +1,20 @@
 from conduit.protocol.base import INTERNAL_ERROR, METHOD_NOT_FOUND
 from conduit.protocol.common import PingRequest
 from conduit.protocol.content import TextContent
+from conduit.protocol.elicitation import (
+    ElicitRequest,
+    ElicitResult,
+    NumberSchema,
+    RequestedSchema,
+)
 from conduit.protocol.initialization import RootsCapability
+from conduit.protocol.jsonrpc import JSONRPCRequest
 from conduit.protocol.roots import Root
-from conduit.protocol.sampling import CreateMessageRequest, CreateMessageResult
+from conduit.protocol.sampling import (
+    CreateMessageRequest,
+    CreateMessageResult,
+    SamplingMessage,
+)
 
 from .conftest import BaseSessionTest
 
@@ -185,9 +196,7 @@ class TestRequestHandler(BaseSessionTest):
         assert error["code"] == METHOD_NOT_FOUND
         assert "Client does not support sampling capability" in error["message"]
 
-    async def test_sends_success_response_for_create_message_with_capability(
-        self, monkeypatch
-    ):
+    async def test_sends_success_response_for_create_message_with_capability(self):
         # Arrange
         # Set up session with sampling capability
         self.session.capabilities.sampling = True
@@ -202,7 +211,12 @@ class TestRequestHandler(BaseSessionTest):
         async def mock_handler(request: CreateMessageRequest):
             return mock_result
 
-        monkeypatch.setattr(self.session, "_create_message_handler", mock_handler)
+        self.session.set_sampling_handler(mock_handler)
+
+        request = CreateMessageRequest(
+            messages=[SamplingMessage(role="user", content=TextContent(text="Hello"))],
+            max_tokens=100,
+        )
 
         request_payload = {
             "jsonrpc": "2.0",
@@ -236,6 +250,74 @@ class TestRequestHandler(BaseSessionTest):
         assert result["role"] == "assistant"
         assert result["content"]["type"] == "text"
         assert result["content"]["text"] == "Hello! How can I help you?"
+
+    # TODO: Don't use JSONRPCRequest here. Construct the request payload directly.
+    async def test_success_response_for_elicitation_with_capability(self):
+        # Arrange
+        # Set up session with elicitation capability
+        self.session.capabilities.elicitation = True
+
+        mock_result = ElicitResult(
+            action="accept",
+            content={"number": 1},
+        )
+
+        async def mock_handler(request: ElicitRequest):
+            return mock_result
+
+        self.session.set_elicitation_handler(mock_handler)
+
+        request = ElicitRequest(
+            message="Please enter a number",
+            requested_schema=RequestedSchema(
+                properties={
+                    "number": NumberSchema(default=True, name="number", type="number")
+                },
+                required=["number"],
+            ),
+        )
+        jsonrpc_request = JSONRPCRequest.from_request(request, "42")
+
+        # Act
+        await self.session._handle_request(jsonrpc_request.to_wire())
+
+        # Assert: Verify response was sent
+        assert len(self.transport.client_sent_messages) == 1
+        response_payload = self.transport.client_sent_messages[0]
+
+        # Assert: Verify successful response
+        assert "result" in response_payload
+        assert response_payload["result"]["action"] == "accept"
+        assert response_payload["result"]["content"]["number"] == 1
+
+    async def test_sends_method_not_found_for_elicitation_without_capability(self):
+        # Arrange
+        # Ensure session has no elicitation capability
+        self.session.capabilities.elicitation = False
+
+        request = ElicitRequest(
+            message="Please enter a number",
+            requested_schema=RequestedSchema(
+                properties={
+                    "number": NumberSchema(default=True, name="number", type="number")
+                },
+                required=["number"],
+            ),
+        )
+
+        jsonrpc_request = JSONRPCRequest.from_request(request, "42")
+
+        # Act
+        await self.session._handle_request(jsonrpc_request.to_wire())
+
+        # Assert: Verify response was sent
+        assert len(self.transport.client_sent_messages) == 1
+        response_payload = self.transport.client_sent_messages[0]
+
+        # Assert: Verify METHOD_NOT_FOUND error with capability message
+        error = response_payload["error"]
+        assert error["code"] == METHOD_NOT_FOUND
+        assert "Client does not support elicitation capability" in error["message"]
 
 
 class TestRequestValidator(BaseSessionTest):

@@ -12,7 +12,6 @@ from conduit.protocol.base import (
     Request,
     Result,
 )
-from conduit.protocol.common import EmptyResult
 from conduit.protocol.jsonrpc import JSONRPCError, JSONRPCNotification, JSONRPCResponse
 from conduit.shared.exceptions import UnknownNotificationError, UnknownRequestError
 from conduit.transport.base import Transport
@@ -251,8 +250,7 @@ class BaseSession(ABC):
         message_id = payload["id"]
 
         try:
-            request = self._parse_request(payload)
-            result_or_error = await self._handle_session_request(request)
+            result_or_error = await self._handle_session_request(payload)
 
             if isinstance(result_or_error, Result):
                 response = JSONRPCResponse.from_result(result_or_error, message_id)
@@ -277,18 +275,6 @@ class BaseSession(ABC):
             error_response = JSONRPCError.from_error(error, message_id)
             await self.transport.send(error_response.to_wire())
 
-    def _parse_request(self, payload: dict[str, Any]) -> Request:
-        """Parse JSON-RPC request into typed request object."""
-        method = payload["method"]
-        request_class = self._get_supported_requests().get(method)
-        if request_class is None:
-            raise UnknownRequestError(method)
-        return request_class.from_protocol(payload)
-
-    async def _handle_ping(self, request: Request) -> Result:
-        """Handle peer ping request."""
-        return EmptyResult()
-
     @property
     @abstractmethod
     def initialized(self) -> bool:
@@ -301,11 +287,6 @@ class BaseSession(ABC):
         pass
 
     @abstractmethod
-    def _get_supported_requests(self) -> dict[str, type[Request]]:
-        """Return the request class registry for this session type."""
-        pass
-
-    @abstractmethod
-    async def _handle_session_request(self, request: Request) -> Result | Error:
+    async def _handle_session_request(self, payload: dict[str, Any]) -> Result | Error:
         """Handle session-specific requests (non-ping)."""
         pass

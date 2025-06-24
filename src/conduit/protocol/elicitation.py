@@ -4,8 +4,6 @@ from pydantic import Field
 
 from conduit.protocol.base import ProtocolModel, Request, Result
 
-ElicitValue = str | float | int | bool
-
 
 class BaseSchemaDefinition(ProtocolModel):
     """Base class for primitive schema definitions."""
@@ -117,7 +115,7 @@ class ElicitResult(Result):
         making an explicit choice.
     """
 
-    content: dict[str, ElicitValue] | None = None
+    content: dict[str, str | float | int | bool] | None = None
     """
     Submitted user response. Only present if the action is "accept".
     """
