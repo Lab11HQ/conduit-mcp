@@ -12,12 +12,13 @@ Think of it as a conversation between your client and server about visibility:
     Client: "Start with errors, but I might need more if things get weird."
     Server: "Got it. Here's what's happening..."
 
-The flow is simple but powerful:
+The flow is simple:
 
 1. **Request visibility**: Your client sends a `SetLevelRequest` to dial up the logging
 2. **Stream insights**: The server responds with `LoggingMessageNotification`s as things
 happen
-3. **Adjust the firehose**: Change the level anytime to see more or less detail
+3. **Adjust the firehose**: Client can change the level anytime to see more or less
+detail
 
 The logging levels follow syslog severity (RFC 5424), from `debug` (everything) to
 `emergency` (the server is on fire). Choose your level based on what you're trying to
@@ -25,9 +26,9 @@ solve:
 
 - `error` and above: "Something's broken, show me what"
 - `info` and above: "I want to see the server's major decisions"
-- `debug`: "I need to see everything, performance be damned"
+- `debug`: "I need to see everything"
 
-Pro tip: If you never send a `SetLevelRequest`, the server picks what to show you
+Note: If you never send a `SetLevelRequest`, the server picks what to show you
 automatically.
 """
 
@@ -101,4 +102,6 @@ class LoggingMessageNotification(Notification):
     data: Any
     """
     The log payload - typically a string message or structured data.
+    
+    Any JSON-serializable object is allowed.
     """
