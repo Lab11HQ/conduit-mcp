@@ -252,7 +252,7 @@ class BaseSession(ABC):
 
         try:
             request = self._parse_request(payload)
-            result_or_error = await self._route_request(request)
+            result_or_error = await self._handle_session_request(request)
 
             if isinstance(result_or_error, Result):
                 response = JSONRPCResponse.from_result(result_or_error, message_id)
@@ -285,15 +285,6 @@ class BaseSession(ABC):
             raise UnknownRequestError(method)
         return request_class.from_protocol(payload)
 
-    async def _route_request(self, request: Request) -> Result | Error:
-        """Route request to the appropriate handler method."""
-        # All sessions support ping
-        if request.method == "ping":
-            return await self._handle_ping(request)
-
-        # Delegate to subclass for other methods
-        return await self._handle_peer_request(request)
-
     async def _handle_ping(self, request: Request) -> Result:
         """Handle peer ping request."""
         return EmptyResult()
@@ -315,6 +306,6 @@ class BaseSession(ABC):
         pass
 
     @abstractmethod
-    async def _handle_peer_request(self, request: Request) -> Result | Error:
+    async def _handle_session_request(self, request: Request) -> Result | Error:
         """Handle session-specific requests (non-ping)."""
         pass

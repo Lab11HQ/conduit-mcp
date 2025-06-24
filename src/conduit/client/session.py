@@ -24,6 +24,7 @@ from conduit.protocol.base import (
 )
 from conduit.protocol.common import (
     CancelledNotification,
+    EmptyResult,
     PingRequest,
     ProgressNotification,
 )
@@ -290,9 +291,10 @@ class ClientSession(BaseSession):
     def _get_supported_requests(self) -> dict[str, type[Request]]:
         return CLIENT_REQUEST_CLASSES
 
-    async def _handle_peer_request(self, request: Request) -> Result | Error:
-        """Handle client-specific requests (non-ping)."""
+    async def _handle_session_request(self, request: Request) -> Result | Error:
+        """Handle client-specific requests."""
         handler_method = {
+            "ping": self._handle_ping,
             "roots/list": self._handle_list_roots,
             "sampling/createMessage": self._handle_create_message,
             "elicitation/create": self._handle_elicitation,
@@ -303,6 +305,14 @@ class ClientSession(BaseSession):
                 message=f"Unknown request method: {request.method}",
             )
         return await handler_method(request)
+
+    async def _handle_ping(self, request: PingRequest) -> Result | Error:
+        """Handle server request for ping.
+
+        Returns:
+            PingResult with pong.
+        """
+        return EmptyResult()
 
     async def _handle_list_roots(self, request: ListRootsRequest) -> Result | Error:
         """Handle server request for filesystem roots.
