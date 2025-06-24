@@ -1,6 +1,7 @@
 """Base session implementation shared between client and server."""
 
 import asyncio
+import uuid
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -12,7 +13,13 @@ from conduit.protocol.base import (
     Request,
     Result,
 )
-from conduit.protocol.jsonrpc import JSONRPCError, JSONRPCNotification, JSONRPCResponse
+from conduit.protocol.common import CancelledNotification
+from conduit.protocol.jsonrpc import (
+    JSONRPCError,
+    JSONRPCNotification,
+    JSONRPCRequest,
+    JSONRPCResponse,
+)
 from conduit.shared.exceptions import UnknownNotificationError, UnknownRequestError
 from conduit.transport.base import Transport
 
@@ -51,6 +58,68 @@ class BaseSession(ABC):
             return
         self._running = True
         self._message_loop_task = asyncio.create_task(self._message_loop())
+
+    async def send_request(
+        self,
+        request: Request,
+        timeout: float = 30.0,
+    ) -> Result | Error | None:
+        """Send a request to the client and wait for its response.
+
+        Handles the complete request lifecycle—generates IDs, manages
+        timeouts, and cleans up automatically. Returns None for fire-and-forget
+        requests.
+
+        Most requests require an initialized session. PingRequests work anytime
+        since they test basic connectivity.
+
+        Args:
+            request: The MCP request to send
+            timeout: How long to wait for a response (seconds)
+
+        Returns:
+            Client's response, or None for requests that don't expect replies.
+
+        Raises:
+            RuntimeError: Session not initialized (client hasn't sent initialized
+                notification)
+            TimeoutError: Client didn't respond in time
+        """
+        await self.start_message_loop()
+        await self._ensure_can_send_request(request)
+
+        # Generate request ID and create JSON-RPC wrapper
+        request_id = str(uuid.uuid4())
+        jsonrpc_request = JSONRPCRequest.from_request(request, request_id)
+
+        future: asyncio.Future[Result | Error] = asyncio.Future()
+        self._pending_requests[request_id] = (request, future)
+
+        try:
+            await self.transport.send(jsonrpc_request.to_wire())
+            result = await asyncio.wait_for(future, timeout)
+            return result
+        except asyncio.TimeoutError:
+            try:
+                cancelled_notification = CancelledNotification(
+                    request_id=request_id,
+                    reason="Request timed out",
+                )
+                await self.send_notification(cancelled_notification)
+            except Exception as e:
+                print(f"Error sending cancellation notification: {e}")
+            raise TimeoutError(f"Request {request_id} timed out after {timeout}s")
+        finally:
+            self._pending_requests.pop(request_id, None)
+
+    @abstractmethod
+    async def _ensure_can_send_request(self, request: Request) -> None:
+        """Verify the session can send this request.
+
+        Raises:
+            RuntimeError: If the session isn't in the right state for this request
+        """
+        pass
 
     async def close(self) -> None:
         """Stop the message processing loop and clean up resources.

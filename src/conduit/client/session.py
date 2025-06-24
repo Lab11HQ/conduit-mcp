@@ -75,8 +75,6 @@ class ClientSession(BaseSession):
     Key responsibilities:
     - MCP initialization handshake
     - Bidirectional message processing (requests, responses, notifications)
-    - Request timeout and cancellation handling
-    - Type-safe protocol parsing and routing
 
     Args:
         transport: Communication channel to the MCP server.
@@ -140,68 +138,12 @@ class ClientSession(BaseSession):
         finally:
             self._initializing = None
 
-    async def send_request(
-        self,
-        request: Request,
-        timeout: float = 30.0,
-    ) -> Result | Error | None:
-        """Send a request to the server and wait for its response.
-
-        Handles the complete request lifecycle for you—generates IDs, manages
-        timeouts, and cleans up automatically. Returns None for fire-and-forget
-        requests like logging changes.
-
-        Most requests require an initialized session. PingRequests work anytime
-        since they test basic connectivity.
-
-        Args:
-            request: The MCP request to send
-            timeout: How long to wait for a response (seconds)
-
-        Returns:
-            Server's response, or None for requests that don't expect replies.
-
-        Raises:
-            RuntimeError: Session not initialized (call initialize() first)
-            TimeoutError: Server didn't respond in time
-        """
-        await self.start_message_loop()
-
+    async def _ensure_can_send_request(self, request: Request) -> None:
         if not self.initialized and not isinstance(request, PingRequest):
             raise RuntimeError(
                 "Session must be initialized before sending non-ping requests. "
                 "Call initialize() first."
             )
-
-        # Generate request ID and create JSON-RPC wrapper
-        request_id = str(uuid.uuid4())
-        jsonrpc_request = JSONRPCRequest.from_request(request, request_id)
-
-        # If the request doesn't have a result type, we don't need to wait for a
-        # response.
-        if request.expected_result_type() is None:
-            await self.transport.send(jsonrpc_request.to_wire())
-            return
-
-        future: asyncio.Future[Result | Error] = asyncio.Future()
-        self._pending_requests[request_id] = (request, future)
-
-        try:
-            await self.transport.send(jsonrpc_request.to_wire())
-            result = await asyncio.wait_for(future, timeout)
-            return result
-        except asyncio.TimeoutError:
-            try:
-                cancelled_notification = CancelledNotification(
-                    request_id=request_id,
-                    reason="Request timed out",
-                )
-                await self.send_notification(cancelled_notification)
-            except Exception as e:
-                print(f"Error sending cancellation notification: {e}")
-            raise TimeoutError(f"Request {request_id} timed out after {timeout}s")
-        finally:
-            self._pending_requests.pop(request_id, None)
 
     async def _do_initialize(self, timeout: float = 30.0) -> InitializeResult:
         """Execute the MCP initialization handshake.
