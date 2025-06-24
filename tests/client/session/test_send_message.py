@@ -4,7 +4,6 @@ import pytest
 
 from conduit.protocol.base import Error
 from conduit.protocol.common import EmptyResult, PingRequest
-from conduit.protocol.logging import SetLevelRequest
 from conduit.protocol.roots import RootsListChangedNotification
 from conduit.protocol.tools import ListToolsRequest
 
@@ -47,26 +46,6 @@ class TestSendRequest(BaseSessionTest):
         # Assert
         assert self.session._running
         assert isinstance(result, EmptyResult)
-
-    async def test_returns_immediately_for_no_response_requests(self):
-        """Requests without expected responses return None immediately."""
-        # Arrange
-        self.session._initialize_result = "NOT NONE"
-
-        request = SetLevelRequest(level="info")
-
-        # Act
-        result = await self.session.send_request(request)
-
-        # Assert
-        assert result is None
-
-        # Verify the request was actually sent
-        await self.wait_for_sent_message("logging/setLevel")
-        sent_message = self.transport.client_sent_messages[-1]
-        assert sent_message["method"] == "logging/setLevel"
-        assert sent_message["params"]["level"] == "info"
-        assert "id" in sent_message  # Should still have an ID
 
     async def test_raises_runtime_error_for_non_ping_before_init(self):
         """Non-ping requests fail before initialization."""

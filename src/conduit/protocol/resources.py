@@ -40,6 +40,7 @@ from conduit.protocol.base import (
     Request,
     Result,
 )
+from conduit.protocol.common import EmptyResult
 from conduit.protocol.content import (
     Annotations,
     BlobResourceContents,
@@ -277,8 +278,8 @@ class SubscribeRequest(Request):
     """
 
     @classmethod
-    def expected_result_type(cls) -> None:
-        return None
+    def expected_result_type(cls) -> type[EmptyResult]:
+        return EmptyResult
 
 
 class UnsubscribeRequest(Request):
@@ -299,8 +300,8 @@ class UnsubscribeRequest(Request):
     """
 
     @classmethod
-    def expected_result_type(cls) -> None:
-        return None
+    def expected_result_type(cls) -> type[EmptyResult]:
+        return EmptyResult
 
 
 class ResourceUpdatedNotification(Notification):

@@ -1,10 +1,7 @@
 import asyncio
 
-import pytest
-
 from conduit.protocol.base import Error
 from conduit.protocol.common import EmptyResult, PingRequest
-from conduit.protocol.logging import SetLevelRequest
 from conduit.protocol.tools import CallToolRequest
 
 from .conftest import BaseSessionTest
@@ -95,28 +92,6 @@ class TestResponseHandler(BaseSessionTest):
 
         # Clean up
         future_100.cancel()
-
-    async def test_raises_when_request_missing_result_type(self):
-        """Test error handling when a request without result type gets a response.
-
-        This should never happen in normal operation - requests that don't expect
-        responses (like SetLevelRequest) should not be added to _pending_requests
-        in the first place. This test verifies we catch this programming error
-        with a clear exception rather than silently corrupting state.
-        """
-        # Arrange - simulate the bug: a no-response request in pending_requests
-        request_id = "42"
-        future = asyncio.Future()
-        set_level_request = SetLevelRequest(level="info")
-        self.session._pending_requests[request_id] = (set_level_request, future)
-
-        response = {"jsonrpc": "2.0", "id": request_id, "result": {}}
-
-        # Act & Assert
-        with pytest.raises(
-            ValueError, match="SetLevelRequest.*missing expected_result_type"
-        ):
-            await self.session._handle_response(response)
 
 
 class TestResponseValidator(BaseSessionTest):

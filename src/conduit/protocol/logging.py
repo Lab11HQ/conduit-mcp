@@ -35,6 +35,7 @@ automatically.
 from typing import Annotated, Any, Literal
 
 from conduit.protocol.base import Notification, Request
+from conduit.protocol.common import EmptyResult
 
 LoggingLevel = Annotated[
     Literal[
@@ -75,8 +76,8 @@ class SetLevelRequest(Request):
     """
 
     @classmethod
-    def expected_result_type(cls) -> None:
-        return None
+    def expected_result_type(cls) -> type[EmptyResult]:
+        return EmptyResult
 
 
 class LoggingMessageNotification(Notification):
