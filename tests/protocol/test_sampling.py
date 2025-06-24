@@ -3,6 +3,7 @@ import pytest
 from conduit.protocol.sampling import (
     CreateMessageRequest,
     CreateMessageResult,
+    ModelHint,
     ModelPreferences,
     SamplingMessage,
     TextContent,
@@ -52,19 +53,18 @@ class TestCreateMessageRequest:
             },
         }
 
-    def test_full_create_message_request_roundtrip(self):
+    def test_create_message_request_roundtrip_with_both_kinds_of_metadata_and_hints(
+        self,
+    ):
         # Arrange
         original = CreateMessageRequest(
             messages=[SamplingMessage(role="user", content=TextContent(text="Hello"))],
             max_tokens=150,
-            preferences=ModelPreferences(hints=["gpt-4"]),
-            system_prompt="You are helpful",
-            include_context="thisServer",
-            temperature=0.7,
+            preferences=ModelPreferences(hints=[ModelHint(name="gpt")]),
             stop_sequences=["<END>", "\n\n"],
-            llm_metadata={"provider": "openai", "custom_field": 42},
+            llm_metadata={"provider_specific": "openai"},
             progress_token="req-123",
-            metadata={"trace_id": "abc-def", "user_id": 456},
+            metadata={"trace_id": "abc-def"},
         )
 
         # Act
@@ -76,14 +76,15 @@ class TestCreateMessageRequest:
         assert reconstructed == original
 
         # Assert
-        assert serialized["method"] == "sampling/createMessage"
-        assert serialized["params"]["metadata"] == {
-            "provider": "openai",
-            "custom_field": 42,
+        assert wire_format["method"] == "sampling/createMessage"
+        assert wire_format["params"]["modelPreferences"]["hints"] == [{"name": "gpt"}]
+        assert wire_format["params"]["stopSequences"] == ["<END>", "\n\n"]
+        assert wire_format["params"]["maxTokens"] == 150
+        assert wire_format["params"]["_meta"]["progressToken"] == "req-123"
+        assert wire_format["params"]["_meta"]["trace_id"] == "abc-def"
+        assert wire_format["params"]["metadata"] == {
+            "provider_specific": "openai",
         }
-        assert serialized["params"]["_meta"]["progressToken"] == "req-123"
-        assert serialized["params"]["_meta"]["trace_id"] == "abc-def"
-        assert serialized["params"]["_meta"]["user_id"] == 456
 
     def test_create_message_request_metadata_collision_is_handled(self):
         # Arrange

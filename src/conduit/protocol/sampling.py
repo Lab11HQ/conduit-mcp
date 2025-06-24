@@ -59,6 +59,19 @@ class SamplingMessage(ProtocolModel):
     """
 
 
+class ModelHint(ProtocolModel):
+    """A hint for model selection."""
+
+    name: str | None = None
+    """
+    A hint for a model name.
+    
+    Treated as a substring match: 'claude' matches any Claude model,
+    'sonnet' matches Claude Sonnet variants. Clients may map to equivalent
+    models from different providers that fill similar niches.
+    """
+
+
 class ModelPreferences(ProtocolModel):
     """
     Server preferences for LLM model selection and behavior.
@@ -68,14 +81,13 @@ class ModelPreferences(ProtocolModel):
     This is advisory guidance, not a requirement.
     """
 
-    hints: list[str] | None = Field(default=None)
+    hints: list[ModelHint] | None = Field(default=None)
     """
-    Preferred model names or families.
+    Preferred model hints evaluated in order.
     
-    These work as substring matches: 'claude' matches any Claude model,
-    'sonnet' matches Claude Sonnet variants, 'gpt-4' matches GPT-4 models.
-    Clients may also map these to equivalent models from different providers
-    that fill similar niches.
+    If multiple hints are specified, clients MUST evaluate them in order
+    (first match wins). Clients SHOULD prioritize these over numeric
+    priorities, but MAY use priorities to select from ambiguous matches.
     """
 
     cost_priority: float | None = Field(default=None, alias="costPriority")
