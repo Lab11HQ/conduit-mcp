@@ -27,6 +27,7 @@ from conduit.protocol.common import (
     PingRequest,
     ProgressNotification,
 )
+from conduit.protocol.elicitation import ElicitRequest, ElicitResult
 from conduit.protocol.initialization import (
     ClientCapabilities,
     Implementation,
@@ -61,6 +62,7 @@ CLIENT_REQUEST_CLASSES: dict[str, type[Request]] = {
     "ping": PingRequest,
     "roots/list": ListRootsRequest,
     "sampling/createMessage": CreateMessageRequest,
+    "elicitation/create": ElicitRequest,
 }
 
 
@@ -98,6 +100,8 @@ class ClientSession(BaseSession):
         ]
         | None = None,
         roots: list[Root] | None = None,
+        elicitation_handler: Callable[[ElicitRequest], Awaitable[ElicitResult]]
+        | None = None,
     ):
         super().__init__(transport)
         self.client_info = client_info
@@ -108,8 +112,14 @@ class ClientSession(BaseSession):
                 "create_message_handler required when sampling capability is enabled."
                 " Either provide a handler or disable sampling in ClientCapabilities."
             )
+        if capabilities.elicitation and elicitation_handler is None:
+            raise ValueError(
+                "elicitation_handler required when elicitation capability is enabled."
+                " Either provide a handler or disable elicitation in "
+                "ClientCapabilities."
+            )
         self._create_message_handler = create_message_handler
-
+        self._elicitation_handler = elicitation_handler
         self.roots = roots or []  # TODO: Hook this up to notifcations.
         self._initializing: asyncio.Future[InitializeResult] | None = None
         self._initialize_result: InitializeResult | None = None
@@ -285,6 +295,7 @@ class ClientSession(BaseSession):
         handler_method = {
             "roots/list": self._handle_list_roots,
             "sampling/createMessage": self._handle_create_message,
+            "elicitation/create": self._handle_elicitation,
         }.get(request.method)
         if not handler_method:
             return Error(
@@ -339,3 +350,26 @@ class ClientSession(BaseSession):
             )
 
         return await self._create_message_handler(request)
+
+    async def _handle_elicitation(self, request: ElicitRequest) -> Result | Error:
+        """Handle server request for elicitation.
+
+        Args:
+            request: Parsed elicitation/create request.
+
+        Returns:
+            ElicitResult from user handler, or Error if not configured.
+        """
+        # check if the client supports elicitation
+        if not self.capabilities.elicitation:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Client does not support elicitation capability",
+            )
+        # check if the client has a elicitation handler
+        if self._elicitation_handler is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Client not configured with a elicitation handler",
+            )
+        return await self._elicitation_handler(request)
