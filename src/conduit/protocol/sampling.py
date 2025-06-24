@@ -237,7 +237,7 @@ class CreateMessageRequest(Request):
             mode="json",
         )
 
-        # Handle LLM metadata directly in params
+        # Handle LLM provider metadata directly in params
         if self.llm_metadata:
             params["metadata"] = self.llm_metadata
 
