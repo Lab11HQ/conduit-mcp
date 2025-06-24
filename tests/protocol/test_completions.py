@@ -6,6 +6,7 @@ from conduit.protocol.completions import (
     CompleteResult,
     Completion,
     CompletionArgument,
+    CompletionContext,
 )
 from conduit.protocol.prompts import PromptReference
 
@@ -100,3 +101,20 @@ class TestCompletions:
         assert reconstructed.completion.values == ["single_option"]
         assert reconstructed.completion.total is None
         assert reconstructed.completion.has_more is None
+
+    def test_complete_request_roundtrip_with_context(self):
+        # Arrange
+        complete_request = CompleteRequest(
+            ref=PromptReference(name="test-prompt"),
+            argument=CompletionArgument(name="arg1", value="partial_value"),
+            context=CompletionContext(arguments={"arg1": "value"}),
+        )
+
+        # Act
+        serialized = complete_request.to_protocol()
+        wire_format = {"jsonrpc": "2.0", "id": 1, **serialized}
+        reconstructed = CompleteRequest.from_protocol(wire_format)
+
+        # Assert
+        assert wire_format["params"]["context"] == {"arguments": {"arg1": "value"}}
+        assert reconstructed == complete_request

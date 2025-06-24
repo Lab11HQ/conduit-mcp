@@ -78,6 +78,18 @@ class CompletionArgument(ProtocolModel):
     """
 
 
+class CompletionContext(ProtocolModel):
+    """Additional context for completion requests."""
+
+    arguments: dict[str, str] | None = None
+    """
+    Previously-resolved variables in a URI template or prompt.
+    
+    Provides context about other argument values that have already been
+    set, which can help generate more relevant completion suggestions.
+    """
+
+
 class CompleteRequest(Request):
     """
     Request autocomplete suggestions for a prompt or resource argument.
@@ -96,6 +108,11 @@ class CompleteRequest(Request):
     argument: CompletionArgument
     """
     Details about which argument is being completed and its current value.
+    """
+
+    context: CompletionContext | None = None
+    """
+    Additional context for completion requests.
     """
 
     @classmethod
