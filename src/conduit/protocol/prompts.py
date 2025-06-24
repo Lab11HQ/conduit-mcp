@@ -1,8 +1,9 @@
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field
 
 from conduit.protocol.base import (
+    BaseMetadata,
     Notification,
     PaginatedRequest,
     PaginatedResult,
@@ -17,9 +18,15 @@ from conduit.protocol.content import (
     ImageContent,
     TextContent,
 )
+from conduit.protocol.resources import ResourceLink
+
+# Deifning here to avoid circular imports
+ContentBlock = (
+    TextContent | ImageContent | AudioContent | EmbeddedResource | ResourceLink
+)
 
 
-class PromptArgument(ProtocolModel):
+class PromptArgument(BaseMetadata):
     """
     An argument that customizes a prompt template.
 
@@ -28,19 +35,18 @@ class PromptArgument(ProtocolModel):
     arguments to tailor the review style.
     """
 
-    name: str
     description: str | None = None
     """
     Human-readable description of what this argument controls.
     """
 
-    required: bool = Field(default=False)
+    required: bool | None = Field(default=None)
     """
-    Whether this argument must be provided. Defaults to False.
+    Whether this argument must be provided. Defaults to None.
     """
 
 
-class Prompt(ProtocolModel):
+class Prompt(BaseMetadata):
     """
     A reusable prompt template that encapsulates domain expertise.
 
@@ -49,7 +55,6 @@ class Prompt(ProtocolModel):
     that domain experts have refined and tested.
     """
 
-    name: str
     description: str | None = None
     """
     Human-readable description of what this prompt does.
@@ -58,6 +63,11 @@ class Prompt(ProtocolModel):
     arguments: list[PromptArgument] | None = None
     """
     Arguments that customize this prompt for specific use cases.
+    """
+
+    metadata: dict[str, Any] | None = Field(default=None, alias="_meta")
+    """
+    Additional metadata about the prompt.
     """
 
 
@@ -87,13 +97,12 @@ class ListPromptsResult(PaginatedResult):
     """
 
 
-class PromptReference(ProtocolModel):
+class PromptReference(BaseMetadata):
     """
     Reference to a prompt.
     """
 
     type: Literal["ref/prompt"] = "ref/prompt"
-    name: str
 
 
 class PromptMessage(ProtocolModel):
@@ -107,7 +116,7 @@ class PromptMessage(ProtocolModel):
     """
 
     role: Role
-    content: TextContent | ImageContent | AudioContent | EmbeddedResource
+    content: ContentBlock
 
 
 class GetPromptRequest(Request):

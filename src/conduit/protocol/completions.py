@@ -31,7 +31,7 @@ from pydantic import Field
 
 from conduit.protocol.base import ProtocolModel, Request, Result
 from conduit.protocol.prompts import PromptReference
-from conduit.protocol.resources import ResourceReference
+from conduit.protocol.resources import ResourceTemplateReference
 
 
 class Completion(ProtocolModel):
@@ -88,7 +88,7 @@ class CompleteRequest(Request):
     """
 
     method: Literal["completion/complete"] = "completion/complete"
-    ref: PromptReference | ResourceReference
+    ref: PromptReference | ResourceTemplateReference
     """
     The prompt or resource containing the argument being completed.
     """

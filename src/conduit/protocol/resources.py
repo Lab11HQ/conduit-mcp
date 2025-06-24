@@ -92,7 +92,21 @@ class Resource(BaseMetadata):
     """
 
 
-class ResourceReference(ProtocolModel):
+class ResourceLink(Resource):
+    """
+    A resource the server can read. Included in a prompt or tool call result.
+
+    Note: resource links returned by tools are not guaranteed to appear in the
+    results of `resources/list` requests.
+    """
+
+    type: Literal["resource_link"] = "resource_link"
+    """
+    A link to a resource.
+    """
+
+
+class ResourceTemplateReference(ProtocolModel):
     """
     Reference to a resource.
     """

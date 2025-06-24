@@ -185,8 +185,3 @@ class EmbeddedResource(ProtocolModel):
     """
     Hints about how clients should handle this resource.
     """
-
-
-AnyContent = TextContent | ImageContent | AudioContent | EmbeddedResource
-
-ContentList = list[AnyContent]
