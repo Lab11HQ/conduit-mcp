@@ -23,9 +23,9 @@ Roots help servers operate effectively within their allowed boundaries while
 giving clients control over what filesystem locations are accessible.
 """
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import AnyUrl, UrlConstraints
+from pydantic import AnyUrl, Field, UrlConstraints
 
 from conduit.protocol.base import Notification, ProtocolModel, Request, Result
 
@@ -58,6 +58,11 @@ class Root(ProtocolModel):
     
     Useful for display purposes or referencing specific roots when
     working with multiple locations.
+    """
+
+    metadata: dict[str, Any] | None = Field(default=None, alias="_meta")
+    """
+    Additional metadata about the root.
     """
 
 
