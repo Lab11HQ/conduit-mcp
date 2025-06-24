@@ -6,12 +6,18 @@ from conduit.protocol.content import Annotations
 
 class TestContent:
     def test_annotation_rejects_priorities_out_of_range(self):
-        # Arrange
+        # Arrange & Act & Assert
         with pytest.raises(ValidationError):
             Annotations(priority=100)
 
-    def test_annotation_serialize_with_data(self):
-        annotation = Annotations(audience="user", priority=0.5)
-        protocol_data = annotation.to_protocol()
-        expeceted = {"audience": ["user"], "priority": 0.5}
-        assert protocol_data == expeceted
+    def test_annotation_accepts_last_modified_iso_8601(self):
+        # Arrange
+        annotation = Annotations(last_modified="2021-01-01")
+
+        # Assert
+        assert annotation.last_modified == "2021-01-01"
+
+    def test_annotation_rejects_last_modified_not_iso_8601(self):
+        # Arrange & Act & Assert
+        with pytest.raises(ValidationError):
+            Annotations(last_modified="Jan 1, 2021")

@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import AnyUrl, Field, UrlConstraints, field_validator
@@ -21,7 +22,7 @@ class ResourceContents(ProtocolModel):
 
     mime_type: str | None = Field(default=None, alias="mimeType")
     """
-    Content type of the resource, when known.
+    Content type of the resource, when known. Examples: "image/png", "audio/wav", etc.
     """
 
     metadata: dict[str, Any] | None = Field(default=None, alias="_meta")
@@ -79,6 +80,15 @@ class Annotations(ProtocolModel):
     Helps clients handle resource loading failures or display constraints gracefully.
     """
 
+    last_modified: str | None = Field(default=None, alias="lastModified")
+    """
+    The last modified time of the content, in ISO 8601 format.
+    
+    Must be a valid ISO 8601 formatted string (e.g., "2025-01-12T15:00:58Z").
+    Examples: last activity timestamp in an open file, timestamp when the 
+    resource was attached, etc.
+    """
+
     @field_validator("audience", mode="before")
     @classmethod
     def validate_audience(
@@ -95,9 +105,20 @@ class Annotations(ProtocolModel):
             raise ValueError("priority must be between 0 and 1")
         return v
 
-    def to_protocol(self) -> dict[str, Any]:
-        """Model dump to dict. Note 'audience' gets serialized to a list!"""
-        return self.model_dump(exclude_none=True, mode="json")
+    @field_validator("last_modified")
+    @classmethod
+    def validate_last_modified(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+
+        try:
+            datetime.fromisoformat(v.replace("Z", "+00:00"))
+            return v
+        except ValueError:
+            raise ValueError(
+                "last_modified must be a valid ISO 8601 formatted string "
+                "(e.g., 'YYYY-MM-DD')"
+            )
 
 
 class TextContent(ProtocolModel):
@@ -115,6 +136,11 @@ class TextContent(ProtocolModel):
     annotations: Annotations | None = None
     """Hints about how clients should handle this text."""
 
+    metadata: dict[str, Any] | None = Field(default=None, alias="_meta")
+    """
+    Additional metadata about the text content.
+    """
+
 
 class ImageContent(ProtocolModel):
     """
@@ -126,19 +152,25 @@ class ImageContent(ProtocolModel):
     """
 
     type: Literal["image"] = "image"
-    mime_type: str = Field(alias="mimeType")
-    """
-    Image format like 'image/png' or 'image/jpeg'.
-    """
 
     data: str
     """
     Base64-encoded image data.
     """
 
+    mime_type: str = Field(alias="mimeType")
+    """
+    Image format like 'image/png' or 'image/jpeg'.
+    """
+
     annotations: Annotations | None = None
     """
     Hints about how clients should handle this image.
+    """
+
+    metadata: dict[str, Any] | None = Field(default=None, alias="_meta")
+    """
+    Additional metadata about the image content.
     """
 
 
@@ -151,19 +183,24 @@ class AudioContent(ProtocolModel):
     """
 
     type: Literal["audio"] = "audio"
-    mime_type: str = Field(alias="mimeType")
-    """
-    Audio format like 'audio/wav' or 'audio/mp3'.
-    """
-
     data: str
     """
     Base64-encoded audio data.
     """
 
+    mime_type: str = Field(alias="mimeType")
+    """
+    Audio format like 'audio/wav' or 'audio/mp3'.
+    """
+
     annotations: Annotations | None = None
     """
     Hints about how clients should handle this audio.
+    """
+
+    metadata: dict[str, Any] | None = Field(default=None, alias="_meta")
+    """
+    Additional metadata about the audio content.
     """
 
 
@@ -184,4 +221,9 @@ class EmbeddedResource(ProtocolModel):
     annotations: Annotations | None = None
     """
     Hints about how clients should handle this resource.
+    """
+
+    metadata: dict[str, Any] | None = Field(default=None, alias="_meta")
+    """
+    Additional metadata about the resource content.
     """
