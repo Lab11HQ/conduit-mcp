@@ -40,6 +40,7 @@ from typing import Any, Literal
 from pydantic import Field
 
 from conduit.protocol.base import (
+    BaseMetadata,
     Notification,
     PaginatedRequest,
     PaginatedResult,
@@ -53,14 +54,19 @@ from conduit.protocol.content import (
     ImageContent,
     TextContent,
 )
+from conduit.protocol.resources import ResourceLink
+
+ContentBlock = (
+    TextContent | ImageContent | AudioContent | EmbeddedResource | ResourceLink
+)
 
 
-class InputSchema(ProtocolModel):
+class JSONSchema(ProtocolModel):
     """
-    JSON schema defining what parameters a tool accepts.
+    JSON schema defining what parameters a tool accepts or returns.
 
-    Always uses type "object" since tools take named parameters, not positional ones.
-    Define required parameters to help LLMs provide complete inputs.
+    Always uses type "object" since tools take/return named parameters, not positional
+    ones. Define required parameters to help LLMs provide complete inputs.
     """
 
     type: Literal["object"] = Field(default="object", frozen=True)
@@ -117,7 +123,7 @@ class ToolAnnotations(ProtocolModel):
     """
 
 
-class Tool(ProtocolModel):
+class Tool(BaseMetadata):
     """
     A callable function that extends LLM capabilities beyond text generation.
 
@@ -129,14 +135,6 @@ class Tool(ProtocolModel):
     context, eliminating the need for explicit command parsing or user input.
     """
 
-    name: str
-    """
-    Function identifier used in tool calls.
-    
-    Choose names that clearly indicate purpose: 'query_inventory',
-    'create_support_ticket', 'analyze_performance_metrics'.
-    """
-
     description: str | None = None
     """
     Guides the LLM's understanding of when and how to use this tool.
@@ -145,9 +143,14 @@ class Tool(ProtocolModel):
     and any relevant constraints or considerations.
     """
 
-    input_schema: InputSchema = Field(alias="inputSchema")
+    input_schema: JSONSchema = Field(alias="inputSchema")
     """
     JSON Schema defining the tool's parameter structure.
+    """
+
+    output_schema: JSONSchema | None = Field(default=None, alias="outputSchema")
+    """
+    JSON Schema defining the tool's return structure.
     """
 
     annotations: ToolAnnotations | None = Field(default=None)
@@ -217,7 +220,7 @@ class CallToolResult(Result):
     output and decides how to proceed.
     """
 
-    content: list[TextContent | ImageContent | AudioContent | EmbeddedResource]
+    content: list[ContentBlock]
     """
     Tool output that becomes part of the conversation context.
 
@@ -226,13 +229,24 @@ class CallToolResult(Result):
     text-focused LLMs may need clients to provide descriptions or transcriptions.
     """
 
-    is_error: bool = Field(default=False, alias="isError")
+    structured_content: dict[str, Any] | None = Field(
+        default=None, alias="structuredContent"
+    )
+    """
+    Structured tool output.
+    """
+
+    is_error: bool | None = Field(default=None, alias="isError")
     """
     Indicates tool execution failure while keeping the error visible to the LLM.
-    
-    When True, the LLM can see what went wrong and attempt recovery—trying
-    different arguments, switching tools, or asking for clarification.
-    Use this for business logic errors, not protocol-level failures.
+
+    Set to True instead of raising a protocol level error on tool call failure.
+    When True, include descriptive error information in the `content` field to help
+    the LLM understand what went wrong and potentially recover or try alternative
+    approaches. For example: error messages, diagnostic information, or suggestions
+    for correcting the tool call.
+
+    Useful for LLM debugging and recovery workflows.
     """
 
 

@@ -6,8 +6,10 @@ import pytest
 from pydantic import ValidationError
 
 from conduit.protocol.common import ProgressNotification
+from conduit.protocol.content import TextContent
 from conduit.protocol.tools import (
-    InputSchema,
+    CallToolResult,
+    JSONSchema,
     ListToolsRequest,
     ListToolsResult,
     Tool,
@@ -106,7 +108,7 @@ class TestTools:
 
     def test_list_tools_result_roundtrip_with_tool_schema(self):
         # Arrange
-        schema = InputSchema(
+        schema = JSONSchema(
             type="object",
             properties={
                 "query": {"type": "string", "description": "Search term"},
@@ -139,18 +141,18 @@ class TestTools:
 
     def test_input_schema_validation(self):
         # Arrange
-        schema = InputSchema(
+        schema = JSONSchema(
             type="object", properties={"name": {"type": "string"}}, required=["name"]
         )
 
         # Assert
         assert schema.type == "object"
         with pytest.raises(ValidationError):
-            InputSchema(type="array")
+            JSONSchema(type="array")
 
     def test_list_tools_result_protocol_roundtrip_complex_nested_schema(self):
         # Arrange
-        schema = InputSchema(
+        schema = JSONSchema(
             properties={
                 "config": {
                     "type": "object",
@@ -221,3 +223,32 @@ class TestTools:
 
         # Assert
         assert reconstructed_result.metadata == metadata
+
+    def test_call_tool_result_roundtrip_with_structured_content(self):
+        # Arrange
+        result = CallToolResult(
+            content=[TextContent(text="Hello, world!")],
+            structured_content={"foo": "bar"},
+        )
+        expected_wire_format = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{"type": "text", "text": "Hello, world!"}],
+                "structuredContent": {"foo": "bar"},
+            },
+        }
+
+        # Act
+        serialized = result.to_protocol()
+
+        # Assert 1
+        assert serialized == expected_wire_format["result"]
+
+        # Act 2
+        reconstructed = CallToolResult.from_protocol(expected_wire_format)
+
+        # Assert 2
+        assert reconstructed == result
+        assert reconstructed.structured_content == {"foo": "bar"}
+        assert reconstructed.is_error is None
