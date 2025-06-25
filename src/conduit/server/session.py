@@ -16,7 +16,11 @@ from conduit.protocol.initialization import (
     InitializeResult,
     ServerCapabilities,
 )
-from conduit.protocol.logging import LoggingLevel, SetLevelRequest
+from conduit.protocol.logging import (
+    LoggingLevel,
+    LoggingMessageNotification,
+    SetLevelRequest,
+)
 from conduit.protocol.prompts import (
     GetPromptRequest,
     GetPromptResult,
@@ -33,6 +37,7 @@ from conduit.protocol.resources import (
     ReadResourceResult,
     Resource,
     ResourceTemplate,
+    ResourceUpdatedNotification,
     SubscribeRequest,
     UnsubscribeRequest,
 )
@@ -65,6 +70,7 @@ class ServerSession(BaseSession):
         self.server_info = server_info
         self.capabilities = capabilities
         self._received_initialized_notification = False
+        self._active_subscriptions: set[str] = set()
         self._client_capabilities: ClientCapabilities | None = None
         self.instructions = instructions
         self._current_log_level: LoggingLevel | None = None
@@ -98,6 +104,8 @@ class ServerSession(BaseSession):
         self._on_log_level_change: Callable[[LoggingLevel], Awaitable[None]] | None = (
             None
         )
+        self._on_resource_subscribe: Callable[[str], Awaitable[None]] | None = None
+        self._on_resource_unsubscribe: Callable[[str], Awaitable[None]] | None = None
 
     @property
     def initialized(self) -> bool:
@@ -276,6 +284,65 @@ class ServerSession(BaseSession):
 
         return EmptyResult()
 
+    async def _handle_subscribe(self, request: SubscribeRequest) -> Result | Error:
+        if self.capabilities.resources is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support resources capability",
+            )
+
+        uri = str(request.uri)
+        if uri not in self._registered_resources:
+            # try template matching
+            template_found = False
+            for template_pattern in self._registered_resource_templates.keys():
+                if utils.matches_template(uri=uri, template=template_pattern):
+                    template_found = True
+                    break
+
+            if not template_found:
+                return Error(
+                    code=METHOD_NOT_FOUND,
+                    message=f"Cannot subscribe to unknown resource: {uri}",
+                )
+        self._active_subscriptions.add(uri)
+        if self._on_resource_subscribe:
+            try:
+                await self._on_resource_subscribe(uri)
+            except Exception:
+                return Error(
+                    code=INTERNAL_ERROR,
+                    message="Error in resource subscribe handler",
+                )
+
+        return EmptyResult()
+
+    async def _handle_unsubscribe(self, request: UnsubscribeRequest) -> Result | Error:
+        if self.capabilities.resources is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support resources capability",
+            )
+
+        uri = str(request.uri)
+        if uri not in self._active_subscriptions:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message=f"Cannot unsubscribe from unknown resource: {uri}",
+            )
+
+        self._active_subscriptions.discard(uri)
+        if self._on_resource_unsubscribe:
+            try:
+                await self._on_resource_unsubscribe(uri)
+            except Exception:
+                return Error(
+                    code=INTERNAL_ERROR,
+                    message="Error in resource unsubscribe handler",
+                )
+
+        return EmptyResult()
+
     def _should_send_log(self, level: LoggingLevel) -> bool:
         """Check if a log message should be sent based on current log level."""
         if self._current_log_level is None:
@@ -349,3 +416,29 @@ class ServerSession(BaseSession):
     ) -> None:
         """Set custom log level change handler."""
         self._on_log_level_change = handler
+
+    def on_resource_subscribe(self, callback: Callable[[str], Awaitable[None]]) -> None:
+        """Set callback for resource subscription events."""
+        self._on_resource_subscribe = callback
+
+    def on_resource_unsubscribe(
+        self, callback: Callable[[str], Awaitable[None]]
+    ) -> None:
+        """Set callback for resource unsubscription events."""
+        self._on_resource_unsubscribe = callback
+
+    async def send_resource_updated(self, uri: str) -> None:
+        """Send resource updated notification if client is subscribed."""
+        if uri in self._active_subscriptions:
+            notification = ResourceUpdatedNotification(uri=uri)
+            await self.send_notification(notification)
+
+    async def send_logging_notification(
+        self, level: LoggingLevel, data: Any, logger: str | None = None
+    ) -> None:
+        """Send logging notification if client is subscribed."""
+        if self._should_send_log(level):
+            notification = LoggingMessageNotification(
+                level=level, data=data, logger=logger
+            )
+            await self.send_notification(notification)
