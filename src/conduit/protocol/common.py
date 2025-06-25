@@ -76,14 +76,6 @@ class ProgressNotification(Notification):
     """
 
 
-class EmptyResult(Result):
-    """
-    Result that indicates success but carries no data.
-    """
-
-    pass
-
-
 class PingRequest(Request):
     """
     Heartbeat to check connection health. Sent by client or server.
@@ -94,5 +86,13 @@ class PingRequest(Request):
     method: Literal["ping"] = "ping"
 
     @classmethod
-    def expected_result_type(cls) -> type[EmptyResult]:
+    def expected_result_type(cls) -> type["EmptyResult"]:
         return EmptyResult
+
+
+class EmptyResult(Result):
+    """
+    Result that indicates success but carries no data.
+    """
+
+    pass

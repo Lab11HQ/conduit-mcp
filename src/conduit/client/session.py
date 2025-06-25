@@ -32,6 +32,7 @@ from conduit.protocol.initialization import (
     InitializedNotification,
     InitializeRequest,
     InitializeResult,
+    ServerCapabilities,
 )
 from conduit.protocol.jsonrpc import JSONRPCRequest
 from conduit.protocol.roots import ListRootsRequest, ListRootsResult, Root
@@ -76,7 +77,10 @@ class ClientSession(BaseSession):
         super().__init__(transport)
         self.client_info = client_info
         self.capabilities = capabilities
-        self.roots = roots or []  # TODO: Hook this up to notifcations.
+        self._server_capabilities: ServerCapabilities | None = None
+        self._server_instructions: str | None = None
+        self._server_info: Implementation | None = None
+        self.roots = roots or []
         self._custom_handlers = {}
 
         self._initializing: asyncio.Future[InitializeResult] | None = None
@@ -85,6 +89,15 @@ class ClientSession(BaseSession):
     @property
     def initialized(self) -> bool:
         return self._initialize_result is not None
+
+    def get_server_capabilities(self) -> ServerCapabilities | None:
+        return self._server_capabilities
+
+    def get_server_instructions(self) -> str | None:
+        return self._server_instructions
+
+    def get_server_info(self) -> Implementation | None:
+        return self._server_info
 
     async def initialize(self, timeout: float = 30.0) -> InitializeResult:
         """Initialize your MCP session with the server.
@@ -106,7 +119,7 @@ class ClientSession(BaseSession):
         """
         await self.start_message_loop()
 
-        if self.initialized:
+        if self._initialize_result is not None:
             return self._initialize_result
 
         if self._initializing:
@@ -177,6 +190,9 @@ class ClientSession(BaseSession):
             await self.send_notification(initialized_notification)
 
             self._initialize_result = init_result
+            self._server_capabilities = init_result.capabilities
+            self._server_instructions = init_result.instructions
+            self._server_info = init_result.server_info
             return init_result
         except asyncio.TimeoutError:
             await self.close()
@@ -226,17 +242,6 @@ class ClientSession(BaseSession):
             )
         return ListRootsResult(roots=self.roots)
 
-    def _get_request_registry(self) -> dict[str, RequestRegistryEntry]:
-        return {
-            "ping": (PingRequest, self._handle_ping),
-            "roots/list": (ListRootsRequest, self._handle_list_roots),
-            "sampling/createMessage": (
-                CreateMessageRequest,
-                self._handle_sampling,
-            ),
-            "elicitation/create": (ElicitRequest, self._handle_elicitation),
-        }
-
     async def _handle_sampling(self, request: CreateMessageRequest) -> Result | Error:
         if not self.capabilities.sampling:
             return Error(
@@ -267,6 +272,17 @@ class ClientSession(BaseSession):
             )
 
         return await self._custom_handlers["elicitation/create"](request)
+
+    def _get_request_registry(self) -> dict[str, RequestRegistryEntry]:
+        return {
+            "ping": (PingRequest, self._handle_ping),
+            "roots/list": (ListRootsRequest, self._handle_list_roots),
+            "sampling/createMessage": (
+                CreateMessageRequest,
+                self._handle_sampling,
+            ),
+            "elicitation/create": (ElicitRequest, self._handle_elicitation),
+        }
 
     # Handler registration methods
     def set_sampling_handler(self, handler: RequestHandler[CreateMessageRequest]):
