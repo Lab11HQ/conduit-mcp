@@ -113,15 +113,6 @@ class BaseSession(ABC):
         finally:
             self._pending_requests.pop(request_id, None)
 
-    @abstractmethod
-    async def _ensure_can_send_request(self, request: Request) -> None:
-        """Verify the session can send this request.
-
-        Raises:
-            RuntimeError: If the session isn't in the right state for this request
-        """
-        pass
-
     async def close(self) -> None:
         """Stop the message processing loop and clean up resources.
 
@@ -352,4 +343,13 @@ class BaseSession(ABC):
     @abstractmethod
     async def _handle_session_request(self, payload: dict[str, Any]) -> Result | Error:
         """Handle session-specific requests (non-ping)."""
+        pass
+
+    @abstractmethod
+    async def _ensure_can_send_request(self, request: Request) -> None:
+        """Verify the session can send this request.
+
+        Raises:
+            RuntimeError: If the session isn't in the right state for this request
+        """
         pass

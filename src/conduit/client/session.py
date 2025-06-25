@@ -90,7 +90,8 @@ class ClientSession(BaseSession):
         """Initialize your MCP session with the server.
 
         Call this once after creating your session—it handles the handshake and
-        starts the message loop. Safe to call multiple times.
+        starts the message loop. Safe to call multiple times. Subsequent calls
+        return the cached result.
 
         Args:
             timeout: How long to wait for the server (seconds).
@@ -105,7 +106,7 @@ class ClientSession(BaseSession):
         """
         await self.start_message_loop()
 
-        if self._initialize_result is not None:
+        if self.initialized:
             return self._initialize_result
 
         if self._initializing:
