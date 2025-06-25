@@ -2,7 +2,7 @@ from typing import Any, Awaitable, Callable, TypeVar
 
 from conduit.protocol.base import METHOD_NOT_FOUND, Error, Request, Result
 from conduit.protocol.common import EmptyResult, PingRequest
-from conduit.protocol.completions import CompleteRequest
+from conduit.protocol.completions import CompleteRequest, CompleteResult, Completion
 from conduit.protocol.initialization import (
     ClientCapabilities,
     Implementation,
@@ -68,7 +68,7 @@ class ServerSession(BaseSession):
         self._registered_resources: dict[str, Resource] = {}
         self._registered_resource_templates: dict[str, ResourceTemplate] = {}
 
-        # Handler registries
+        # Handlers
         self._resource_handlers: dict[
             str,
             Callable[[ReadResourceRequest], Awaitable[ReadResourceResult]],
@@ -85,6 +85,9 @@ class ServerSession(BaseSession):
             str,
             Callable[[CallToolRequest], Awaitable[CallToolResult]],
         ] = {}
+        self._completion_handler: (
+            Callable[[CompleteRequest], Awaitable[CompleteResult]] | None
+        ) = None
 
     @property
     def initialized(self) -> bool:
@@ -231,6 +234,24 @@ class ServerSession(BaseSession):
 
         return await self._tool_handlers[name](request)
 
+    async def _handle_complete(self, request: CompleteRequest) -> Result | Error:
+        if self.capabilities.completion is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support completion capability",
+            )
+
+        if self._completion_handler:
+            return await self._completion_handler(request)
+
+        return await self._default_completion(request)
+
+    async def _default_completion(self, request: CompleteRequest) -> Result | Error:
+        """
+        TODO: Implement default completion handler.
+        """
+        return CompleteResult(completion=Completion(values=["no completion"]))
+
     def register_resource(
         self,
         resource: Resource,
@@ -269,3 +290,10 @@ class ServerSession(BaseSession):
         name = tool.name
         self._registered_tools[name] = tool
         self._tool_handlers[name] = handler
+
+    def set_completion_handler(
+        self,
+        handler: Callable[[CompleteRequest], Awaitable[CompleteResult]],
+    ) -> None:
+        """Set custom completion handler for all completion requests."""
+        self._completion_handler = handler
