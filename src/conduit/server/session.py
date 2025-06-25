@@ -37,6 +37,7 @@ from conduit.protocol.tools import (
     ListToolsResult,
     Tool,
 )
+from conduit.server import utils
 from conduit.shared.exceptions import UnknownRequestError
 from conduit.shared.session import BaseSession
 from conduit.transport.base import Transport
@@ -69,6 +70,10 @@ class ServerSession(BaseSession):
 
         # Handler registries
         self._resource_handlers: dict[
+            str,
+            Callable[[ReadResourceRequest], Awaitable[ReadResourceResult]],
+        ] = {}
+        self._resource_template_handlers: dict[
             str,
             Callable[[ReadResourceRequest], Awaitable[ReadResourceResult]],
         ] = {}
@@ -175,7 +180,6 @@ class ServerSession(BaseSession):
             resource_templates=list(self._registered_resource_templates.values())
         )
 
-    # Handler implementation
     async def _handle_read_resource(
         self, request: ReadResourceRequest
     ) -> Result | Error:
@@ -186,13 +190,14 @@ class ServerSession(BaseSession):
             )
 
         uri = str(request.uri)
-        if uri not in self._resource_handlers:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message=f"Unknown resource: {uri}",
-            )
+        if uri in self._resource_handlers:
+            return await self._resource_handlers[uri](request)
 
-        return await self._resource_handlers[uri](request)
+        for template_pattern, handler in self._resource_template_handlers.items():
+            if utils.matches_template(template_pattern, uri):
+                return await handler(request)
+
+        return Error(code=METHOD_NOT_FOUND, message=f"Unknown resource: {uri}")
 
     async def _handle_get_prompt(self, request: GetPromptRequest) -> Result | Error:
         if self.capabilities.prompts is None:
@@ -226,7 +231,6 @@ class ServerSession(BaseSession):
 
         return await self._tool_handlers[name](request)
 
-    # Registration method
     def register_resource(
         self,
         resource: Resource,
@@ -236,6 +240,15 @@ class ServerSession(BaseSession):
         uri = str(resource.uri)
         self._registered_resources[uri] = resource
         self._resource_handlers[uri] = handler
+
+    def register_resource_template(
+        self,
+        template: ResourceTemplate,
+        handler: Callable[[ReadResourceRequest], Awaitable[ReadResourceResult]],
+    ) -> None:
+        """Register resource template metadata and handler together."""
+        self._registered_resource_templates[template.name] = template
+        self._resource_template_handlers[template.uri_template] = handler
 
     def register_prompt(
         self,
