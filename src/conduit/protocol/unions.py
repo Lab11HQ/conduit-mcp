@@ -5,6 +5,7 @@ from conduit.protocol.common import (
     ProgressNotification,
 )
 from conduit.protocol.completions import CompleteRequest, CompleteResult
+from conduit.protocol.elicitation import ElicitRequest, ElicitResult
 from conduit.protocol.initialization import (
     InitializedNotification,
     InitializeRequest,
@@ -72,10 +73,10 @@ ClientNotification = (
 )
 
 # ----------- Client Results -------------
-ClientResult = EmptyResult | CreateMessageResult | ListRootsResult
+ClientResult = EmptyResult | CreateMessageResult | ListRootsResult | ElicitResult
 
 # ----------- Server Requests -------------
-ServerRequest = PingRequest | CreateMessageRequest | ListToolsRequest
+ServerRequest = PingRequest | CreateMessageRequest | ListToolsRequest | ElicitRequest
 
 # ----------- Server Notifications -------------
 ServerNotification = (
