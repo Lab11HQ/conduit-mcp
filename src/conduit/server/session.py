@@ -3,6 +3,7 @@ from typing import Any, Awaitable, Callable, TypeVar
 from conduit.protocol.base import METHOD_NOT_FOUND, Error, Request, Result
 from conduit.protocol.common import EmptyResult, PingRequest
 from conduit.protocol.completions import CompleteRequest
+from conduit.protocol.content import BlobResourceContents, TextResourceContents
 from conduit.protocol.initialization import (
     ClientCapabilities,
     Implementation,
@@ -23,6 +24,7 @@ from conduit.protocol.resources import (
     ListResourceTemplatesRequest,
     ListResourceTemplatesResult,
     ReadResourceRequest,
+    ReadResourceResult,
     Resource,
     ResourceTemplate,
     SubscribeRequest,
@@ -58,11 +60,19 @@ class ServerSession(BaseSession):
         self._client_capabilities: ClientCapabilities | None = None
         self.instructions = instructions
 
-        # Resource registries
+        # Tool/prompt/resource registries
         self._registered_tools: dict[str, Tool] = {}
         self._registered_prompts: dict[str, Prompt] = {}
         self._registered_resources: dict[str, Resource] = {}
         self._registered_resource_templates: dict[str, ResourceTemplate] = {}
+
+        # Handler registries
+        self._resource_content_handlers: dict[
+            str,
+            Callable[
+                [str], Awaitable[list[TextResourceContents | BlobResourceContents]]
+            ],
+        ] = {}
 
     @property
     def initialized(self) -> bool:
@@ -157,6 +167,45 @@ class ServerSession(BaseSession):
         return ListResourceTemplatesResult(
             resource_templates=list(self._registered_resource_templates.values())
         )
+
+    # Handler implementation
+    async def _handle_read_resource(
+        self, request: ReadResourceRequest
+    ) -> Result | Error:
+        if self.capabilities.resources is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support resources capability",
+            )
+
+        uri = str(request.uri)
+        if uri not in self._resource_content_handlers:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message=f"Unknown resource: {uri}",
+            )
+
+        contents = await self._resource_content_handlers[uri](uri)
+        return ReadResourceResult(contents=contents)
+
+    # Registration method
+    def register_resource_handler(
+        self,
+        uri: str,
+        handler: Callable[
+            [str], Awaitable[list[TextResourceContents | BlobResourceContents]]
+        ],
+        resource_def: Resource,
+    ) -> None:
+        """Register a resource handler for dynamic content retrieval.
+
+        The handler will be called with the URI of the resource to read.
+        The handler should return a list of TextResourceContents or
+        BlobResourceContents.
+        The list should be empty if the resource is not found.
+        """
+        self._resource_content_handlers[str(uri)] = handler
+        self._registered_resources[str(uri)] = resource_def
 
     def register_tool(
         self, name: str, handler: Callable[[Tool], Result | Error], tool_def: Tool
