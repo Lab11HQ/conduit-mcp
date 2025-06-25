@@ -3,7 +3,6 @@ from typing import Any, Awaitable, Callable, TypeVar
 from conduit.protocol.base import METHOD_NOT_FOUND, Error, Request, Result
 from conduit.protocol.common import EmptyResult, PingRequest
 from conduit.protocol.completions import CompleteRequest
-from conduit.protocol.content import BlobResourceContents, TextResourceContents
 from conduit.protocol.initialization import (
     ClientCapabilities,
     Implementation,
@@ -14,6 +13,7 @@ from conduit.protocol.initialization import (
 from conduit.protocol.logging import SetLevelRequest
 from conduit.protocol.prompts import (
     GetPromptRequest,
+    GetPromptResult,
     ListPromptsRequest,
     ListPromptsResult,
     Prompt,
@@ -67,11 +67,13 @@ class ServerSession(BaseSession):
         self._registered_resource_templates: dict[str, ResourceTemplate] = {}
 
         # Handler registries
-        self._resource_content_handlers: dict[
+        self._resource_handlers: dict[
             str,
-            Callable[
-                [str], Awaitable[list[TextResourceContents | BlobResourceContents]]
-            ],
+            Callable[[ReadResourceRequest], Awaitable[ReadResourceResult]],
+        ] = {}
+        self._prompt_handlers: dict[
+            str,
+            Callable[[GetPromptRequest], Awaitable[GetPromptResult]],
         ] = {}
 
     @property
@@ -179,33 +181,48 @@ class ServerSession(BaseSession):
             )
 
         uri = str(request.uri)
-        if uri not in self._resource_content_handlers:
+        if uri not in self._resource_handlers:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message=f"Unknown resource: {uri}",
             )
 
-        contents = await self._resource_content_handlers[uri](uri)
-        return ReadResourceResult(contents=contents)
+        return await self._resource_handlers[uri](request)
+
+    async def _handle_get_prompt(self, request: GetPromptRequest) -> Result | Error:
+        if self.capabilities.prompts is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support prompts capability",
+            )
+
+        name = str(request.name)
+        if name not in self._prompt_handlers:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message=f"Unknown prompt: {name}",
+            )
+
+        return await self._prompt_handlers[name](request)
 
     # Registration method
-    def register_resource_handler(
+    def register_resource(
         self,
-        uri: str,
-        handler: Callable[
-            [str], Awaitable[list[TextResourceContents | BlobResourceContents]]
-        ],
-        resource_def: Resource,
+        resource: Resource,
+        handler: Callable[[ReadResourceRequest], Awaitable[ReadResourceResult]],
     ) -> None:
-        """Register a resource handler for dynamic content retrieval.
+        uri = str(resource.uri)
+        self._registered_resources[uri] = resource
+        self._resource_handlers[uri] = handler
 
-        The handler will be called with the URI of the resource to read.
-        The handler should return a list of TextResourceContents or
-        BlobResourceContents.
-        The list should be empty if the resource is not found.
-        """
-        self._resource_content_handlers[str(uri)] = handler
-        self._registered_resources[str(uri)] = resource_def
+    def register_prompt(
+        self,
+        prompt: Prompt,
+        handler: Callable[[GetPromptRequest], Awaitable[GetPromptResult]],
+    ) -> None:
+        name = str(prompt.name)
+        self._registered_prompts[name] = prompt
+        self._prompt_handlers[name] = handler
 
     def register_tool(
         self, name: str, handler: Callable[[Tool], Result | Error], tool_def: Tool
