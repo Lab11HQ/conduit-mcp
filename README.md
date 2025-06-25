@@ -1,6 +1,6 @@
 # conduit-mcp
 
-A delightful Python SDK for Model Context Protocol (MCP).
+A Python SDK for Model Context Protocol (MCP).
 
 ## What is MCP?
 
