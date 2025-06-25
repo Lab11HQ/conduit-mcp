@@ -253,7 +253,7 @@ class ServerSession(BaseSession):
         return await self._tool_handlers[name](request)
 
     async def _handle_complete(self, request: CompleteRequest) -> Result | Error:
-        if self.capabilities.completion is None:
+        if self.capabilities.completions is None:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Server does not support completion capability",
