@@ -53,9 +53,10 @@ from conduit.shared.exceptions import UnknownRequestError
 from conduit.shared.session import BaseSession
 from conduit.transport.base import Transport
 
-T = TypeVar("T", bound=Request)
-RequestHandler = Callable[[T], Awaitable[Result | Error]]
-RequestRegistryEntry = tuple[type[T], RequestHandler[T]]
+TRequest = TypeVar("TRequest", bound=Request)
+TResult = TypeVar("TResult", bound=Result)
+RequestHandler = Callable[[TRequest], Awaitable[TResult | Error]]
+RequestRegistryEntry = tuple[type[TRequest], RequestHandler[TRequest, TResult]]
 
 
 class ServerSession(BaseSession):
@@ -99,7 +100,7 @@ class ServerSession(BaseSession):
             Callable[[CallToolRequest], Awaitable[CallToolResult]],
         ] = {}
         self._completion_handler: (
-            Callable[[CompleteRequest], Awaitable[CompleteResult]] | None
+            Callable[[CompleteRequest], Awaitable[CompleteResult | Error]] | None
         ) = None
         self._on_log_level_change: Callable[[LoggingLevel], Awaitable[None]] | None = (
             None
@@ -152,10 +153,12 @@ class ServerSession(BaseSession):
             "logging/setLevel": (SetLevelRequest, self._handle_set_level),
         }
 
-    async def _handle_ping(self, request: PingRequest) -> Result | Error:
+    async def _handle_ping(self, request: PingRequest) -> EmptyResult | Error:
         return EmptyResult()
 
-    async def _handle_initialize(self, request: InitializeRequest) -> Result | Error:
+    async def _handle_initialize(
+        self, request: InitializeRequest
+    ) -> InitializeResult | Error:
         self._client_capabilities = request.capabilities
         return InitializeResult(
             capabilities=self.capabilities,
@@ -163,7 +166,9 @@ class ServerSession(BaseSession):
             instructions=self.instructions,
         )
 
-    async def _handle_list_tools(self, request: ListToolsRequest) -> Result | Error:
+    async def _handle_list_tools(
+        self, request: ListToolsRequest
+    ) -> ListToolsResult | Error:
         if self.capabilities.tools is None:
             return Error(
                 code=METHOD_NOT_FOUND,
@@ -171,7 +176,9 @@ class ServerSession(BaseSession):
             )
         return ListToolsResult(tools=list(self._registered_tools.values()))
 
-    async def _handle_list_prompts(self, request: ListPromptsRequest) -> Result | Error:
+    async def _handle_list_prompts(
+        self, request: ListPromptsRequest
+    ) -> ListPromptsResult | Error:
         if self.capabilities.prompts is None:
             return Error(
                 code=METHOD_NOT_FOUND,
@@ -181,7 +188,7 @@ class ServerSession(BaseSession):
 
     async def _handle_list_resources(
         self, request: ListResourcesRequest
-    ) -> Result | Error:
+    ) -> ListResourcesResult | Error:
         if self.capabilities.resources is None:
             return Error(
                 code=METHOD_NOT_FOUND,
@@ -191,7 +198,7 @@ class ServerSession(BaseSession):
 
     async def _handle_list_resource_templates(
         self, request: ListResourceTemplatesRequest
-    ) -> Result | Error:
+    ) -> ListResourceTemplatesResult | Error:
         if self.capabilities.resources is None:
             return Error(
                 code=METHOD_NOT_FOUND,
@@ -203,7 +210,7 @@ class ServerSession(BaseSession):
 
     async def _handle_read_resource(
         self, request: ReadResourceRequest
-    ) -> Result | Error:
+    ) -> ReadResourceResult | Error:
         if self.capabilities.resources is None:
             return Error(
                 code=METHOD_NOT_FOUND,
@@ -220,7 +227,9 @@ class ServerSession(BaseSession):
 
         return Error(code=METHOD_NOT_FOUND, message=f"Unknown resource: {uri}")
 
-    async def _handle_get_prompt(self, request: GetPromptRequest) -> Result | Error:
+    async def _handle_get_prompt(
+        self, request: GetPromptRequest
+    ) -> GetPromptResult | Error:
         if self.capabilities.prompts is None:
             return Error(
                 code=METHOD_NOT_FOUND,
@@ -236,7 +245,9 @@ class ServerSession(BaseSession):
 
         return await self._prompt_handlers[name](request)
 
-    async def _handle_call_tool(self, request: CallToolRequest) -> Result | Error:
+    async def _handle_call_tool(
+        self, request: CallToolRequest
+    ) -> CallToolResult | Error:
         if self.capabilities.tools is None:
             return Error(
                 code=METHOD_NOT_FOUND,
@@ -252,7 +263,9 @@ class ServerSession(BaseSession):
 
         return await self._tool_handlers[name](request)
 
-    async def _handle_complete(self, request: CompleteRequest) -> Result | Error:
+    async def _handle_complete(
+        self, request: CompleteRequest
+    ) -> CompleteResult | Error:
         if self.capabilities.completions is None:
             return Error(
                 code=METHOD_NOT_FOUND,
@@ -264,7 +277,7 @@ class ServerSession(BaseSession):
 
         return CompleteResult(completion=Completion(values=[]))
 
-    async def _handle_set_level(self, request: SetLevelRequest) -> Result | Error:
+    async def _handle_set_level(self, request: SetLevelRequest) -> EmptyResult | Error:
         if self.capabilities.logging is None:
             return Error(
                 code=METHOD_NOT_FOUND,
@@ -284,7 +297,7 @@ class ServerSession(BaseSession):
 
         return EmptyResult()
 
-    async def _handle_subscribe(self, request: SubscribeRequest) -> Result | Error:
+    async def _handle_subscribe(self, request: SubscribeRequest) -> EmptyResult | Error:
         if self.capabilities.resources is None:
             return Error(
                 code=METHOD_NOT_FOUND,
@@ -317,7 +330,9 @@ class ServerSession(BaseSession):
 
         return EmptyResult()
 
-    async def _handle_unsubscribe(self, request: UnsubscribeRequest) -> Result | Error:
+    async def _handle_unsubscribe(
+        self, request: UnsubscribeRequest
+    ) -> EmptyResult | Error:
         if self.capabilities.resources is None:
             return Error(
                 code=METHOD_NOT_FOUND,
@@ -405,7 +420,7 @@ class ServerSession(BaseSession):
 
     def set_completion_handler(
         self,
-        handler: Callable[[CompleteRequest], Awaitable[CompleteResult]],
+        handler: Callable[[CompleteRequest], Awaitable[CompleteResult | Error]],
     ) -> None:
         """Set custom completion handler for all completion requests."""
         self._completion_handler = handler

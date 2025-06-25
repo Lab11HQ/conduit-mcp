@@ -25,7 +25,7 @@ from conduit.protocol.common import (
     EmptyResult,
     PingRequest,
 )
-from conduit.protocol.elicitation import ElicitRequest
+from conduit.protocol.elicitation import ElicitRequest, ElicitResult
 from conduit.protocol.initialization import (
     ClientCapabilities,
     Implementation,
@@ -36,14 +36,15 @@ from conduit.protocol.initialization import (
 )
 from conduit.protocol.jsonrpc import JSONRPCRequest
 from conduit.protocol.roots import ListRootsRequest, ListRootsResult, Root
-from conduit.protocol.sampling import CreateMessageRequest
+from conduit.protocol.sampling import CreateMessageRequest, CreateMessageResult
 from conduit.shared.exceptions import UnknownRequestError
 from conduit.shared.session import BaseSession
 from conduit.transport.base import Transport
 
-T = TypeVar("T", bound=Request)
-RequestHandler = Callable[[T], Awaitable[Result | Error]]
-RequestRegistryEntry = tuple[type[T], RequestHandler[T]]
+TRequest = TypeVar("TRequest", bound=Request)
+TResult = TypeVar("TResult", bound=Result)
+RequestHandler = Callable[[TRequest], Awaitable[TResult | Error]]
+RequestRegistryEntry = tuple[type[TRequest], RequestHandler[TRequest, TResult]]
 
 
 class ClientSession(BaseSession):
@@ -215,7 +216,7 @@ class ClientSession(BaseSession):
         request = request_class.from_protocol(payload)
         return await handler(request)
 
-    async def _handle_ping(self, request: PingRequest) -> Result | Error:
+    async def _handle_ping(self, request: PingRequest) -> EmptyResult | Error:
         """Handle server request for ping.
 
         Returns:
@@ -223,7 +224,9 @@ class ClientSession(BaseSession):
         """
         return EmptyResult()
 
-    async def _handle_list_roots(self, request: ListRootsRequest) -> Result | Error:
+    async def _handle_list_roots(
+        self, request: ListRootsRequest
+    ) -> ListRootsResult | Error:
         """Handle server request for filesystem roots.
 
         Returns available roots if client advertised roots capability,
@@ -242,7 +245,9 @@ class ClientSession(BaseSession):
             )
         return ListRootsResult(roots=self.roots)
 
-    async def _handle_sampling(self, request: CreateMessageRequest) -> Result | Error:
+    async def _handle_sampling(
+        self, request: CreateMessageRequest
+    ) -> CreateMessageResult | Error:
         if not self.capabilities.sampling:
             return Error(
                 code=METHOD_NOT_FOUND,
@@ -257,7 +262,7 @@ class ClientSession(BaseSession):
 
         return await self._custom_handlers["sampling/createMessage"](request)
 
-    async def _handle_elicitation(self, request: ElicitRequest) -> Result | Error:
+    async def _handle_elicitation(self, request: ElicitRequest) -> ElicitResult | Error:
         """Handle server request for elicitation."""
         if not self.capabilities.elicitation:
             return Error(
@@ -285,12 +290,19 @@ class ClientSession(BaseSession):
         }
 
     # Handler registration methods
-    def set_sampling_handler(self, handler: RequestHandler[CreateMessageRequest]):
+    def set_sampling_handler(
+        self,
+        handler: Callable[
+            [CreateMessageRequest], Awaitable[CreateMessageResult | Error]
+        ],
+    ):
         """Register a handler for sampling/createMessage requests."""
         self._custom_handlers["sampling/createMessage"] = handler
         return self  # For method chaining
 
-    def set_elicitation_handler(self, handler: RequestHandler[ElicitRequest]):
+    def set_elicitation_handler(
+        self, handler: Callable[[ElicitRequest], Awaitable[ElicitResult | Error]]
+    ):
         """Register a handler for elicitation/create requests."""
         self._custom_handlers["elicitation/create"] = handler
         return self  # For method chaining
