@@ -18,15 +18,12 @@ from conduit.protocol.base import (
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION,
     Error,
-    Notification,
     Request,
     Result,
 )
 from conduit.protocol.common import (
-    CancelledNotification,
     EmptyResult,
     PingRequest,
-    ProgressNotification,
 )
 from conduit.protocol.elicitation import ElicitRequest
 from conduit.protocol.initialization import (
@@ -37,15 +34,8 @@ from conduit.protocol.initialization import (
     InitializeResult,
 )
 from conduit.protocol.jsonrpc import JSONRPCRequest
-from conduit.protocol.logging import LoggingMessageNotification
-from conduit.protocol.prompts import PromptListChangedNotification
-from conduit.protocol.resources import (
-    ResourceListChangedNotification,
-    ResourceUpdatedNotification,
-)
 from conduit.protocol.roots import ListRootsRequest, ListRootsResult, Root
 from conduit.protocol.sampling import CreateMessageRequest
-from conduit.protocol.tools import ToolListChangedNotification
 from conduit.shared.exceptions import UnknownRequestError
 from conduit.shared.session import BaseSession
 from conduit.transport.base import Transport
@@ -53,16 +43,6 @@ from conduit.transport.base import Transport
 T = TypeVar("T", bound=Request)
 RequestHandler = Callable[[T], Awaitable[Result | Error]]
 RequestRegistryEntry = tuple[type[T], RequestHandler[T]]
-
-CLIENT_NOTIFICATION_CLASSES: dict[str, type[Notification]] = {
-    "notifications/cancelled": CancelledNotification,
-    "notifications/message": LoggingMessageNotification,
-    "notifications/progress": ProgressNotification,
-    "notifications/resources/updated": ResourceUpdatedNotification,
-    "notifications/resources/list_changed": ResourceListChangedNotification,
-    "notifications/tools/list_changed": ToolListChangedNotification,
-    "notifications/prompts/list_changed": PromptListChangedNotification,
-}
 
 
 class ClientSession(BaseSession):
@@ -205,9 +185,6 @@ class ClientSession(BaseSession):
             raise
         finally:
             self._pending_requests.pop(request_id, None)
-
-    def _get_supported_notifications(self) -> dict[str, type[Notification]]:
-        return CLIENT_NOTIFICATION_CLASSES
 
     async def _handle_session_request(self, payload: dict[str, Any]) -> Result | Error:
         """Handle client-specific requests."""

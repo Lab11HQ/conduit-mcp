@@ -20,6 +20,7 @@ from conduit.protocol.jsonrpc import (
     JSONRPCRequest,
     JSONRPCResponse,
 )
+from conduit.protocol.unions import NOTIFICATION_REGISTRY
 from conduit.shared.exceptions import UnknownNotificationError, UnknownRequestError
 from conduit.transport.base import Transport
 
@@ -303,16 +304,14 @@ class BaseSession(ABC):
 
     async def _handle_notification(self, payload: dict[str, Any]) -> None:
         """Parse notification and queue it for consumption."""
-        notification = self._parse_notification(payload)
-        await self.notifications.put(notification)
-
-    def _parse_notification(self, payload: dict[str, Any]) -> Notification:
-        """Parse JSON-RPC notification into typed notification object."""
         method = payload["method"]
-        notification_class = self._get_supported_notifications().get(method)
+        notification_class = NOTIFICATION_REGISTRY.get(method)
+
         if notification_class is None:
             raise UnknownNotificationError(method)
-        return notification_class.from_protocol(payload)
+
+        notification = notification_class.from_protocol(payload)
+        await self.notifications.put(notification)
 
     async def _handle_request(self, payload: dict[str, Any]) -> None:
         """Handle peer request and send back a response."""
@@ -348,11 +347,6 @@ class BaseSession(ABC):
     @abstractmethod
     def initialized(self) -> bool:
         """Return True if the session is initialized."""
-        pass
-
-    @abstractmethod
-    def _get_supported_notifications(self) -> dict[str, type[Notification]]:
-        """Return the notification class registry for this session type."""
         pass
 
     @abstractmethod

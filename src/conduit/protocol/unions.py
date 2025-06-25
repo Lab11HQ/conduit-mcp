@@ -115,3 +115,28 @@ JSONRPCMessage = (
     | JSONRPCError
     | JSONRPCBatchResponse
 )
+
+
+# ------------ Notification registry -------------
+
+CLIENT_SENT_NOTIFICATION_REGISTRY = {
+    "notifications/initialized": InitializedNotification,
+    "notifications/cancelled": CancelledNotification,
+    "notifications/progress": ProgressNotification,
+    "notifications/roots/list_changed": RootsListChangedNotification,
+}
+
+SERVER_SENT_NOTIFICATION_REGISTRY = {
+    "notifications/cancelled": CancelledNotification,
+    "notifications/message": LoggingMessageNotification,
+    "notifications/progress": ProgressNotification,
+    "notifications/resources/updated": ResourceUpdatedNotification,
+    "notifications/resources/list_changed": ResourceListChangedNotification,
+    "notifications/tools/list_changed": ToolListChangedNotification,
+    "notifications/prompts/list_changed": PromptListChangedNotification,
+}
+
+NOTIFICATION_REGISTRY = {
+    **CLIENT_SENT_NOTIFICATION_REGISTRY,
+    **SERVER_SENT_NOTIFICATION_REGISTRY,
+}
