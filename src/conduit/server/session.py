@@ -32,6 +32,7 @@ from conduit.protocol.resources import (
 )
 from conduit.protocol.tools import (
     CallToolRequest,
+    CallToolResult,
     ListToolsRequest,
     ListToolsResult,
     Tool,
@@ -74,6 +75,10 @@ class ServerSession(BaseSession):
         self._prompt_handlers: dict[
             str,
             Callable[[GetPromptRequest], Awaitable[GetPromptResult]],
+        ] = {}
+        self._tool_handlers: dict[
+            str,
+            Callable[[CallToolRequest], Awaitable[CallToolResult]],
         ] = {}
 
     @property
@@ -205,12 +210,29 @@ class ServerSession(BaseSession):
 
         return await self._prompt_handlers[name](request)
 
+    async def _handle_call_tool(self, request: CallToolRequest) -> Result | Error:
+        if self.capabilities.tools is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support tools capability",
+            )
+
+        name = str(request.name)
+        if name not in self._tool_handlers:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message=f"Unknown tool: {name}",
+            )
+
+        return await self._tool_handlers[name](request)
+
     # Registration method
     def register_resource(
         self,
         resource: Resource,
         handler: Callable[[ReadResourceRequest], Awaitable[ReadResourceResult]],
     ) -> None:
+        """Register resource metadata and handler together."""
         uri = str(resource.uri)
         self._registered_resources[uri] = resource
         self._resource_handlers[uri] = handler
@@ -220,16 +242,17 @@ class ServerSession(BaseSession):
         prompt: Prompt,
         handler: Callable[[GetPromptRequest], Awaitable[GetPromptResult]],
     ) -> None:
+        """Register prompt metadata and handler together."""
         name = str(prompt.name)
         self._registered_prompts[name] = prompt
         self._prompt_handlers[name] = handler
 
     def register_tool(
-        self, name: str, handler: Callable[[Tool], Result | Error], tool_def: Tool
+        self,
+        tool: Tool,
+        handler: Callable[[CallToolRequest], Awaitable[CallToolResult]],
     ) -> None:
+        """Register tool metadata and handler together."""
+        name = tool.name
+        self._registered_tools[name] = tool
         self._tool_handlers[name] = handler
-        self._registered_tools[name] = tool_def
-
-    def _handle_call_tool(self, request: CallToolRequest) -> Result | Error:
-        # Capability check and handler execution
-        ...
