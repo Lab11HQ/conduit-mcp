@@ -106,7 +106,7 @@ class TestRequestHandler(BaseSessionTest):
         # Arrange
         # Set up session with roots capability
         self.session.capabilities.roots = RootsCapability()
-        self.session.roots.register_root(Root(uri="file:///tmp", name="temp"))
+        self.session.roots.add_root(Root(uri="file:///tmp", name="temp"))
 
         request_payload = {"jsonrpc": "2.0", "id": "789", "method": "roots/list"}
 

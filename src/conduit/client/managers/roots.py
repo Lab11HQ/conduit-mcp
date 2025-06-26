@@ -5,11 +5,11 @@ class RootsManager:
     def __init__(self):
         self.roots: list[Root] = []
 
-    def register_root(self, root: Root) -> None:
+    def add_root(self, root: Root) -> None:
         """Register a root that the server can access."""
         self.roots.append(root)
 
-    def unregister_root(self, uri: str) -> bool:
+    def remove_root(self, uri: str) -> bool:
         """Remove a root by URI. Returns True if found and removed."""
         for i, root in enumerate(self.roots):
             if str(root.uri) == uri:
