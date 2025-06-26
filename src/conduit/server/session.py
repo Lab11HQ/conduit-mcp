@@ -8,7 +8,7 @@ from conduit.protocol.base import (
     Result,
 )
 from conduit.protocol.common import EmptyResult, PingRequest
-from conduit.protocol.completions import CompleteRequest, CompleteResult, Completion
+from conduit.protocol.completions import CompleteRequest, CompleteResult
 from conduit.protocol.initialization import (
     ClientCapabilities,
     Implementation,
@@ -41,6 +41,10 @@ from conduit.protocol.tools import (
     ListToolsRequest,
     ListToolsResult,
 )
+from conduit.server.managers.completions import (
+    CompletionManager,
+    CompletionNotConfiguredError,
+)
 from conduit.server.managers.logging import LoggingManager
 from conduit.server.managers.prompts import PromptManager
 from conduit.server.managers.resources import ResourceManager
@@ -70,15 +74,12 @@ class ServerSession(BaseSession):
         self._client_capabilities: ClientCapabilities | None = None
         self.instructions = instructions
 
+        # Managers
         self.tools = ToolManager()
         self.resources = ResourceManager()
         self.prompts = PromptManager()
         self.logging = LoggingManager()
-
-        # Handlers
-        self._completion_handler: (
-            Callable[[CompleteRequest], Awaitable[CompleteResult | Error]] | None
-        ) = None
+        self.completions = CompletionManager()
 
     @property
     def initialized(self) -> bool:
@@ -288,10 +289,18 @@ class ServerSession(BaseSession):
                 message="Server does not support completion capability",
             )
 
-        if self._completion_handler:
-            return await self._completion_handler(request)
-
-        return CompleteResult(completion=Completion(values=[]))
+        try:
+            return await self.completions.handle_complete(request)
+        except CompletionNotConfiguredError:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="No completion handler registered",
+            )
+        except Exception:
+            return Error(
+                code=INTERNAL_ERROR,
+                message="Error in completion handler",
+            )
 
     async def _handle_set_level(self, request: SetLevelRequest) -> EmptyResult | Error:
         if self.capabilities.logging is None:
@@ -307,10 +316,3 @@ class ServerSession(BaseSession):
                 code=INTERNAL_ERROR,
                 message="Error in log level change handler",
             )
-
-    def set_completion_handler(
-        self,
-        handler: Callable[[CompleteRequest], Awaitable[CompleteResult | Error]],
-    ) -> None:
-        """Set custom completion handler for all completion requests."""
-        self._completion_handler = handler
