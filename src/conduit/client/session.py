@@ -14,6 +14,10 @@ import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar, cast
 
+from conduit.client.managers.elicitation import (
+    ElicitationManager,
+    ElicitationNotConfiguredError,
+)
 from conduit.client.managers.roots import RootsManager
 from conduit.client.managers.sampling import SamplingManager, SamplingNotConfiguredError
 from conduit.protocol.base import (
@@ -63,11 +67,10 @@ class ClientSession(BaseSession):
         self._server_capabilities: ServerCapabilities | None = None
         self._server_instructions: str | None = None
         self._server_info: Implementation | None = None
-        self._custom_handlers = {}
 
         self.roots = RootsManager()
         self.sampling = SamplingManager()
-
+        self.elicitation = ElicitationManager()
         self._initializing: asyncio.Future[InitializeResult] | None = None
         self._initialize_result: InitializeResult | None = None
 
@@ -260,17 +263,9 @@ class ClientSession(BaseSession):
                 message="Client does not support elicitation capability",
             )
 
-        if "elicitation/create" not in self._custom_handlers:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message="Client not configured with a elicitation handler",
-            )
-
-        return await self._custom_handlers["elicitation/create"](request)
-
-    def set_elicitation_handler(
-        self, handler: Callable[[ElicitRequest], Awaitable[ElicitResult | Error]]
-    ):
-        """Register a handler for elicitation/create requests."""
-        self._custom_handlers["elicitation/create"] = handler
-        return self  # For method chaining
+        try:
+            return await self.elicitation.handle_elicitation(request)
+        except ElicitationNotConfiguredError as e:
+            return Error(code=METHOD_NOT_FOUND, message=str(e))
+        except Exception:
+            return Error(code=INTERNAL_ERROR, message="Error in elicitation handler")

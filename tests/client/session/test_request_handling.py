@@ -261,7 +261,7 @@ class TestRequestHandler(BaseSessionTest):
         async def mock_handler(request: ElicitRequest) -> Result | Error:
             return mock_result
 
-        self.session.set_elicitation_handler(mock_handler)
+        self.session.elicitation.set_handler(mock_handler)
 
         payload = {
             "jsonrpc": "2.0",
