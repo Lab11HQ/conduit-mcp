@@ -17,7 +17,6 @@ from conduit.protocol.initialization import (
     ServerCapabilities,
 )
 from conduit.protocol.logging import (
-    LoggingLevel,
     SetLevelRequest,
 )
 from conduit.protocol.prompts import (
@@ -42,6 +41,7 @@ from conduit.protocol.tools import (
     ListToolsRequest,
     ListToolsResult,
 )
+from conduit.server.managers.logging import LoggingManager
 from conduit.server.managers.prompts import PromptManager
 from conduit.server.managers.resources import ResourceManager
 from conduit.server.managers.tools import ToolManager
@@ -69,19 +69,16 @@ class ServerSession(BaseSession):
         self._received_initialized_notification = False
         self._client_capabilities: ClientCapabilities | None = None
         self.instructions = instructions
-        self._current_log_level: LoggingLevel | None = None
 
         self.tools = ToolManager()
         self.resources = ResourceManager()
         self.prompts = PromptManager()
+        self.logging = LoggingManager()
 
         # Handlers
         self._completion_handler: (
             Callable[[CompleteRequest], Awaitable[CompleteResult | Error]] | None
         ) = None
-        self._on_log_level_change: Callable[[LoggingLevel], Awaitable[None]] | None = (
-            None
-        )
 
     @property
     def initialized(self) -> bool:
@@ -303,39 +300,13 @@ class ServerSession(BaseSession):
                 message="Server does not support logging capability",
             )
 
-        self._current_log_level = request.level
-
-        if self._on_log_level_change:
-            try:
-                await self._on_log_level_change(request.level)
-            except Exception:
-                return Error(
-                    code=INTERNAL_ERROR,
-                    message="Error in log level change callback",
-                )
-
-        return EmptyResult()
-
-    def _should_send_log(self, level: LoggingLevel) -> bool:
-        """Check if a log message should be sent based on current log level."""
-        if self._current_log_level is None:
-            return False
-
-        priorities = {
-            "debug": 0,
-            "info": 1,
-            "notice": 2,
-            "warning": 3,
-            "error": 4,
-            "critical": 5,
-            "alert": 6,
-            "emergency": 7,
-        }
-
-        current_priority = priorities.get(self._current_log_level, 0)
-        message_priority = priorities.get(level, 0)
-
-        return message_priority >= current_priority
+        try:
+            return await self.logging.handle_set_level(request)
+        except Exception:
+            return Error(
+                code=INTERNAL_ERROR,
+                message="Error in log level change handler",
+            )
 
     def set_completion_handler(
         self,
@@ -343,10 +314,3 @@ class ServerSession(BaseSession):
     ) -> None:
         """Set custom completion handler for all completion requests."""
         self._completion_handler = handler
-
-    def on_log_level_change(
-        self,
-        handler: Callable[[LoggingLevel], Awaitable[None]],
-    ) -> None:
-        """Set custom log level change handler."""
-        self._on_log_level_change = handler
