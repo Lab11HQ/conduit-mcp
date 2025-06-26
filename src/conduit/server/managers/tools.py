@@ -1,7 +1,13 @@
 from typing import Awaitable, Callable
 
 from conduit.protocol.content import TextContent
-from conduit.protocol.tools import CallToolRequest, CallToolResult, Tool
+from conduit.protocol.tools import (
+    CallToolRequest,
+    CallToolResult,
+    ListToolsRequest,
+    ListToolsResult,
+    Tool,
+)
 
 
 class ToolManager:
@@ -20,9 +26,13 @@ class ToolManager:
         self.registered[tool.name] = tool
         self.handlers[tool.name] = handler
 
-    def list_all(self) -> list[Tool]:
-        """Get all registered tools."""
-        return list(self.registered.values())
+    async def handle_list(self, request: ListToolsRequest) -> ListToolsResult:
+        """Handle list tools request with pagination support.
+
+        Ignores pagination parameters for now. Can handle cursor, nextCursor,
+        filtering, etc.
+        """
+        return ListToolsResult(tools=list(self.registered.values()))
 
     async def handle_call(self, request: CallToolRequest) -> CallToolResult:
         """Handle a tool call request.

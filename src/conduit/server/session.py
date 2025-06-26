@@ -35,8 +35,6 @@ from conduit.protocol.resources import (
     ListResourceTemplatesResult,
     ReadResourceRequest,
     ReadResourceResult,
-    Resource,
-    ResourceTemplate,
     ResourceUpdatedNotification,
     SubscribeRequest,
     UnsubscribeRequest,
@@ -47,7 +45,7 @@ from conduit.protocol.tools import (
     ListToolsRequest,
     ListToolsResult,
 )
-from conduit.server import utils
+from conduit.server.managers.resources import ResourceManager
 from conduit.server.managers.tools import ToolManager
 from conduit.shared.exceptions import UnknownRequestError
 from conduit.shared.session import BaseSession
@@ -71,26 +69,16 @@ class ServerSession(BaseSession):
         self.server_info = server_info
         self.capabilities = capabilities
         self._received_initialized_notification = False
-        self._active_subscriptions: set[str] = set()
         self._client_capabilities: ClientCapabilities | None = None
         self.instructions = instructions
         self._current_log_level: LoggingLevel | None = None
 
         # Prompt/resource registries
         self._registered_prompts: dict[str, Prompt] = {}
-        self._registered_resources: dict[str, Resource] = {}
-        self._registered_resource_templates: dict[str, ResourceTemplate] = {}
         self.tools = ToolManager()
+        self.resources = ResourceManager()
 
         # Handlers
-        self._resource_handlers: dict[
-            str,
-            Callable[[ReadResourceRequest], Awaitable[ReadResourceResult]],
-        ] = {}
-        self._resource_template_handlers: dict[
-            str,
-            Callable[[ReadResourceRequest], Awaitable[ReadResourceResult]],
-        ] = {}
         self._prompt_handlers: dict[
             str,
             Callable[[GetPromptRequest], Awaitable[GetPromptResult]],
@@ -170,7 +158,7 @@ class ServerSession(BaseSession):
                 code=METHOD_NOT_FOUND,
                 message="Server does not support tools capability",
             )
-        return ListToolsResult(tools=self.tools.list_all())
+        return await self.tools.handle_list(request)
 
     async def _handle_call_tool(
         self, request: CallToolRequest
@@ -201,16 +189,6 @@ class ServerSession(BaseSession):
         except KeyError:
             return Error(code=METHOD_NOT_FOUND, message=f"Unknown tool: {request.name}")
 
-    async def _handle_list_prompts(
-        self, request: ListPromptsRequest
-    ) -> ListPromptsResult | Error:
-        if self.capabilities.prompts is None:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message="Server does not support prompts capability",
-            )
-        return ListPromptsResult(prompts=list(self._registered_prompts.values()))
-
     async def _handle_list_resources(
         self, request: ListResourcesRequest
     ) -> ListResourcesResult | Error:
@@ -219,7 +197,7 @@ class ServerSession(BaseSession):
                 code=METHOD_NOT_FOUND,
                 message="Server does not support resources capability",
             )
-        return ListResourcesResult(resources=list(self._registered_resources.values()))
+        return await self.resources.handle_list_resources(request)
 
     async def _handle_list_resource_templates(
         self, request: ListResourceTemplatesRequest
@@ -229,9 +207,7 @@ class ServerSession(BaseSession):
                 code=METHOD_NOT_FOUND,
                 message="Server does not support resources capability",
             )
-        return ListResourceTemplatesResult(
-            resource_templates=list(self._registered_resource_templates.values())
-        )
+        return await self.resources.handle_list_templates(request)
 
     async def _handle_read_resource(
         self, request: ReadResourceRequest
@@ -241,16 +217,61 @@ class ServerSession(BaseSession):
                 code=METHOD_NOT_FOUND,
                 message="Server does not support resources capability",
             )
+        try:
+            return await self.resources.handle_read(request)
+        except KeyError as e:
+            return Error(code=METHOD_NOT_FOUND, message=str(e))
+        except Exception:
+            return Error(
+                code=INTERNAL_ERROR,
+                message="Error in resource read handler",
+            )
 
-        uri = str(request.uri)
-        if uri in self._resource_handlers:
-            return await self._resource_handlers[uri](request)
+    async def _handle_subscribe(self, request: SubscribeRequest) -> EmptyResult | Error:
+        if self.capabilities.resources.subscribe is False or None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support resource subscription",
+            )
 
-        for template_pattern, handler in self._resource_template_handlers.items():
-            if utils.matches_template(template_pattern, uri):
-                return await handler(request)
+        try:
+            return await self.resources.handle_subscribe(request)
+        except KeyError as e:
+            return Error(code=METHOD_NOT_FOUND, message=str(e))
+        except Exception:
+            return Error(
+                code=INTERNAL_ERROR,
+                message="Error in resource subscribe handler",
+            )
 
-        return Error(code=METHOD_NOT_FOUND, message=f"Unknown resource: {uri}")
+    async def _handle_unsubscribe(
+        self, request: UnsubscribeRequest
+    ) -> EmptyResult | Error:
+        if self.capabilities.resources.subscribe is False or None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support resource subscription",
+            )
+
+        try:
+            return await self.resources.handle_unsubscribe(request)
+        except KeyError as e:
+            return Error(code=METHOD_NOT_FOUND, message=str(e))
+        except Exception:
+            return Error(
+                code=INTERNAL_ERROR,
+                message="Error in resource unsubscribe handler",
+            )
+
+    async def _handle_list_prompts(
+        self, request: ListPromptsRequest
+    ) -> ListPromptsResult | Error:
+        if self.capabilities.prompts is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support prompts capability",
+            )
+        return ListPromptsResult(prompts=list(self._registered_prompts.values()))
 
     async def _handle_get_prompt(
         self, request: GetPromptRequest
@@ -304,67 +325,6 @@ class ServerSession(BaseSession):
 
         return EmptyResult()
 
-    async def _handle_subscribe(self, request: SubscribeRequest) -> EmptyResult | Error:
-        if self.capabilities.resources is None:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message="Server does not support resources capability",
-            )
-
-        uri = str(request.uri)
-        if uri not in self._registered_resources:
-            # try template matching
-            template_found = False
-            for template_pattern in self._registered_resource_templates.keys():
-                if utils.matches_template(uri=uri, template=template_pattern):
-                    template_found = True
-                    break
-
-            if not template_found:
-                return Error(
-                    code=METHOD_NOT_FOUND,
-                    message=f"Cannot subscribe to unknown resource: {uri}",
-                )
-        self._active_subscriptions.add(uri)
-        if self._on_resource_subscribe:
-            try:
-                await self._on_resource_subscribe(uri)
-            except Exception:
-                return Error(
-                    code=INTERNAL_ERROR,
-                    message="Error in resource subscribe handler",
-                )
-
-        return EmptyResult()
-
-    async def _handle_unsubscribe(
-        self, request: UnsubscribeRequest
-    ) -> EmptyResult | Error:
-        if self.capabilities.resources is None:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message="Server does not support resources capability",
-            )
-
-        uri = str(request.uri)
-        if uri not in self._active_subscriptions:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message=f"Cannot unsubscribe from unknown resource: {uri}",
-            )
-
-        self._active_subscriptions.discard(uri)
-        if self._on_resource_unsubscribe:
-            try:
-                await self._on_resource_unsubscribe(uri)
-            except Exception:
-                return Error(
-                    code=INTERNAL_ERROR,
-                    message="Error in resource unsubscribe handler",
-                )
-
-        return EmptyResult()
-
     def _should_send_log(self, level: LoggingLevel) -> bool:
         """Check if a log message should be sent based on current log level."""
         if self._current_log_level is None:
@@ -385,25 +345,6 @@ class ServerSession(BaseSession):
         message_priority = priorities.get(level, 0)
 
         return message_priority >= current_priority
-
-    def register_resource(
-        self,
-        resource: Resource,
-        handler: Callable[[ReadResourceRequest], Awaitable[ReadResourceResult]],
-    ) -> None:
-        """Register resource metadata and handler together."""
-        uri = str(resource.uri)
-        self._registered_resources[uri] = resource
-        self._resource_handlers[uri] = handler
-
-    def register_resource_template(
-        self,
-        template: ResourceTemplate,
-        handler: Callable[[ReadResourceRequest], Awaitable[ReadResourceResult]],
-    ) -> None:
-        """Register resource template metadata and handler together."""
-        self._registered_resource_templates[template.name] = template
-        self._resource_template_handlers[template.uri_template] = handler
 
     def register_prompt(
         self,
@@ -439,9 +380,9 @@ class ServerSession(BaseSession):
         """Set callback for resource unsubscription events."""
         self._on_resource_unsubscribe = callback
 
-    async def send_resource_updated(self, uri: str) -> None:
+    async def send_resource_updated_notification(self, uri: str) -> None:
         """Send resource updated notification if client is subscribed."""
-        if uri in self._active_subscriptions:
+        if uri in self.resources.subscriptions:
             notification = ResourceUpdatedNotification(uri=uri)
             await self.send_notification(notification)
 
