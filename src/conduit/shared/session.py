@@ -39,6 +39,7 @@ class BaseSession(ABC):
             str, tuple[Request, asyncio.Future[Result | Error]]
         ] = {}
         self._message_loop_task: asyncio.Task[None] | None = None
+        self._in_flight_requests: dict[str | int, asyncio.Task[None]] = {}
         self._running = False
         self.notifications: asyncio.Queue[Notification] = asyncio.Queue()
 
@@ -137,6 +138,9 @@ class BaseSession(ABC):
             except asyncio.CancelledError:
                 pass
             self._message_loop_task = None
+        for task in self._in_flight_requests.values():
+            task.cancel()
+        self._in_flight_requests.clear()
 
         await self.transport.close()
 
@@ -188,10 +192,12 @@ class BaseSession(ABC):
                 future.set_result(error)
         self._pending_requests.clear()
 
+    # TODO: Add cancellation documentation
     async def _handle_message(
         self, payload: dict[str, Any] | list[dict[str, Any]]
     ) -> None:
         """Route incoming JSON-RPC messages to appropriate handlers.
+        NEEDS CANCELLATION DOCUMENTATION
 
         Central dispatch point that identifies message types and routes to:
         - _handle_response() for responses to our requests
@@ -215,9 +221,15 @@ class BaseSession(ABC):
             if self._is_valid_response(payload):
                 await self._handle_response(payload)
             elif self._is_valid_request(payload):
-                asyncio.create_task(
+                task = asyncio.create_task(
                     self._handle_request(payload),
-                    name=f"handle_request_{payload.get('id', 'unknown')}",
+                    name=f"handle_request_{payload['id']}",
+                )
+                self._in_flight_requests[payload["id"]] = task
+                task.add_done_callback(
+                    lambda t, request_id=payload["id"]: self._in_flight_requests.pop(
+                        request_id, None
+                    )
                 )
             elif self._is_valid_notification(payload):
                 await self._handle_notification(payload)
@@ -293,6 +305,7 @@ class BaseSession(ABC):
             return result_type.from_protocol(payload)
         return Error.from_protocol(payload)
 
+    # TODO: Clean up
     async def _handle_notification(self, payload: dict[str, Any]) -> None:
         """Parse notification and queue it for consumption."""
         method = payload["method"]
@@ -300,6 +313,13 @@ class BaseSession(ABC):
 
         if notification_class is None:
             raise UnknownNotificationError(method)
+
+        if method == "notifications/cancelled":
+            notification = CancelledNotification.from_protocol(payload)
+            if notification.request_id in self._in_flight_requests:
+                self._in_flight_requests[notification.request_id].cancel()
+            await self.notifications.put(notification)
+            return
 
         notification = notification_class.from_protocol(payload)
         await self.notifications.put(notification)
