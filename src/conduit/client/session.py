@@ -55,6 +55,12 @@ RequestRegistryEntry = tuple[type[TRequest], RequestHandler[TRequest, TResult]]
 
 
 class ClientSession(BaseSession):
+    """
+    NEEDS TESTING! Must test:
+    - All manager related methods
+    - Notification handling
+    """
+
     def __init__(
         self,
         transport: Transport,

@@ -7,11 +7,17 @@ from conduit.protocol.base import (
     Request,
     Result,
 )
-from conduit.protocol.common import EmptyResult, PingRequest
+from conduit.protocol.common import (
+    CancelledNotification,
+    EmptyResult,
+    PingRequest,
+    ProgressNotification,
+)
 from conduit.protocol.completions import CompleteRequest, CompleteResult
 from conduit.protocol.initialization import (
     ClientCapabilities,
     Implementation,
+    InitializedNotification,
     InitializeRequest,
     InitializeResult,
     ServerCapabilities,
@@ -35,12 +41,19 @@ from conduit.protocol.resources import (
     SubscribeRequest,
     UnsubscribeRequest,
 )
+from conduit.protocol.roots import (
+    ListRootsRequest,
+    ListRootsResult,
+    Root,
+    RootsListChangedNotification,
+)
 from conduit.protocol.tools import (
     CallToolRequest,
     CallToolResult,
     ListToolsRequest,
     ListToolsResult,
 )
+from conduit.protocol.unions import NOTIFICATION_REGISTRY
 from conduit.server.managers.completions import (
     CompletionManager,
     CompletionNotConfiguredError,
@@ -49,7 +62,7 @@ from conduit.server.managers.logging import LoggingManager
 from conduit.server.managers.prompts import PromptManager
 from conduit.server.managers.resources import ResourceManager
 from conduit.server.managers.tools import ToolManager
-from conduit.shared.exceptions import UnknownRequestError
+from conduit.shared.exceptions import UnknownNotificationError, UnknownRequestError
 from conduit.shared.session import BaseSession
 from conduit.transport.base import Transport
 
@@ -60,6 +73,12 @@ RequestRegistryEntry = tuple[type[TRequest], RequestHandler[TRequest, TResult]]
 
 
 class ServerSession(BaseSession):
+    """
+    NEEDS TESTING! Must test:
+    - All manager related methods
+    - Notification handling
+    """
+
     def __init__(
         self,
         transport: Transport,
@@ -70,9 +89,12 @@ class ServerSession(BaseSession):
         super().__init__(transport)
         self.server_info = server_info
         self.capabilities = capabilities
-        self._received_initialized_notification = False
-        self._client_capabilities: ClientCapabilities | None = None
         self.instructions = instructions
+
+        # Client state
+        self._client_capabilities: ClientCapabilities | None = None
+        self.client_roots: list[Root] | None = None
+        self._received_initialized_notification = False
 
         # Managers
         self.tools = ToolManager()
@@ -80,6 +102,10 @@ class ServerSession(BaseSession):
         self.prompts = PromptManager()
         self.logging = LoggingManager()
         self.completions = CompletionManager()
+
+        # Callbacks
+        self._progress_callback: Callable[[ProgressNotification], None] | None = None
+        self._roots_changed_callback: Callable[[list[Root]], None] | None = None
 
     @property
     def initialized(self) -> bool:
@@ -316,3 +342,39 @@ class ServerSession(BaseSession):
                 code=INTERNAL_ERROR,
                 message="Error in log level change handler",
             )
+
+    # TODO: Test!
+    async def _handle_notification(self, payload: dict[str, Any]) -> None:
+        method = payload["method"]
+        notification_class = NOTIFICATION_REGISTRY.get(method)
+
+        if notification_class is None:
+            raise UnknownNotificationError(method)
+
+        notification = notification_class.from_protocol(payload)
+        self.notifications.put(notification)
+        if isinstance(notification, CancelledNotification):
+            if notification.request_id in self._in_flight_requests:
+                # Cancel the task — cleanup happens automatically via done_callback
+                self._in_flight_requests[notification.request_id].cancel()
+        elif isinstance(notification, ProgressNotification):
+            if self._progress_callback:
+                await self._progress_callback(notification)
+        elif isinstance(notification, RootsListChangedNotification):
+            result = await self.send_request(ListRootsRequest())
+            if isinstance(result, ListRootsResult):
+                self.client_roots = result.roots
+                if self._roots_changed_callback:
+                    await self._roots_changed_callback(result.roots)
+        elif isinstance(notification, InitializedNotification):
+            self._received_initialized_notification = True
+
+    def set_progress_callback(
+        self, callback: Callable[[ProgressNotification], None]
+    ) -> None:
+        self._progress_callback = callback
+
+    def set_roots_changed_callback(
+        self, callback: Callable[[list[Root]], None]
+    ) -> None:
+        self._roots_changed_callback = callback

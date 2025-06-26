@@ -338,6 +338,14 @@ class BaseSession(ABC):
 
             await self.transport.send(response.to_wire())
 
+        except asyncio.CancelledError:
+            error = Error(
+                code=INTERNAL_ERROR,
+                message="Request cancelled by client",
+            )
+            error_response = JSONRPCError.from_error(error, message_id)
+            await self.transport.send(error_response.to_wire())
+
         except UnknownRequestError as e:
             error = Error(
                 code=METHOD_NOT_FOUND,
