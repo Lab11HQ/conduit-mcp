@@ -12,6 +12,7 @@ more user-friendly interfaces.
 import asyncio
 import uuid
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any, TypeVar, cast
 
 from conduit.client.managers.elicitation import (
@@ -52,6 +53,19 @@ TRequest = TypeVar("TRequest", bound=Request)
 TResult = TypeVar("TResult", bound=Result)
 RequestHandler = Callable[[TRequest], Awaitable[TResult | Error]]
 RequestRegistryEntry = tuple[type[TRequest], RequestHandler[TRequest, TResult]]
+
+
+@dataclass
+class ClientConfig:
+    client_info: Implementation
+    capabilities: ClientCapabilities
+
+
+@dataclass
+class ServerState:
+    capabilities: ServerCapabilities | None = None
+    instructions: str | None = None
+    info: Implementation | None = None
 
 
 class ClientSession(BaseSession):
