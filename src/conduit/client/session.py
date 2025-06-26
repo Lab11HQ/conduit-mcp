@@ -14,6 +14,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar, cast
 
+from conduit.client.managers.roots import RootsManager
 from conduit.protocol.base import (
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION,
@@ -35,7 +36,7 @@ from conduit.protocol.initialization import (
     ServerCapabilities,
 )
 from conduit.protocol.jsonrpc import JSONRPCRequest
-from conduit.protocol.roots import ListRootsRequest, ListRootsResult, Root
+from conduit.protocol.roots import ListRootsRequest, ListRootsResult
 from conduit.protocol.sampling import CreateMessageRequest, CreateMessageResult
 from conduit.shared.exceptions import UnknownRequestError
 from conduit.shared.session import BaseSession
@@ -48,32 +49,11 @@ RequestRegistryEntry = tuple[type[TRequest], RequestHandler[TRequest, TResult]]
 
 
 class ClientSession(BaseSession):
-    """Manages the low-level MCP client protocol and connection lifecycle.
-
-    Handles JSON-RPC message routing, request/response correlation, and
-    server communication over a transport. This is the internal engine—
-    most users should use the higher-level MCPClient class instead.
-
-    Key responsibilities:
-    - MCP initialization handshake
-    - Bidirectional message processing (requests, responses, notifications)
-
-    Args:
-        transport: Communication channel to the MCP server.
-        client_info: Client identification and version info.
-        capabilities: What MCP features this client supports.
-        roots: Filesystem roots to expose (if roots capability enabled).
-
-    Raises:
-        ValueError: Sampling capability enabled without handler.
-    """
-
     def __init__(
         self,
         transport: Transport,
         client_info: Implementation,
         capabilities: ClientCapabilities,
-        roots: list[Root] | None = None,
     ):
         super().__init__(transport)
         self.client_info = client_info
@@ -81,8 +61,9 @@ class ClientSession(BaseSession):
         self._server_capabilities: ServerCapabilities | None = None
         self._server_instructions: str | None = None
         self._server_info: Implementation | None = None
-        self.roots = roots or []
         self._custom_handlers = {}
+
+        self.roots = RootsManager()
 
         self._initializing: asyncio.Future[InitializeResult] | None = None
         self._initialize_result: InitializeResult | None = None
@@ -243,7 +224,7 @@ class ClientSession(BaseSession):
                 code=METHOD_NOT_FOUND,
                 message="Client does not support roots capability",
             )
-        return ListRootsResult(roots=self.roots)
+        return await self.roots.handle_list_roots(request)
 
     async def _handle_sampling(
         self, request: CreateMessageRequest
