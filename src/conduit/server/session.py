@@ -18,7 +18,6 @@ from conduit.protocol.initialization import (
 )
 from conduit.protocol.logging import (
     LoggingLevel,
-    LoggingMessageNotification,
     SetLevelRequest,
 )
 from conduit.protocol.prompts import (
@@ -26,7 +25,6 @@ from conduit.protocol.prompts import (
     GetPromptResult,
     ListPromptsRequest,
     ListPromptsResult,
-    Prompt,
 )
 from conduit.protocol.resources import (
     ListResourcesRequest,
@@ -35,7 +33,6 @@ from conduit.protocol.resources import (
     ListResourceTemplatesResult,
     ReadResourceRequest,
     ReadResourceResult,
-    ResourceUpdatedNotification,
     SubscribeRequest,
     UnsubscribeRequest,
 )
@@ -45,6 +42,7 @@ from conduit.protocol.tools import (
     ListToolsRequest,
     ListToolsResult,
 )
+from conduit.server.managers.prompts import PromptManager
 from conduit.server.managers.resources import ResourceManager
 from conduit.server.managers.tools import ToolManager
 from conduit.shared.exceptions import UnknownRequestError
@@ -73,24 +71,17 @@ class ServerSession(BaseSession):
         self.instructions = instructions
         self._current_log_level: LoggingLevel | None = None
 
-        # Prompt/resource registries
-        self._registered_prompts: dict[str, Prompt] = {}
         self.tools = ToolManager()
         self.resources = ResourceManager()
+        self.prompts = PromptManager()
 
         # Handlers
-        self._prompt_handlers: dict[
-            str,
-            Callable[[GetPromptRequest], Awaitable[GetPromptResult]],
-        ] = {}
         self._completion_handler: (
             Callable[[CompleteRequest], Awaitable[CompleteResult | Error]] | None
         ) = None
         self._on_log_level_change: Callable[[LoggingLevel], Awaitable[None]] | None = (
             None
         )
-        self._on_resource_subscribe: Callable[[str], Awaitable[None]] | None = None
-        self._on_resource_unsubscribe: Callable[[str], Awaitable[None]] | None = None
 
     @property
     def initialized(self) -> bool:
@@ -271,7 +262,7 @@ class ServerSession(BaseSession):
                 code=METHOD_NOT_FOUND,
                 message="Server does not support prompts capability",
             )
-        return ListPromptsResult(prompts=list(self._registered_prompts.values()))
+        return await self.prompts.handle_list_prompts(request)
 
     async def _handle_get_prompt(
         self, request: GetPromptRequest
@@ -281,15 +272,15 @@ class ServerSession(BaseSession):
                 code=METHOD_NOT_FOUND,
                 message="Server does not support prompts capability",
             )
-
-        name = str(request.name)
-        if name not in self._prompt_handlers:
+        try:
+            return await self.prompts.handle_get_prompt(request)
+        except KeyError as e:
+            return Error(code=METHOD_NOT_FOUND, message=str(e))
+        except Exception:
             return Error(
-                code=METHOD_NOT_FOUND,
-                message=f"Unknown prompt: {name}",
+                code=INTERNAL_ERROR,
+                message="Error in prompt handler",
             )
-
-        return await self._prompt_handlers[name](request)
 
     async def _handle_complete(
         self, request: CompleteRequest
@@ -346,16 +337,6 @@ class ServerSession(BaseSession):
 
         return message_priority >= current_priority
 
-    def register_prompt(
-        self,
-        prompt: Prompt,
-        handler: Callable[[GetPromptRequest], Awaitable[GetPromptResult]],
-    ) -> None:
-        """Register prompt metadata and handler together."""
-        name = str(prompt.name)
-        self._registered_prompts[name] = prompt
-        self._prompt_handlers[name] = handler
-
     def set_completion_handler(
         self,
         handler: Callable[[CompleteRequest], Awaitable[CompleteResult | Error]],
@@ -369,29 +350,3 @@ class ServerSession(BaseSession):
     ) -> None:
         """Set custom log level change handler."""
         self._on_log_level_change = handler
-
-    def on_resource_subscribe(self, callback: Callable[[str], Awaitable[None]]) -> None:
-        """Set callback for resource subscription events."""
-        self._on_resource_subscribe = callback
-
-    def on_resource_unsubscribe(
-        self, callback: Callable[[str], Awaitable[None]]
-    ) -> None:
-        """Set callback for resource unsubscription events."""
-        self._on_resource_unsubscribe = callback
-
-    async def send_resource_updated_notification(self, uri: str) -> None:
-        """Send resource updated notification if client is subscribed."""
-        if uri in self.resources.subscriptions:
-            notification = ResourceUpdatedNotification(uri=uri)
-            await self.send_notification(notification)
-
-    async def send_logging_notification(
-        self, level: LoggingLevel, data: Any, logger: str | None = None
-    ) -> None:
-        """Send logging notification if client is subscribed."""
-        if self._should_send_log(level):
-            notification = LoggingMessageNotification(
-                level=level, data=data, logger=logger
-            )
-            await self.send_notification(notification)
