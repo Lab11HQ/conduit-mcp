@@ -15,7 +15,9 @@ from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar, cast
 
 from conduit.client.managers.roots import RootsManager
+from conduit.client.managers.sampling import SamplingManager, SamplingNotConfiguredError
 from conduit.protocol.base import (
+    INTERNAL_ERROR,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION,
     Error,
@@ -64,6 +66,7 @@ class ClientSession(BaseSession):
         self._custom_handlers = {}
 
         self.roots = RootsManager()
+        self.sampling = SamplingManager()
 
         self._initializing: asyncio.Future[InitializeResult] | None = None
         self._initialize_result: InitializeResult | None = None
@@ -197,6 +200,14 @@ class ClientSession(BaseSession):
         request = request_class.from_protocol(payload)
         return await handler(request)
 
+    def _get_request_registry(self) -> dict[str, RequestRegistryEntry]:
+        return {
+            "ping": (PingRequest, self._handle_ping),
+            "roots/list": (ListRootsRequest, self._handle_list_roots),
+            "sampling/createMessage": (CreateMessageRequest, self._handle_sampling),
+            "elicitation/create": (ElicitRequest, self._handle_elicitation),
+        }
+
     async def _handle_ping(self, request: PingRequest) -> EmptyResult | Error:
         """Handle server request for ping.
 
@@ -234,14 +245,12 @@ class ClientSession(BaseSession):
                 code=METHOD_NOT_FOUND,
                 message="Client does not support sampling capability",
             )
-
-        if "sampling/createMessage" not in self._custom_handlers:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message="Client not configured with a create message handler",
-            )
-
-        return await self._custom_handlers["sampling/createMessage"](request)
+        try:
+            return await self.sampling.handle_create_message(request)
+        except SamplingNotConfiguredError as e:
+            return Error(code=METHOD_NOT_FOUND, message=str(e))
+        except Exception:
+            return Error(code=INTERNAL_ERROR, message="Error in sampling handler")
 
     async def _handle_elicitation(self, request: ElicitRequest) -> ElicitResult | Error:
         """Handle server request for elicitation."""
@@ -258,28 +267,6 @@ class ClientSession(BaseSession):
             )
 
         return await self._custom_handlers["elicitation/create"](request)
-
-    def _get_request_registry(self) -> dict[str, RequestRegistryEntry]:
-        return {
-            "ping": (PingRequest, self._handle_ping),
-            "roots/list": (ListRootsRequest, self._handle_list_roots),
-            "sampling/createMessage": (
-                CreateMessageRequest,
-                self._handle_sampling,
-            ),
-            "elicitation/create": (ElicitRequest, self._handle_elicitation),
-        }
-
-    # Handler registration methods
-    def set_sampling_handler(
-        self,
-        handler: Callable[
-            [CreateMessageRequest], Awaitable[CreateMessageResult | Error]
-        ],
-    ):
-        """Register a handler for sampling/createMessage requests."""
-        self._custom_handlers["sampling/createMessage"] = handler
-        return self  # For method chaining
 
     def set_elicitation_handler(
         self, handler: Callable[[ElicitRequest], Awaitable[ElicitResult | Error]]

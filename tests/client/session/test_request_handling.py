@@ -208,7 +208,7 @@ class TestRequestHandler(BaseSessionTest):
         async def mock_handler(request: CreateMessageRequest) -> Result | Error:
             return mock_result
 
-        self.session.set_sampling_handler(mock_handler)
+        self.session.sampling.set_handler(mock_handler)
 
         request = CreateMessageRequest(
             messages=[SamplingMessage(role="user", content=TextContent(text="Hello"))],
