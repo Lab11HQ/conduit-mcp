@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, TypeVar
 
 from conduit.protocol.base import (
@@ -72,6 +73,20 @@ RequestHandler = Callable[[TRequest], Awaitable[TResult | Error]]
 RequestRegistryEntry = tuple[type[TRequest], RequestHandler[TRequest, TResult]]
 
 
+@dataclass
+class ServerConfig:
+    capabilities: ServerCapabilities
+    info: Implementation
+    instructions: str | None = None
+
+
+@dataclass
+class ClientState:
+    capabilities: ClientCapabilities | None = None
+    roots: list[Root] | None = None
+    initialized: bool = False
+
+
 class ServerSession(BaseSession):
     """
     NEEDS TESTING! Must test:
@@ -82,19 +97,11 @@ class ServerSession(BaseSession):
     def __init__(
         self,
         transport: Transport,
-        server_info: Implementation,
-        capabilities: ServerCapabilities,
-        instructions: str | None = None,
+        config: ServerConfig,
     ):
         super().__init__(transport)
-        self.server_info = server_info
-        self.capabilities = capabilities
-        self.instructions = instructions
-
-        # Client state
-        self._client_capabilities: ClientCapabilities | None = None
-        self.client_roots: list[Root] | None = None
-        self._received_initialized_notification = False
+        self.server_config = config
+        self.client_state = ClientState()
 
         # Managers
         self.tools = ToolManager()
@@ -104,15 +111,19 @@ class ServerSession(BaseSession):
         self.completions = CompletionManager()
 
         # Callbacks
-        self._progress_callback: Callable[[ProgressNotification], None] | None = None
-        self._roots_changed_callback: Callable[[list[Root]], None] | None = None
+        self._progress_callback: (
+            Callable[[ProgressNotification], Awaitable[None]] | None
+        ) = None
+        self._roots_changed_callback: Callable[[list[Root]], Awaitable[None]] | None = (
+            None
+        )
 
     @property
     def initialized(self) -> bool:
-        return self._received_initialized_notification
+        return self.client_state.initialized
 
     def get_client_capabilities(self) -> ClientCapabilities | None:
-        return self._client_capabilities
+        return self.client_state.capabilities
 
     async def _ensure_can_send_request(self, request: Request) -> None:
         if not self.initialized and not isinstance(request, PingRequest):
@@ -158,17 +169,18 @@ class ServerSession(BaseSession):
     async def _handle_initialize(
         self, request: InitializeRequest
     ) -> InitializeResult | Error:
-        self._client_capabilities = request.capabilities
+        self.client_state.capabilities = request.capabilities
+        self.client_state.initialized = True
         return InitializeResult(
-            capabilities=self.capabilities,
-            server_info=self.server_info,
-            instructions=self.instructions,
+            capabilities=self.server_config.capabilities,
+            server_info=self.server_config.info,
+            instructions=self.server_config.instructions,
         )
 
     async def _handle_list_tools(
         self, request: ListToolsRequest
     ) -> ListToolsResult | Error:
-        if self.capabilities.tools is None:
+        if self.server_config.capabilities.tools is None:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Server does not support tools capability",
@@ -194,7 +206,7 @@ class ServerSession(BaseSession):
                 unknown. These are truly exceptional and should be handled by the
                 session.
         """
-        if self.capabilities.tools is None:
+        if self.server_config.capabilities.tools is None:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Server does not support tools capability",
@@ -207,7 +219,7 @@ class ServerSession(BaseSession):
     async def _handle_list_resources(
         self, request: ListResourcesRequest
     ) -> ListResourcesResult | Error:
-        if self.capabilities.resources is None:
+        if self.server_config.capabilities.resources is None:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Server does not support resources capability",
@@ -217,7 +229,7 @@ class ServerSession(BaseSession):
     async def _handle_list_resource_templates(
         self, request: ListResourceTemplatesRequest
     ) -> ListResourceTemplatesResult | Error:
-        if self.capabilities.resources is None:
+        if self.server_config.capabilities.resources is None:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Server does not support resources capability",
@@ -227,7 +239,7 @@ class ServerSession(BaseSession):
     async def _handle_read_resource(
         self, request: ReadResourceRequest
     ) -> ReadResourceResult | Error:
-        if self.capabilities.resources is None:
+        if self.server_config.capabilities.resources is None:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Server does not support resources capability",
@@ -243,7 +255,10 @@ class ServerSession(BaseSession):
             )
 
     async def _handle_subscribe(self, request: SubscribeRequest) -> EmptyResult | Error:
-        if self.capabilities.resources.subscribe is False or None:
+        if not (
+            self.server_config.capabilities.resources
+            and self.server_config.capabilities.resources.subscribe
+        ):
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Server does not support resource subscription",
@@ -262,7 +277,10 @@ class ServerSession(BaseSession):
     async def _handle_unsubscribe(
         self, request: UnsubscribeRequest
     ) -> EmptyResult | Error:
-        if self.capabilities.resources.subscribe is False or None:
+        if not (
+            self.server_config.capabilities.resources
+            and self.server_config.capabilities.resources.subscribe
+        ):
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Server does not support resource subscription",
@@ -281,7 +299,7 @@ class ServerSession(BaseSession):
     async def _handle_list_prompts(
         self, request: ListPromptsRequest
     ) -> ListPromptsResult | Error:
-        if self.capabilities.prompts is None:
+        if self.server_config.capabilities.prompts is None:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Server does not support prompts capability",
@@ -291,7 +309,7 @@ class ServerSession(BaseSession):
     async def _handle_get_prompt(
         self, request: GetPromptRequest
     ) -> GetPromptResult | Error:
-        if self.capabilities.prompts is None:
+        if self.server_config.capabilities.prompts is None:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Server does not support prompts capability",
@@ -309,7 +327,7 @@ class ServerSession(BaseSession):
     async def _handle_complete(
         self, request: CompleteRequest
     ) -> CompleteResult | Error:
-        if self.capabilities.completions is None:
+        if self.server_config.capabilities.completions is None:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Server does not support completion capability",
@@ -329,7 +347,7 @@ class ServerSession(BaseSession):
             )
 
     async def _handle_set_level(self, request: SetLevelRequest) -> EmptyResult | Error:
-        if self.capabilities.logging is None:
+        if self.server_config.capabilities.logging is None:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Server does not support logging capability",
@@ -352,29 +370,29 @@ class ServerSession(BaseSession):
             raise UnknownNotificationError(method)
 
         notification = notification_class.from_protocol(payload)
-        self.notifications.put(notification)
+        await self.notifications.put(notification)
         if isinstance(notification, CancelledNotification):
             if notification.request_id in self._in_flight_requests:
                 # Cancel the task — cleanup happens automatically via done_callback
                 self._in_flight_requests[notification.request_id].cancel()
         elif isinstance(notification, ProgressNotification):
-            if self._progress_callback:
+            if self._progress_callback is not None:
                 await self._progress_callback(notification)
         elif isinstance(notification, RootsListChangedNotification):
             result = await self.send_request(ListRootsRequest())
             if isinstance(result, ListRootsResult):
-                self.client_roots = result.roots
-                if self._roots_changed_callback:
+                self.client_state.roots = result.roots
+                if self._roots_changed_callback is not None:
                     await self._roots_changed_callback(result.roots)
         elif isinstance(notification, InitializedNotification):
-            self._received_initialized_notification = True
+            self.client_state.initialized = True
 
     def set_progress_callback(
-        self, callback: Callable[[ProgressNotification], None]
+        self, callback: Callable[[ProgressNotification], Awaitable[None]]
     ) -> None:
         self._progress_callback = callback
 
     def set_roots_changed_callback(
-        self, callback: Callable[[list[Root]], None]
+        self, callback: Callable[[list[Root]], Awaitable[None]]
     ) -> None:
         self._roots_changed_callback = callback
