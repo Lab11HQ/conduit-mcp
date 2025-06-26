@@ -46,9 +46,9 @@ from conduit.protocol.tools import (
     CallToolResult,
     ListToolsRequest,
     ListToolsResult,
-    Tool,
 )
 from conduit.server import utils
+from conduit.server.managers.tools import ToolManager
 from conduit.shared.exceptions import UnknownRequestError
 from conduit.shared.session import BaseSession
 from conduit.transport.base import Transport
@@ -76,11 +76,11 @@ class ServerSession(BaseSession):
         self.instructions = instructions
         self._current_log_level: LoggingLevel | None = None
 
-        # Tool/prompt/resource registries
-        self._registered_tools: dict[str, Tool] = {}
+        # Prompt/resource registries
         self._registered_prompts: dict[str, Prompt] = {}
         self._registered_resources: dict[str, Resource] = {}
         self._registered_resource_templates: dict[str, ResourceTemplate] = {}
+        self.tools = ToolManager()
 
         # Handlers
         self._resource_handlers: dict[
@@ -94,10 +94,6 @@ class ServerSession(BaseSession):
         self._prompt_handlers: dict[
             str,
             Callable[[GetPromptRequest], Awaitable[GetPromptResult]],
-        ] = {}
-        self._tool_handlers: dict[
-            str,
-            Callable[[CallToolRequest], Awaitable[CallToolResult]],
         ] = {}
         self._completion_handler: (
             Callable[[CompleteRequest], Awaitable[CompleteResult | Error]] | None
@@ -174,7 +170,36 @@ class ServerSession(BaseSession):
                 code=METHOD_NOT_FOUND,
                 message="Server does not support tools capability",
             )
-        return ListToolsResult(tools=list(self._registered_tools.values()))
+        return ListToolsResult(tools=self.tools.list_all())
+
+    async def _handle_call_tool(
+        self, request: CallToolRequest
+    ) -> CallToolResult | Error:
+        """Handle a tool call request.
+
+        The tool manager will handle tool execution failures and return a
+        CallToolResult with is_error=True. Tool execution failures are domain
+        errors and should be returned to the LLM for the host to self-correct. If
+        the manager does not know about the tool, it will raise a KeyError. We
+        catch this and return a method not found error.
+
+        Returns:
+            CallToolResult: The result of the tool call. Note we return this even
+                if tool execution fails. This is a domain error and should be
+                returned to the LLM.
+            Error: If the server does not support tools capability or the tool is
+                unknown. These are truly exceptional and should be handled by the
+                session.
+        """
+        if self.capabilities.tools is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support tools capability",
+            )
+        try:
+            return await self.tools.handle_call(request)
+        except KeyError:
+            return Error(code=METHOD_NOT_FOUND, message=f"Unknown tool: {request.name}")
 
     async def _handle_list_prompts(
         self, request: ListPromptsRequest
@@ -244,24 +269,6 @@ class ServerSession(BaseSession):
             )
 
         return await self._prompt_handlers[name](request)
-
-    async def _handle_call_tool(
-        self, request: CallToolRequest
-    ) -> CallToolResult | Error:
-        if self.capabilities.tools is None:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message="Server does not support tools capability",
-            )
-
-        name = str(request.name)
-        if name not in self._tool_handlers:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message=f"Unknown tool: {name}",
-            )
-
-        return await self._tool_handlers[name](request)
 
     async def _handle_complete(
         self, request: CompleteRequest
@@ -407,16 +414,6 @@ class ServerSession(BaseSession):
         name = str(prompt.name)
         self._registered_prompts[name] = prompt
         self._prompt_handlers[name] = handler
-
-    def register_tool(
-        self,
-        tool: Tool,
-        handler: Callable[[CallToolRequest], Awaitable[CallToolResult]],
-    ) -> None:
-        """Register tool metadata and handler together."""
-        name = tool.name
-        self._registered_tools[name] = tool
-        self._tool_handlers[name] = handler
 
     def set_completion_handler(
         self,
