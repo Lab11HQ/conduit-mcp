@@ -10,7 +10,7 @@ from conduit.protocol.resources import Resource, ResourceTemplate
 from conduit.protocol.tools import JSONSchema, Tool
 
 
-class TestCallbackManager:
+class TestClientCallbackManager:
     @pytest.mark.parametrize(
         "callback_type,register_method,notify_method,test_data",
         [

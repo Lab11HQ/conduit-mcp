@@ -7,7 +7,7 @@ from conduit.protocol.roots import Root
 from conduit.server.managers.callbacks import CallbackManager
 
 
-class TestCallbackManager:
+class TestServerCallbackManager:
     @pytest.mark.parametrize(
         "callback_type,register_method,notify_method,test_data",
         [
