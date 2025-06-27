@@ -9,6 +9,10 @@ class LoggingManager:
         self.current_level: LoggingLevel | None = None
         self.on_level_change: Callable[[LoggingLevel], Awaitable[None]] | None = None
 
+    def set_handler(self, handler: Callable[[LoggingLevel], Awaitable[None]]) -> None:
+        """Set callback for log level changes."""
+        self.on_level_change = handler
+
     async def handle_set_level(self, request: SetLevelRequest) -> EmptyResult:
         """Handle log level change request."""
         self.current_level = request.level
