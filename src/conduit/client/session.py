@@ -379,9 +379,9 @@ class ClientSession(BaseSession):
             self.server_state.resources = resources_result.resources
             await self.callbacks.notify_resources_changed(resources_result.resources)
         if isinstance(templates_result, ListResourceTemplatesResult):
-            self.server_state.resource_templates = templates_result.templates
+            self.server_state.resource_templates = templates_result.resource_templates
             await self.callbacks.notify_resource_templates_changed(
-                templates_result.templates
+                templates_result.resource_templates
             )
 
     async def _handle_resources_updated(
@@ -393,9 +393,9 @@ class ClientSession(BaseSession):
             self.server_state.resources = resources_result.resources
             await self.callbacks.notify_resources_changed(resources_result.resources)
         if isinstance(templates_result, ListResourceTemplatesResult):
-            self.server_state.resource_templates = templates_result.templates
+            self.server_state.resource_templates = templates_result.resource_templates
             await self.callbacks.notify_resource_templates_changed(
-                templates_result.templates
+                templates_result.resource_templates
             )
 
     async def _handle_tools_list_changed(

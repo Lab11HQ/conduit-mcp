@@ -6,6 +6,7 @@ from conduit.protocol.base import (
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION,
     Error,
+    Notification,
     Request,
     Result,
 )
@@ -56,6 +57,7 @@ from conduit.protocol.tools import (
     ListToolsResult,
 )
 from conduit.protocol.unions import NOTIFICATION_REGISTRY
+from conduit.server.managers.callbacks import CallbackManager
 from conduit.server.managers.completions import (
     CompletionManager,
     CompletionNotConfiguredError,
@@ -72,6 +74,8 @@ TRequest = TypeVar("TRequest", bound=Request)
 TResult = TypeVar("TResult", bound=Result)
 RequestHandler = Callable[[TRequest], Awaitable[TResult | Error]]
 RequestRegistryEntry = tuple[type[TRequest], RequestHandler[TRequest, TResult]]
+TNotification = TypeVar("TNotification", bound=Notification)
+NotificationHandler = Callable[[TNotification], Awaitable[None]]
 
 
 @dataclass
@@ -105,21 +109,11 @@ class ServerSession(BaseSession):
         self.prompts = PromptManager()
         self.logging = LoggingManager()
         self.completions = CompletionManager()
-
-        # Callbacks
-        self._progress_callback: (
-            Callable[[ProgressNotification], Awaitable[None]] | None
-        ) = None
-        self._roots_changed_callback: Callable[[list[Root]], Awaitable[None]] | None = (
-            None
-        )
+        self.callbacks = CallbackManager()
 
     @property
     def initialized(self) -> bool:
         return self.client_state.handshake_complete
-
-    def get_client_capabilities(self) -> ClientCapabilities | None:
-        return self.client_state.capabilities
 
     async def _ensure_can_send_request(self, request: Request) -> None:
         if not self.initialized and not isinstance(request, PingRequest):
@@ -367,28 +361,36 @@ class ServerSession(BaseSession):
 
         notification = notification_class.from_protocol(payload)
         await self.notifications.put(notification)
-        if isinstance(notification, CancelledNotification):
-            if notification.request_id in self._in_flight_requests:
-                # Cancel the task — cleanup happens automatically via done_callback
-                self._in_flight_requests[notification.request_id].cancel()
-        elif isinstance(notification, ProgressNotification):
-            if self._progress_callback is not None:
-                await self._progress_callback(notification)
-        elif isinstance(notification, RootsListChangedNotification):
-            result = await self.send_request(ListRootsRequest())
-            if isinstance(result, ListRootsResult):
-                self.client_state.roots = result.roots
-                if self._roots_changed_callback is not None:
-                    await self._roots_changed_callback(result.roots)
-        elif isinstance(notification, InitializedNotification):
-            self.client_state.handshake_complete = True
 
-    def set_progress_callback(
-        self, callback: Callable[[ProgressNotification], Awaitable[None]]
-    ) -> None:
-        self._progress_callback = callback
+        registry = self._get_notification_registry()
+        if method in registry:
+            handler = registry[method]
+            await handler(notification)
 
-    def set_roots_changed_callback(
-        self, callback: Callable[[list[Root]], Awaitable[None]]
+    def _get_notification_registry(self) -> dict[str, NotificationHandler]:
+        return {
+            "notifications/cancelled": self._handle_cancelled,
+            "notifications/progress": self._handle_progress,
+            "notifications/roots/list_changed": self._handle_roots_list_changed,
+            "notifications/initialized": self._handle_initialized,
+        }
+
+    async def _handle_cancelled(self, notification: CancelledNotification) -> None:
+        if notification.request_id in self._in_flight_requests:
+            self._in_flight_requests[notification.request_id].cancel()
+        await self.callbacks.notify_cancelled(notification)
+
+    async def _handle_progress(self, notification: ProgressNotification) -> None:
+        await self.callbacks.notify_progress(notification)
+
+    async def _handle_roots_list_changed(
+        self, notification: RootsListChangedNotification
     ) -> None:
-        self._roots_changed_callback = callback
+        result = await self.send_request(ListRootsRequest())
+        if isinstance(result, ListRootsResult):
+            self.client_state.roots = result.roots
+            await self.callbacks.notify_roots_changed(result.roots)
+
+    async def _handle_initialized(self, notification: InitializedNotification) -> None:
+        self.client_state.handshake_complete = True
+        await self.callbacks.notify_initialized()
