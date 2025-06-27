@@ -27,9 +27,9 @@ comes back as text or binary data when you read them. This separation keeps
 discovery fast and lets applications decide what data they need.
 """
 
-from typing import Annotated, Any, Literal
+from typing import Any, Literal
 
-from pydantic import AnyUrl, Field, UrlConstraints
+from pydantic import Field
 
 from conduit.protocol.base import (
     BaseMetadata,
@@ -60,7 +60,7 @@ class Resource(BaseMetadata):
     Think of this as metadata about what's available, not the content itself.
     """
 
-    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
+    uri: str
     """
     Unique identifier for this resource (file path, URL, database URI, etc.).
     """
@@ -113,7 +113,7 @@ class ResourceTemplateReference(ProtocolModel):
     """
 
     type: Literal["ref/resource"] = "ref/resource"
-    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
+    uri: str
     """
     URI or URI template of the resource.
     """
@@ -220,7 +220,7 @@ class ReadResourceRequest(Request):
     """
 
     method: Literal["resources/read"] = "resources/read"
-    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
+    uri: str
     """
     URI of the resource to fetch content from.
     """
@@ -272,7 +272,7 @@ class SubscribeRequest(Request):
     """
 
     method: Literal["resources/subscribe"] = "resources/subscribe"
-    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
+    uri: str
     """
     URI of the resource to monitor for changes.
     """
@@ -294,7 +294,7 @@ class UnsubscribeRequest(Request):
     """
 
     method: Literal["resources/unsubscribe"] = "resources/unsubscribe"
-    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
+    uri: str
     """
     URI of the resource to stop monitoring.
     """
@@ -320,7 +320,7 @@ class ResourceUpdatedNotification(Notification):
     method: Literal["notifications/resources/updated"] = (
         "notifications/resources/updated"
     )
-    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
+    uri: str
     """
     URI of the resource that changed.
     """

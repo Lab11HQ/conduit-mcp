@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Any, Literal
 
-from pydantic import AnyUrl, Field, UrlConstraints, field_validator
+from pydantic import Field, field_validator
 
 from conduit.protocol.base import ProtocolModel, Role
 
@@ -15,7 +15,7 @@ class ResourceContents(ProtocolModel):
     essential metadata that all resource content shares.
     """
 
-    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
+    uri: str
     """
     The URI that identifies this specific resource.
     """

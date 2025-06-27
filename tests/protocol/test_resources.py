@@ -2,9 +2,6 @@
 Test resource-related types.
 """
 
-import pytest
-from pydantic import ValidationError
-
 from conduit.protocol.resources import (
     Annotations,
     ListResourcesRequest,
@@ -116,21 +113,6 @@ class TestResources:
         assert serialized["_meta"] == {"crazy": "pants"}
         assert serialized["resources"][0]["_meta"] == {"ack": "barnacle"}
 
-    def test_list_resource_result_serialize_uri_to_string_not_anyurl(self):
-        # Arrange
-        resource = Resource(
-            uri="https://example.com",
-            name="Example",
-        )
-
-        # Act
-        result = ListResourcesResult(
-            resources=[resource],
-        )
-
-        # Assert
-        assert result.to_protocol()["resources"][0]["uri"] == "https://example.com/"
-
     def test_resource_result_serializes_with_annotation(self):
         # Arrange
         resource = Resource(
@@ -142,7 +124,7 @@ class TestResources:
         expected = {
             "resources": [
                 {
-                    "uri": "https://example.com/",
+                    "uri": "https://example.com",
                     "name": "Example",
                     "annotations": {"audience": ["user"], "priority": 0.5},
                 }
@@ -154,30 +136,6 @@ class TestResources:
 
         # Assert
         assert serialized == expected
-
-    def test_resource_rejects_invalid_uri(self):
-        with pytest.raises(ValidationError):
-            Resource(uri="not-a-uri", name="Test")
-
-    def test_resource_normalizes_uri_schemes_as_expected(self):
-        # Arrange
-        test_cases = [
-            ("https://example.com", "https://example.com/"),  # Gets trailing slash
-            ("file:///path/to/file.txt", "file:///path/to/file.txt"),  # No change
-            (
-                "data:text/plain;base64,SGVsbG8=",
-                "data:text/plain;base64,SGVsbG8=",
-            ),  # No change
-            ("custom-scheme:resource-id", "custom-scheme:resource-id"),  # No change
-            ("urn:isbn:1234", "urn:isbn:1234"),  # No change
-        ]
-
-        # Act
-        for input_uri, expected_uri in test_cases:
-            resource = Resource(uri=input_uri, name="Test")
-
-            # Assert
-            assert str(resource.uri) == expected_uri
 
     def test_list_resource_template_result_serializes_with_uri_template(self):
         # Arrange

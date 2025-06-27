@@ -23,9 +23,9 @@ Roots help servers operate effectively within their allowed boundaries while
 giving clients control over what filesystem locations are accessible.
 """
 
-from typing import Annotated, Any, Literal
+from typing import Any, Literal
 
-from pydantic import AnyUrl, Field, UrlConstraints
+from pydantic import Field
 
 from conduit.protocol.base import Notification, ProtocolModel, Request, Result
 
@@ -44,7 +44,7 @@ class Root(ProtocolModel):
     work with the file structure as their capabilities require.
     """
 
-    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
+    uri: str
     """
     The location this server can access.
 

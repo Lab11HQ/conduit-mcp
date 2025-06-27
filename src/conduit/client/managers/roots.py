@@ -12,7 +12,7 @@ class RootsManager:
     def remove_root(self, uri: str) -> bool:
         """Remove a root by URI. Returns True if found and removed."""
         for i, root in enumerate(self.roots):
-            if str(root.uri) == uri:
+            if root.uri == uri:
                 self.roots.pop(i)
                 return True
         return False
