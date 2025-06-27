@@ -35,27 +35,6 @@ class ToolManager:
         return ListToolsResult(tools=list(self.registered.values()))
 
     async def handle_call(self, request: CallToolRequest) -> CallToolResult:
-        """Handle a tool call request.
-
-        Unknown tools are out of scope for this manager and should be handled by
-        the session. Tool execution failures are domain errors and should be returned
-        to the LLM. User handlers should catch and handle their own exceptions by
-        returning a CallToolResult with is_error=True and helpful debugging content
-        for the host LLM. By default, we return text content with the exception
-        message if the tool handler does not catch and handle its own exceptions.
-
-        Args:
-            request: The tool call request.
-
-        Returns:
-            CallToolResult: The result of the tool call.
-
-        Raises:
-            KeyError: If tool not found. This is truly exceptional and should be
-                handled by the session.
-            Exception: If tool execution fails. This is a domain error and should
-                be returned to the LLM.
-        """
         try:
             handler = self.handlers[request.name]  # Can raise KeyError -> MCP error
             return await handler(request)

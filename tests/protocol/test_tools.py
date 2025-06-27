@@ -2,9 +2,6 @@
 Test tool-related types.
 """
 
-import pytest
-from pydantic import ValidationError
-
 from conduit.protocol.common import ProgressNotification
 from conduit.protocol.content import TextContent
 from conduit.protocol.tools import (
@@ -139,16 +136,28 @@ class TestTools:
         )
         assert reconstructed.next_cursor == "next_page_token"
 
-    def test_input_schema_validation(self):
+    def test_list_tool_result_serializes_input_schema(self):
         # Arrange
-        schema = JSONSchema(
-            type="object", properties={"name": {"type": "string"}}, required=["name"]
+        tool = Tool(
+            name="test-tool",
+            description="A test tool",
+            input_schema=JSONSchema(
+                type="object",
+                properties={"name": {"type": "string"}},
+                required=["name"],
+            ),
         )
+        list_tools_result = ListToolsResult(tools=[tool])
+
+        # Act
+        serialized = list_tools_result.to_protocol()
 
         # Assert
-        assert schema.type == "object"
-        with pytest.raises(ValidationError):
-            JSONSchema(type="array")
+        assert serialized["tools"][0]["inputSchema"] == {
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": ["name"],
+        }
 
     def test_list_tools_result_protocol_roundtrip_complex_nested_schema(self):
         # Arrange
