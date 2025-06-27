@@ -1,7 +1,7 @@
 from typing import Awaitable, Callable
 
 from conduit.protocol.common import CancelledNotification, ProgressNotification
-from conduit.protocol.resources import Root
+from conduit.protocol.roots import Root
 
 
 class CallbackManager:
