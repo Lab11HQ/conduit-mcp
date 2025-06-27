@@ -54,6 +54,7 @@ class TestPromptManager:
         result = await manager.handle_list_prompts(request)
 
         # Assert
+        assert isinstance(result, ListPromptsResult)
         assert len(result.prompts) == 2
         assert prompt1 in result.prompts
         assert prompt2 in result.prompts
