@@ -34,6 +34,8 @@ automatically.
 
 from typing import Annotated, Any, Literal
 
+from pydantic import field_validator
+
 from conduit.protocol.base import Notification, Request
 from conduit.protocol.common import EmptyResult
 
@@ -79,6 +81,12 @@ class SetLevelRequest(Request):
     def expected_result_type(cls) -> type[EmptyResult]:
         return EmptyResult
 
+    @field_validator("level", mode="before")
+    @classmethod
+    def normalize_level(cls, v: str) -> str:
+        """Normalize logging level to lowercase to match MCP spec."""
+        return v.lower()
+
 
 class LoggingMessageNotification(Notification):
     """
@@ -106,3 +114,9 @@ class LoggingMessageNotification(Notification):
     
     Any JSON-serializable object is allowed.
     """
+
+    @field_validator("level", mode="before")
+    @classmethod
+    def normalize_level(cls, v: str) -> str:
+        """Normalize logging level to lowercase to match MCP spec."""
+        return v.lower()

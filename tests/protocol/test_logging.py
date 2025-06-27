@@ -48,3 +48,15 @@ class TestLogging:
                     "params": {"level": "BAD_LEVEL", "data": 123},
                 }
             )
+
+    def test_logging_message_notification_normalizes_level(self):
+        # Arrange
+        notification = LoggingMessageNotification(level="DEBUG", data="test")
+        # Assert
+        assert notification.level == "debug"
+
+    def test_set_level_request_normalizes_level(self):
+        # Arrange
+        request = SetLevelRequest(level="DEBUG")
+        # Assert
+        assert request.level == "debug"
