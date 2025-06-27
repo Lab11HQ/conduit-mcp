@@ -115,7 +115,8 @@ class BaseSession(ABC):
             self._pending_requests.pop(request_id, None)
 
     async def close(self) -> None:
-        """Stop the message processing loop and clean up resources.
+        """TODO: MANAGE STATE ON CLOSE. Stop the message processing loop and
+        clean up resources.
 
         Gracefully shuts down the session by:
         1. Stopping the background message loop
