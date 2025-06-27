@@ -2,6 +2,7 @@ import asyncio
 
 import pytest
 
+from conduit.client.session import InvalidProtocolVersionError
 from conduit.protocol.base import PROTOCOL_VERSION
 
 from .conftest import BaseSessionTest
@@ -57,7 +58,7 @@ class TestClientSessionInitialization(BaseSessionTest):
         assert "id" not in init_notification  # notifications have no id
 
         # Session should be marked as initialized
-        assert self.session._initialize_result is not None
+        assert self.session.server_state.initialized is True
 
         # Return value should be the server result
         assert result.protocol_version == PROTOCOL_VERSION
@@ -160,13 +161,15 @@ class TestClientSessionInitialization(BaseSessionTest):
         await self.wait_for_sent_message("initialize")
         self.server.send_message(payload=init_response)
 
-        with pytest.raises(ValueError, match="Protocol version mismatch"):
+        with pytest.raises(
+            InvalidProtocolVersionError, match="Protocol version mismatch"
+        ):
             await init_task
 
         # Assert: session should be cleanly stopped
         assert self.transport.closed is True
         assert self.session._running is False
-        assert self.session._initialize_result is None
+        assert self.session.server_state.initialized is False
 
         # Should have sent initialize request but no initialized notification
         assert len(self.transport.client_sent_messages) == 1
@@ -194,7 +197,7 @@ class TestClientSessionInitialization(BaseSessionTest):
         # Assert: session should be cleanly stopped
         assert self.transport.closed is True
         assert self.session._running is False
-        assert self.session._initialize_result is None
+        assert self.session.server_state.initialized is False
 
         # Assert: pending request should be cleaned up
         assert len(self.session._pending_requests) == 0
@@ -213,7 +216,7 @@ class TestClientSessionInitialization(BaseSessionTest):
         # Assert: session should be cleanly stopped
         assert self.transport.closed is True
         assert self.session._running is False
-        assert self.session._initialize_result is None
+        assert self.session.server_state.initialized is False
 
         # Assert: no pending requests left behind
         assert len(self.session._pending_requests) == 0

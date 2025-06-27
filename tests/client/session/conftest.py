@@ -4,7 +4,8 @@ from typing import Any
 
 import pytest
 
-from conduit.client.session import ClientSession
+from conduit.client.session import ClientConfig, ClientSession
+from conduit.protocol.base import PROTOCOL_VERSION
 from conduit.protocol.initialization import ClientCapabilities, Implementation
 from conduit.transport.base import Transport, TransportMessage
 
@@ -74,8 +75,11 @@ class BaseSessionTest:
         self.transport = MockTransport()
         self.session = ClientSession(
             transport=self.transport,
-            client_info=Implementation(name="test-client", version="1.0.0"),
-            capabilities=ClientCapabilities(),
+            config=ClientConfig(
+                client_info=Implementation(name="test-client", version="1.0.0"),
+                capabilities=ClientCapabilities(),
+                protocol_version=PROTOCOL_VERSION,
+            ),
         )
         self.server = MockServer(transport=self.transport)
 

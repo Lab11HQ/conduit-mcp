@@ -105,7 +105,7 @@ class TestRequestHandler(BaseSessionTest):
     async def test_sends_success_response_for_list_roots_with_capability(self):
         # Arrange
         # Set up session with roots capability
-        self.session.capabilities.roots = RootsCapability()
+        self.session.client_config.capabilities.roots = RootsCapability()
         self.session.roots.add_root(Root(uri="file:///tmp", name="temp"))
 
         request_payload = {"jsonrpc": "2.0", "id": "789", "method": "roots/list"}
@@ -134,7 +134,7 @@ class TestRequestHandler(BaseSessionTest):
     async def test_sends_method_not_found_for_list_roots_without_capability(self):
         # Arrange
         # Ensure session has no roots capability
-        self.session.capabilities.roots = None
+        self.session.client_config.capabilities.roots = None
 
         request_payload = {"jsonrpc": "2.0", "id": "101", "method": "roots/list"}
 
@@ -160,7 +160,7 @@ class TestRequestHandler(BaseSessionTest):
     async def test_sends_method_not_found_for_create_message_without_capability(self):
         # Arrange
         # Ensure session has no sampling capability
-        self.session.capabilities.sampling = False
+        self.session.client_config.capabilities.sampling = False
 
         request_payload = {
             "jsonrpc": "2.0",
@@ -196,7 +196,7 @@ class TestRequestHandler(BaseSessionTest):
     async def test_sends_success_response_for_create_message_with_capability(self):
         # Arrange
         # Set up session with sampling capability
-        self.session.capabilities.sampling = True
+        self.session.client_config.capabilities.sampling = True
 
         # Mock the create message handler to return a successful result
         mock_result = CreateMessageResult(
@@ -251,7 +251,7 @@ class TestRequestHandler(BaseSessionTest):
     async def test_success_response_for_elicitation_with_capability(self):
         # Arrange
         # Set up session with elicitation capability
-        self.session.capabilities.elicitation = True
+        self.session.client_config.capabilities.elicitation = True
 
         mock_result = ElicitResult(
             action="accept",
@@ -295,7 +295,7 @@ class TestRequestHandler(BaseSessionTest):
     async def test_sends_method_not_found_for_elicitation_without_capability(self):
         # Arrange
         # Ensure session has no elicitation capability
-        self.session.capabilities.elicitation = False
+        self.session.client_config.capabilities.elicitation = False
 
         payload = {
             "jsonrpc": "2.0",
