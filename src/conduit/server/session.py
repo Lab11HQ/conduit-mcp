@@ -4,6 +4,7 @@ from typing import Any, Awaitable, Callable, TypeVar
 from conduit.protocol.base import (
     INTERNAL_ERROR,
     METHOD_NOT_FOUND,
+    PROTOCOL_VERSION,
     Error,
     Request,
     Result,
@@ -78,22 +79,17 @@ class ServerConfig:
     capabilities: ServerCapabilities
     info: Implementation
     instructions: str | None = None
+    protocol_version: str = PROTOCOL_VERSION
 
 
 @dataclass
 class ClientState:
     capabilities: ClientCapabilities | None = None
     roots: list[Root] | None = None
-    initialized: bool = False
+    handshake_complete: bool = False
 
 
 class ServerSession(BaseSession):
-    """
-    NEEDS TESTING! Must test:
-    - All manager related methods
-    - Notification handling
-    """
-
     def __init__(
         self,
         transport: Transport,
@@ -120,7 +116,7 @@ class ServerSession(BaseSession):
 
     @property
     def initialized(self) -> bool:
-        return self.client_state.initialized
+        return self.client_state.handshake_complete
 
     def get_client_capabilities(self) -> ClientCapabilities | None:
         return self.client_state.capabilities
@@ -170,10 +166,10 @@ class ServerSession(BaseSession):
         self, request: InitializeRequest
     ) -> InitializeResult | Error:
         self.client_state.capabilities = request.capabilities
-        self.client_state.initialized = True
         return InitializeResult(
             capabilities=self.server_config.capabilities,
             server_info=self.server_config.info,
+            protocol_version=self.server_config.protocol_version,
             instructions=self.server_config.instructions,
         )
 
@@ -385,7 +381,7 @@ class ServerSession(BaseSession):
                 if self._roots_changed_callback is not None:
                     await self._roots_changed_callback(result.roots)
         elif isinstance(notification, InitializedNotification):
-            self.client_state.initialized = True
+            self.client_state.handshake_complete = True
 
     def set_progress_callback(
         self, callback: Callable[[ProgressNotification], Awaitable[None]]
