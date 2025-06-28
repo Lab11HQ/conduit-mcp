@@ -31,6 +31,11 @@ class Transport(ABC):
     When connections fail, the message iterator raises appropriate exceptions.
     """
 
+    @property
+    @abstractmethod
+    def is_open(self) -> bool:
+        """True if the transport is open and ready for message processing."""
+
     @abstractmethod
     async def send(self, payload: dict[str, Any]) -> None:
         """Send a message. Transport handles all metadata internally.

@@ -149,7 +149,7 @@ class ClientSession(BaseSession):
             ValueError: Server uses incompatible protocol version.
             ConnectionError: Connection failed during handshake.
         """
-        await self.start_message_loop()
+        await self.start()
 
         if self.server_state.handshake_complete:
             return InitializeResult(
@@ -197,7 +197,7 @@ class ClientSession(BaseSession):
             ValueError: Protocol version mismatch or server error.
             ConnectionError: Transport failure.
         """
-        await self.start_message_loop()
+        await self.start()
         init_request = InitializeRequest(
             client_info=self.client_config.client_info,
             capabilities=self.client_config.capabilities,

@@ -87,7 +87,7 @@ class BaseSessionTest:
     async def teardown_session(self):
         yield
         if hasattr(self, "session"):
-            await self.session.close()
+            await self.session.stop()
 
     async def wait_for_sent_message(self, method: str) -> None:
         """Wait for a message to be sent - simple test sync helper."""
