@@ -35,10 +35,13 @@ class BaseSessionTest:
         else:
             raise AssertionError("No message was sent")
 
-    async def wait_for_message_processing(self) -> None:
-        """Wait for message loop to process queued messages."""
-        await asyncio.sleep(0)
+    async def yield_to_event_loop(self, seconds: float | None = None) -> None:
+        """Let the event loop process pending tasks and callbacks.
 
-    async def wait_for_transport_failure_cleanup(self) -> None:
-        """Wait for session cleanup after transport failure."""
-        await asyncio.sleep(0.01)
+        Args:
+            seconds: Additional time to wait for async operations to settle.
+                    Defaults to 0 (single event loop tick).
+        """
+        if seconds is None:
+            seconds = getattr(self, "_default_yield_time", 0)
+        await asyncio.sleep(seconds)

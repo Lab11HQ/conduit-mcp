@@ -6,6 +6,8 @@ from .conftest import BaseSessionTest
 
 
 class TestBaseSessionLifecycle(BaseSessionTest):
+    _default_yield_time = 0.01
+
     async def test_start_creates_message_loop_task(self):
         # Arrange
         assert self.session._message_loop_task is None
@@ -75,7 +77,7 @@ class TestBaseSessionLifecycle(BaseSessionTest):
 
         # Act
         await self.session.stop()
-        await asyncio.sleep(0)  # Yield to let event loop process future completions
+        await self.yield_to_event_loop()
 
         # Assert
         assert len(self.session._pending_requests) == 0
@@ -113,3 +115,35 @@ class TestBaseSessionLifecycle(BaseSessionTest):
 
         assert slow_task.cancelled()
         assert len(self.session._in_flight_requests) == 0
+
+    async def test_session_can_be_restarted_after_stop(self):
+        """Session can be stopped and restarted without recreating transport."""
+        # Arrange & Act: Start, process a message, then stop
+        handled_messages = []
+
+        async def tracking_handler(payload):
+            handled_messages.append(payload)
+
+        self.session._handle_message = tracking_handler
+
+        await self.session.start()
+
+        self.transport.receive_message({"jsonrpc": "2.0", "method": "test/before-stop"})
+        await self.yield_to_event_loop()
+
+        await self.session.stop()
+        assert not self.session._running
+
+        # Act: Restart and process another message
+        await self.session.start()
+        assert self.session._running
+
+        self.transport.receive_message(
+            {"jsonrpc": "2.0", "method": "test/after-restart"}
+        )
+        await self.yield_to_event_loop()
+
+        # Assert: Both phases worked
+        assert len(handled_messages) == 2
+        assert handled_messages[0]["method"] == "test/before-stop"
+        assert handled_messages[1]["method"] == "test/after-restart"

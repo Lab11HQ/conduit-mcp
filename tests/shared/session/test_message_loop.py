@@ -7,6 +7,8 @@ from .conftest import BaseSessionTest
 
 
 class TestMessageLoop(BaseSessionTest):
+    _default_yield_time = 0.01
+
     async def test_processes_messages_from_transport(self):
         """Message loop reads from transport and calls _handle_message for each."""
         # Arrange: Mock _handle_message to track calls
@@ -27,7 +29,7 @@ class TestMessageLoop(BaseSessionTest):
             {"jsonrpc": "2.0", "id": 2, "method": "test/two"}
         )
 
-        await self.wait_for_message_processing()
+        await self.yield_to_event_loop()
         await self.session.stop()
 
         # Assert: Both messages were handled
@@ -54,7 +56,7 @@ class TestMessageLoop(BaseSessionTest):
         self.transport.receive_message({"jsonrpc": "2.0", "method": "crash"})
         self.transport.receive_message({"jsonrpc": "2.0", "method": "third"})
 
-        await self.wait_for_message_processing()
+        await self.yield_to_event_loop()
         await self.session.stop()
 
         # Assert: All messages were attempted, loop kept running
@@ -77,11 +79,11 @@ class TestMessageLoop(BaseSessionTest):
         await self.session.start()
 
         self.transport.receive_message({"jsonrpc": "2.0", "method": "before_crash"})
-        await self.wait_for_message_processing()
+        await self.yield_to_event_loop()
 
         # Simulate transport failure
         self.transport.simulate_error()
-        await self.wait_for_transport_failure_cleanup()
+        await self.yield_to_event_loop()
 
         # Assert: Message was processed before failure
         assert len(handled_messages) == 1
@@ -104,13 +106,13 @@ class TestMessageLoop(BaseSessionTest):
         await self.session.start()
 
         self.transport.receive_message({"jsonrpc": "2.0", "method": "processed"})
-        await self.wait_for_message_processing()
+        await self.yield_to_event_loop()
 
         await self.session.stop()  # This sets _running = False
 
         # Send more messages after stopping
         self.transport.receive_message({"jsonrpc": "2.0", "method": "ignored"})
-        await self.wait_for_message_processing()
+        await self.yield_to_event_loop()
 
         # Assert: Only the first message was processed
         assert len(handled_messages) == 1
@@ -123,7 +125,7 @@ class TestMessageLoop(BaseSessionTest):
         assert self.session._running  # Confirm it started
 
         self.transport.simulate_error()
-        await self.wait_for_transport_failure_cleanup()
+        await self.yield_to_event_loop()
 
         # Assert: Always cleaned up
         assert not self.session._running
@@ -143,7 +145,7 @@ class TestMessageLoop(BaseSessionTest):
 
         # Act: Simulate transport failure
         self.transport.simulate_error()
-        await self.wait_for_transport_failure_cleanup()
+        await self.yield_to_event_loop()
 
         # Assert: Pending request was resolved with error
         assert len(self.session._pending_requests) == 0

@@ -56,8 +56,7 @@ class BaseSession(ABC):
         messages until stop() is called. This is required before sending any
         requests or receiving notifications.
 
-        Safe to call multiple times - subsequent calls are ignored if already
-        running. The session cannot be restarted after stop() is called.
+        Safe to call multiple times - subsequent calls are ignored if already running.
 
         Raises:
             ConnectionError: If the transport is closed or unavailable.
@@ -75,8 +74,7 @@ class BaseSession(ABC):
         """Stop message processing and cancel pending requests.
 
         Cancels the background message processing task, resolves any pending
-        requests, and cancels any in-flight request handlers. The session can
-        be restarted by calling start() again.
+        requests, and cancels any in-flight request handlers.
 
         Safe to call multiple times.
         """
