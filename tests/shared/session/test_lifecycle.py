@@ -75,6 +75,7 @@ class TestBaseSessionLifecycle(BaseSessionTest):
 
         # Act
         await self.session.stop()
+        await asyncio.sleep(0)  # Yield to let event loop process future completions
 
         # Assert
         assert len(self.session._pending_requests) == 0

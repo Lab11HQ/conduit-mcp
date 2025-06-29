@@ -1,5 +1,7 @@
 import asyncio
-from unittest.mock import Mock
+
+from conduit.protocol.base import Error
+from conduit.protocol.common import PingRequest
 
 from .conftest import BaseSessionTest
 
@@ -10,10 +12,10 @@ class TestMessageLoop(BaseSessionTest):
         # Arrange: Mock _handle_message to track calls
         handled_messages = []
 
-        async def mock_handle_message(payload):
+        async def tracking_handler(payload):
             handled_messages.append(payload)
 
-        self.session._handle_message = mock_handle_message
+        self.session._handle_message = tracking_handler
 
         # Act: Start session and send messages
         await self.session.start()
@@ -25,7 +27,7 @@ class TestMessageLoop(BaseSessionTest):
             {"jsonrpc": "2.0", "id": 2, "method": "test/two"}
         )
 
-        await asyncio.sleep(0.01)  # Let message loop process
+        await self.wait_for_message_processing()
         await self.session.stop()
 
         # Assert: Both messages were handled
@@ -52,7 +54,7 @@ class TestMessageLoop(BaseSessionTest):
         self.transport.receive_message({"jsonrpc": "2.0", "method": "crash"})
         self.transport.receive_message({"jsonrpc": "2.0", "method": "third"})
 
-        await asyncio.sleep(0.01)  # Let loop process all messages
+        await self.wait_for_message_processing()
         await self.session.stop()
 
         # Assert: All messages were attempted, loop kept running
@@ -75,22 +77,20 @@ class TestMessageLoop(BaseSessionTest):
         await self.session.start()
 
         self.transport.receive_message({"jsonrpc": "2.0", "method": "before_crash"})
-        await asyncio.sleep(0.01)
+        await self.wait_for_message_processing()
 
         # Simulate transport failure
         self.transport.simulate_error()
-        await asyncio.sleep(0.01)  # Let failure propagate
+        await self.wait_for_transport_failure_cleanup()
 
-        # Try to send another message - it shouldn't be processed
-        self.transport.receive_message({"jsonrpc": "2.0", "method": "after_crash"})
-        await asyncio.sleep(0.01)
-
-        # Assert: Only the first message was processed
+        # Assert: Message was processed before failure
         assert len(handled_messages) == 1
         assert handled_messages[0]["method"] == "before_crash"
-        # The loop stopped, so "after_crash" was never handled
 
-    async def test_loop_respects_running_flag_on_stop(self):
+        # Assert: Session stopped due to transport error
+        assert not self.session._running
+
+    async def test_loop_respects_stop_call(self):
         """Message loop stops processing when _running flag is set to False."""
         # Arrange: Mock handler to track messages
         handled_messages = []
@@ -104,13 +104,13 @@ class TestMessageLoop(BaseSessionTest):
         await self.session.start()
 
         self.transport.receive_message({"jsonrpc": "2.0", "method": "processed"})
-        await asyncio.sleep(0.01)  # Let it process
+        await self.wait_for_message_processing()
 
         await self.session.stop()  # This sets _running = False
 
         # Send more messages after stopping
         self.transport.receive_message({"jsonrpc": "2.0", "method": "ignored"})
-        await asyncio.sleep(0.01)
+        await self.wait_for_message_processing()
 
         # Assert: Only the first message was processed
         assert len(handled_messages) == 1
@@ -123,21 +123,32 @@ class TestMessageLoop(BaseSessionTest):
         assert self.session._running  # Confirm it started
 
         self.transport.simulate_error()
-        await asyncio.sleep(0.01)  # Let cleanup happen
+        await self.wait_for_transport_failure_cleanup()
 
         # Assert: Always cleaned up
         assert not self.session._running
 
-    async def test_loop_calls_resolve_pending_requests_on_exit(self, monkeypatch):
-        """Message loop calls _resolve_pending_requests when exiting."""
-        # Arrange: Mock the cleanup method
-        mock_resolve = Mock()
-        monkeypatch.setattr(self.session, "_resolve_pending_requests", mock_resolve)
-
-        # Act: Start and force exit via transport error
+    async def test_transport_failure_resolves_pending_requests(self):
+        """Transport failure resolves pending requests with connection error."""
+        # Arrange: Create a pending request
         await self.session.start()
-        self.transport.simulate_error()
-        await asyncio.sleep(0.01)  # Let cleanup happen
 
-        # Assert: Cleanup method was called
-        mock_resolve.assert_called_once_with("Message loop terminated")
+        request_task = asyncio.create_task(
+            self.session.send_request(PingRequest(), timeout=10.0)
+        )
+
+        # Wait for request to be sent (so it's pending)
+        await self.wait_for_sent_message("ping")
+        assert len(self.session._pending_requests) == 1
+
+        # Act: Simulate transport failure
+        self.transport.simulate_error()
+        await self.wait_for_transport_failure_cleanup()
+
+        # Assert: Pending request was resolved with error
+        assert len(self.session._pending_requests) == 0
+        assert request_task.done()
+
+        error = request_task.result()
+        assert isinstance(error, Error)
+        assert "connection closed" in error.message.lower()

@@ -34,3 +34,11 @@ class BaseSessionTest:
             raise AssertionError(f"Message with method '{method}' never sent")
         else:
             raise AssertionError("No message was sent")
+
+    async def wait_for_message_processing(self) -> None:
+        """Wait for message loop to process queued messages."""
+        await asyncio.sleep(0)
+
+    async def wait_for_transport_failure_cleanup(self) -> None:
+        """Wait for session cleanup after transport failure."""
+        await asyncio.sleep(0.01)

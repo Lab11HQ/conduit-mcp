@@ -69,6 +69,33 @@ class BaseSession(ABC):
 
         self._running = True
         self._message_loop_task = asyncio.create_task(self._message_loop())
+        self._message_loop_task.add_done_callback(self._on_message_loop_done)
+
+    async def stop(self) -> None:
+        """Stop message processing and cancel pending requests.
+
+        Cancels the background message processing task, resolves any pending
+        requests, and cancels any in-flight request handlers. The session can
+        be restarted by calling start() again.
+
+        Safe to call multiple times.
+        """
+        if not self._running and self._message_loop_task is None:
+            return
+
+        self._running = False
+        if self._message_loop_task:
+            self._message_loop_task.cancel()
+            try:
+                await self._message_loop_task
+            except asyncio.CancelledError:
+                pass
+            self._message_loop_task = None
+
+        # Cancel any in-flight requests we are handling
+        for task in self._in_flight_requests.values():
+            task.cancel()
+        self._in_flight_requests.clear()
 
     async def _message_loop(self) -> None:
         """Core message processing loop that runs in the background.
@@ -92,22 +119,20 @@ class BaseSession(ABC):
                 except Exception as e:
                     print(f"Error handling message: {e}")
                     continue
-
         except ConnectionError:
             print("Transport connection lost")
         except Exception as e:
             print("Transport error while receiving message:", e)
         finally:
             self._running = False
-            self._resolve_pending_requests("Message loop terminated")
 
-    def _resolve_pending_requests(self, reason: str) -> None:
-        """Resolve all pending requests with a CancelledError."""
-        for request_id, (request, future) in self._pending_requests.items():
+    def _on_message_loop_done(self, task: asyncio.Task[None]) -> None:
+        """Callback for when the message loop task completes."""
+        for request, future in self._pending_requests.values():
             if not future.done():
                 error = Error(
                     code=INTERNAL_ERROR,
-                    message=f"Request resolved for reason: {reason}",
+                    message="Request failed: Connection closed",
                 )
                 future.set_result(error)
         self._pending_requests.clear()
@@ -345,32 +370,3 @@ class BaseSession(ABC):
         await self.start()
         jsonrpc_notification = JSONRPCNotification.from_notification(notification)
         await self.transport.send(jsonrpc_notification.to_wire())
-
-    async def stop(self) -> None:
-        """Stop message processing and cancel pending requests.
-
-        Cancels the background message processing task, resolves any pending
-        requests, and cancels any in-flight request handlers. The session can
-        be restarted by calling start() again.
-
-        Safe to call multiple times.
-        """
-        if not self._running and self._message_loop_task is None:
-            return
-
-        self._running = False
-        if self._message_loop_task:
-            self._message_loop_task.cancel()
-            try:
-                await self._message_loop_task
-            except asyncio.CancelledError:
-                pass
-            self._message_loop_task = None
-
-        # Cancel any in-flight requests we are handling
-        for task in self._in_flight_requests.values():
-            task.cancel()
-        self._in_flight_requests.clear()
-
-        # Explicitly resolve pending requests that we are waiting on
-        self._resolve_pending_requests("Session stopped")
