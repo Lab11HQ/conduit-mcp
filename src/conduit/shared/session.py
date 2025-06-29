@@ -117,7 +117,6 @@ class BaseSession(ABC):
         self, payload: dict[str, Any] | list[dict[str, Any]]
     ) -> None:
         """Route incoming JSON-RPC messages to appropriate handlers.
-        NEEDS CANCELLATION DOCUMENTATION
 
         Central dispatch point that identifies message types and routes to:
         - _handle_response() for responses to our requests

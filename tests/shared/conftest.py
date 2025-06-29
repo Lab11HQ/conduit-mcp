@@ -17,8 +17,8 @@ class MockTransport(Transport):
         self.closed = False
         self._should_raise_error = False
 
-    def _receive_from_network(self, payload: dict[str, Any]) -> None:
-        """Internal: simulate a message arriving from the network."""
+    def receive_message(self, payload: dict[str, Any]) -> None:
+        """Simulate receiving a message from the network."""
         if self.closed:
             return
         transport_message = TransportMessage(
@@ -50,7 +50,7 @@ class MockTransport(Transport):
                 )
                 yield transport_message
             except asyncio.TimeoutError:
-                continue  # Keep waiting for messages
+                continue
 
     async def close(self) -> None:
         self.closed = True
@@ -62,28 +62,11 @@ class TestableBaseSession(BaseSession):
     def __init__(self, transport: Transport):
         super().__init__(transport)
         self._is_initialized = True
-        self.handled_requests: list[dict] = []
 
     @property
     def initialized(self) -> bool:
         return self._is_initialized
 
-    def set_initialized(self, value: bool) -> None:
-        """Helper for testing initialization state."""
-        self._is_initialized = value
-
     def _handle_session_request(self, payload: dict[str, Any]) -> Result | Error:
-        """Record handled requests and return a simple result."""
-        self.handled_requests.append(payload)
+        """Simple implementation that returns empty result."""
         return EmptyResult()
-
-
-class MockPeer:
-    """Simulates the other end of the connection."""
-
-    def __init__(self, transport: MockTransport):
-        self.transport = transport
-
-    def send_message(self, payload: dict[str, Any]) -> None:
-        """Simulate peer sending a message."""
-        self.transport._receive_from_network(payload)
