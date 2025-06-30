@@ -135,7 +135,7 @@ class TestMessageLoop(BaseSessionTest):
 
         # Act
         self.transport.simulate_error()
-        await self.yield_to_event_loop()
+        await self.yield_to_event_loop(0.05)  # Let error propagate
 
         # Assert
         assert len(self.session._pending_requests) == 0

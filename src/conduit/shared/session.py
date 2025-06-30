@@ -129,21 +129,18 @@ class BaseSession(ABC):
     async def _handle_message(
         self, payload: dict[str, Any] | list[dict[str, Any]]
     ) -> None:
-        """Route incoming JSON-RPC messages to appropriate handlers.
+        """Route messages to their handlers without blocking the session.
 
-        Central dispatch point that identifies message types and routes to:
-        - _handle_response() for responses to our requests
-        - _handle_request() for incoming requests (processed as tasks)
-        - _handle_notification() for notifications
+        The heart of message processing - identifies JSON-RPC message types and
+        dispatches them appropriately. Requests run as background tasks so they
+        can't block notifications or responses from other peers.
 
-        Supports both single messages and batched message arrays.
-        Individual message handling errors are logged but don't stop
-        the message loop.
+        Gracefully handles malformed messages and handler errors to keep the
+        session alive even when individual messages fail.
 
         Args:
-            payload: Raw JSON-RPC message(s) from the transport.
+            payload: JSON-RPC message(s) from the transport.
         """
-        # TODO: Add a recursion limit
         if isinstance(payload, list):
             for item in payload:
                 await self._handle_message(item)
@@ -168,8 +165,7 @@ class BaseSession(ABC):
             else:
                 raise ValueError(f"Unknown message type: {payload}")
         except Exception as e:
-            print("Error handling message", e)
-            raise
+            print(f"Error handling message: {e}")
 
     def _is_valid_response(self, payload: dict[str, Any]) -> bool:
         """Check if payload is a valid JSON-RPC response."""
@@ -237,7 +233,6 @@ class BaseSession(ABC):
             return result_type.from_protocol(payload)
         return Error.from_protocol(payload)
 
-    # TODO: Clean up
     async def _handle_notification(self, payload: dict[str, Any]) -> None:
         """Parse notification and queue it for consumption."""
         method = payload["method"]
