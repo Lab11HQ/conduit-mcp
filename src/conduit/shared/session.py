@@ -257,7 +257,7 @@ class BaseSession(ABC):
         except asyncio.CancelledError:
             error = Error(
                 code=INTERNAL_ERROR,
-                message="Request cancelled by client",
+                message=f"Request {message_id} cancelled by client",
             )
             error_response = JSONRPCError.from_error(error, message_id)
             await self.transport.send(error_response.to_wire())
@@ -273,7 +273,8 @@ class BaseSession(ABC):
         except Exception:
             # Unexpected error during request handling
             error = Error(
-                code=INTERNAL_ERROR, message="Internal error processing request"
+                code=INTERNAL_ERROR,
+                message=f"Internal error processing request {message_id}",
             )
             error_response = JSONRPCError.from_error(error, message_id)
             await self.transport.send(error_response.to_wire())

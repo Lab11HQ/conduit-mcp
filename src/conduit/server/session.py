@@ -376,6 +376,8 @@ class ServerSession(BaseSession):
 
     async def _handle_cancelled(self, notification: CancelledNotification) -> None:
         if notification.request_id in self._in_flight_requests:
+            # Note: Done callback on the request task removes it from the
+            # in-flight requests dictionary.
             self._in_flight_requests[notification.request_id].cancel()
         await self.callbacks.notify_cancelled(notification)
 
