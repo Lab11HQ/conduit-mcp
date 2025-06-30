@@ -125,3 +125,41 @@ class TestMessageHandler(BaseSessionTest):
         # Assert
         self.session._handle_response.assert_called_once()
         self.session._handle_notification.assert_called_once()
+
+    async def test_notifications_dont_block_other_message_processing(self):
+        """Notification handling runs concurrently and doesn't block other messages."""
+        # Arrange - controlled handlers
+        notification_started = asyncio.Event()
+        notification_can_finish = asyncio.Event()
+        response_handled = asyncio.Event()
+
+        async def slow_notification_handler(payload):
+            notification_started.set()
+            await notification_can_finish.wait()
+
+        async def fast_response_handler(payload):
+            response_handled.set()
+
+        self.session._handle_notification = slow_notification_handler
+        self.session._handle_response = fast_response_handler
+
+        # Act - send notification first, then response
+        notification_payload = {"jsonrpc": "2.0", "method": "slow/notification"}
+        response_payload = {"jsonrpc": "2.0", "id": "fast-response", "result": {}}
+
+        await self.session._handle_message(notification_payload)
+        await self.session._handle_message(response_payload)
+
+        # Assert - response completes while notification is still running
+        await asyncio.wait_for(notification_started.wait(), timeout=0.1)
+        await asyncio.wait_for(response_handled.wait(), timeout=0.1)
+
+        assert notification_started.is_set()  # Notification did start
+        assert response_handled.is_set()  # Response was handled
+        assert not notification_can_finish.is_set()  # Notification still pending
+
+        # Cleanup - let notification finish
+        notification_can_finish.set()
+        await self.yield_to_event_loop()
+
+        assert notification_can_finish.is_set()  # Notification completed
