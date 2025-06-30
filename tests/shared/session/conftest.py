@@ -40,7 +40,7 @@ class BaseSessionTest:
 
         Args:
             seconds: Additional time to wait for async operations to settle.
-                    Defaults to 0 (single event loop tick).
+                Defaults to 0 (single event loop tick).
         """
         if seconds is None:
             seconds = getattr(self, "_default_yield_time", 0)

@@ -11,7 +11,7 @@ class TestBaseSessionLifecycle(BaseSessionTest):
     async def test_start_creates_message_loop_task(self):
         # Arrange
         assert self.session._message_loop_task is None
-        assert self.session._running is False
+        assert self.session.running is False
 
         # Act
         await self.session.start()
@@ -20,7 +20,7 @@ class TestBaseSessionLifecycle(BaseSessionTest):
         assert self.session._message_loop_task is not None
         assert isinstance(self.session._message_loop_task, asyncio.Task)
         assert not self.session._message_loop_task.done()
-        assert self.session._running is True
+        assert self.session.running is True
 
     async def test_start_is_idempotent(self):
         # Arrange
@@ -33,7 +33,7 @@ class TestBaseSessionLifecycle(BaseSessionTest):
 
         # Assert
         assert self.session._message_loop_task is first_task
-        assert self.session._running is True
+        assert self.session.running is True
         assert not first_task.done()
 
     async def test_start_raises_connection_error_if_transport_closed(self):
@@ -50,14 +50,14 @@ class TestBaseSessionLifecycle(BaseSessionTest):
     async def test_stop_stops_message_loop(self):
         # Arrange
         await self.session.start()
-        assert self.session._running is True
+        assert self.session.running is True
         assert self.session._message_loop_task is not None
 
         # Act
         await self.session.stop()
 
         # Assert
-        assert self.session._running is False
+        assert self.session.running is False
         assert self.session._message_loop_task is None
 
     async def test_stop_resolves_pending_requests(self):
@@ -93,7 +93,7 @@ class TestBaseSessionLifecycle(BaseSessionTest):
         await self.session.stop()
 
         # Assert
-        assert self.session._running is False
+        assert self.session.running is False
         assert self.session._message_loop_task is None
 
     async def test_stop_cancels_in_flight_request_handlers(self):
@@ -132,11 +132,11 @@ class TestBaseSessionLifecycle(BaseSessionTest):
         await self.yield_to_event_loop()
 
         await self.session.stop()
-        assert not self.session._running
+        assert not self.session.running
 
         # Act: Restart and process another message
         await self.session.start()
-        assert self.session._running
+        assert self.session.running
 
         self.transport.receive_message(
             {"jsonrpc": "2.0", "method": "test/after-restart"}

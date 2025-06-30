@@ -40,7 +40,6 @@ class BaseSession(ABC):
         ] = {}
         self._message_loop_task: asyncio.Task[None] | None = None
         self._in_flight_requests: dict[str | int, asyncio.Task[None]] = {}
-        self._running = False
         self.notifications: asyncio.Queue[Notification] = asyncio.Queue()
 
     @property
@@ -48,6 +47,13 @@ class BaseSession(ABC):
     def initialized(self) -> bool:
         """Return True if the session is initialized."""
         pass
+
+    @property
+    def running(self) -> bool:
+        """True if the message loop is actively processing messages."""
+        return (
+            self._message_loop_task is not None and not self._message_loop_task.done()
+        )
 
     async def start(self) -> None:
         """Start processing messages from the transport.
@@ -61,12 +67,11 @@ class BaseSession(ABC):
         Raises:
             ConnectionError: If the transport is closed or unavailable.
         """
-        if self._running:
+        if self.running:
             return
         if not self.transport.is_open:
             raise ConnectionError("Cannot start session: transport is closed")
 
-        self._running = True
         self._message_loop_task = asyncio.create_task(self._message_loop())
         self._message_loop_task.add_done_callback(self._on_message_loop_done)
 
@@ -78,17 +83,15 @@ class BaseSession(ABC):
 
         Safe to call multiple times.
         """
-        if not self._running and self._message_loop_task is None:
+        if not self.running:
             return
 
-        self._running = False
-        if self._message_loop_task:
-            self._message_loop_task.cancel()
-            try:
-                await self._message_loop_task
-            except asyncio.CancelledError:
-                pass
-            self._message_loop_task = None
+        self._message_loop_task.cancel()
+        try:
+            await self._message_loop_task
+        except asyncio.CancelledError:
+            pass
+        self._message_loop_task = None
 
         # Cancel any in-flight requests we are handling
         for task in self._in_flight_requests.values():
@@ -96,36 +99,24 @@ class BaseSession(ABC):
         self._in_flight_requests.clear()
 
     async def _message_loop(self) -> None:
-        """Core message processing loop that runs in the background.
+        """Process incoming messages until cancelled or transport fails.
 
-        Continuously reads messages from the transport and routes them
-        to appropriate handlers. Handles three types of JSON-RPC messages:
-
-        - Responses: Matched to pending requests by ID and resolved
-        - Requests: Processed concurrently in separate tasks
-        - Notifications: Parsed and queued for application consumption
-
-        The loop is resilient to message handling errors but will terminate
-        on transport failures. All pending requests are cancelled on exit.
+        Runs continuously in the background and hands off messages to the message
+        handler. Individual message handling errors are logged and don't interrupt
+        the loop, but transport failures will stop message processing entirely.
         """
         try:
             async for transport_message in self.transport.messages():
-                if not self._running:
-                    break
                 try:
                     await self._handle_message(transport_message.payload)
                 except Exception as e:
                     print(f"Error handling message: {e}")
                     continue
-        except ConnectionError:
-            print("Transport connection lost")
         except Exception as e:
-            print("Transport error while receiving message:", e)
-        finally:
-            self._running = False
+            print(f"Transport error: {e}")
 
     def _on_message_loop_done(self, task: asyncio.Task[None]) -> None:
-        """Callback for when the message loop task completes."""
+        """Clean up pending requests when the message loop exits."""
         for request, future in self._pending_requests.values():
             if not future.done():
                 error = Error(
@@ -135,7 +126,6 @@ class BaseSession(ABC):
                 future.set_result(error)
         self._pending_requests.clear()
 
-    # TODO: Add cancellation documentation
     async def _handle_message(
         self, payload: dict[str, Any] | list[dict[str, Any]]
     ) -> None:
