@@ -352,7 +352,7 @@ class ServerSession(BaseSession):
             )
 
     # TODO: Test!
-    async def _handle_notification(self, payload: dict[str, Any]) -> None:
+    async def _handle_session_notification(self, payload: dict[str, Any]) -> None:
         method = payload["method"]
         notification_class = NOTIFICATION_REGISTRY.get(method)
 

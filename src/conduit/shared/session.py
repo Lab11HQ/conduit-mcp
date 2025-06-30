@@ -19,7 +19,6 @@ from conduit.protocol.jsonrpc import (
     JSONRPCRequest,
     JSONRPCResponse,
 )
-from conduit.protocol.unions import NOTIFICATION_REGISTRY
 from conduit.shared.exceptions import UnknownRequestError
 from conduit.transport.base import Transport
 
@@ -219,13 +218,26 @@ class BaseSession(ABC):
         return Error.from_protocol(payload)
 
     async def _handle_notification(self, payload: dict[str, Any]) -> None:
-        """Parse notification and queue it for consumption."""
-        method = payload["method"]
-        notification_class = NOTIFICATION_REGISTRY.get(method)
+        """Process peer notifications, delegating to subclass implementations.
 
-        if notification_class is None:
-            print(f"Unknown notification method: {method}")
-            return
+        Handler exceptions are logged since notifications don't require responses.
+
+        Args:
+            payload: Raw JSON-RPC notification payload.
+
+        Note:
+            Runs as background task - exceptions won't be caught by the message loop.
+        """
+        try:
+            await self._handle_session_notification(payload)
+        except Exception as e:
+            method = payload.get("method", "unknown")
+            print(f"Error handling notification {method}: {e}")
+
+    async def _handle_session_notification(self, payload: dict[str, Any]) -> None:
+        """Handle session-specific notifications. Override in subclasses."""
+        method = payload.get("method", "unknown")
+        print(f"Unknown notification method: {method}")
 
     async def _handle_request(self, payload: dict[str, Any]) -> None:
         """Process peer requests and send back responses.
