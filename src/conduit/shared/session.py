@@ -191,7 +191,7 @@ class BaseSession(ABC):
         """Resolve a pending request with the peer's response.
 
         Matches response to original request by ID, parses into Result or Error,
-        and resolves the waiting future. Logs unmatched responses.
+        and resolves the waiting future.
 
         Args:
             payload: Validated JSON-RPC response.
@@ -199,7 +199,7 @@ class BaseSession(ABC):
         message_id = payload["id"]
 
         if message_id in self._pending_requests:
-            original_request, future = self._pending_requests[message_id]
+            original_request, future = self._pending_requests.pop(message_id)
             result_or_error = self._parse_response(payload, original_request)
             future.set_result(result_or_error)
         else:
@@ -216,18 +216,9 @@ class BaseSession(ABC):
 
         Returns:
             Typed Result object for success, or Error object for failures.
-
-        Raises:
-            ValueError: Request does not expect a result.
         """
         if "result" in payload:
             result_type = original_request.expected_result_type()
-            if result_type is None:
-                raise ValueError(
-                    f"Request type {type(original_request).__name__} "
-                    f"(method: {original_request.method}) is missing "
-                    "expected_result_type() implementation"
-                )
             return result_type.from_protocol(payload)
         return Error.from_protocol(payload)
 
@@ -289,11 +280,11 @@ class BaseSession(ABC):
         request: Request,
         timeout: float = 30.0,
     ) -> Result | Error | None:
-        """Send a request to the client and wait for its response.
+        """Send a request to the peer and wait for its response.
 
-        Handles the complete request lifecycle—generates IDs, manages
-        timeouts, and cleans up automatically. Returns None for fire-and-forget
-        requests.
+        Generates request IDs, manages the request lifecycle, and handles
+        timeouts. Successful responses are cleaned up by the response handler,
+        while timeouts are cleaned up here.
 
         Most requests require an initialized session. PingRequests work anytime
         since they test basic connectivity.
@@ -303,12 +294,12 @@ class BaseSession(ABC):
             timeout: How long to wait for a response (seconds)
 
         Returns:
-            Client's response, or None for requests that don't expect replies.
+            Peer's response as Result or Error object.
 
         Raises:
             RuntimeError: Session not initialized (client hasn't sent initialized
                 notification)
-            TimeoutError: Client didn't respond in time
+            TimeoutError: Peer didn't respond in time
         """
         await self.start()
         if not self.initialized and not isinstance(request, PingRequest):
@@ -326,6 +317,8 @@ class BaseSession(ABC):
             result = await asyncio.wait_for(future, timeout)
             return result
         except asyncio.TimeoutError:
+            self._pending_requests.pop(request_id, None)
+
             try:
                 cancelled_notification = CancelledNotification(
                     request_id=request_id,
@@ -335,8 +328,6 @@ class BaseSession(ABC):
             except Exception as e:
                 print(f"Error sending cancellation notification: {e}")
             raise TimeoutError(f"Request {request_id} timed out after {timeout}s")
-        finally:
-            self._pending_requests.pop(request_id, None)
 
     async def send_notification(self, notification: Notification) -> None:
         """Send a notification to the peer."""
