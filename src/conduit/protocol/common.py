@@ -30,15 +30,15 @@ from conduit.protocol.base import (
 
 class CancelledNotification(Notification):
     """
-    Notifies that a request was cancelled.
+    Sent by either side to cancel a previous request.
 
-    Sent when a request is terminated before execution or completion.
+    Receivers should cancel any ongoing work related to the request.
     """
 
     method: Literal["notifications/cancelled"] = "notifications/cancelled"
     request_id: RequestId = Field(alias="requestId")
     """
-    ID of the cancelled request.
+    ID of the request to cancel.
     """
 
     reason: str | None = None
