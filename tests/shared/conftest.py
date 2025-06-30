@@ -67,6 +67,6 @@ class TestableBaseSession(BaseSession):
     def initialized(self) -> bool:
         return self._is_initialized
 
-    def _handle_session_request(self, payload: dict[str, Any]) -> Result | Error:
+    async def _handle_session_request(self, payload: dict[str, Any]) -> Result | Error:
         """Simple implementation that returns empty result."""
         return EmptyResult()

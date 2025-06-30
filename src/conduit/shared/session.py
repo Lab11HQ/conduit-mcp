@@ -7,7 +7,6 @@ from typing import Any
 
 from conduit.protocol.base import (
     INTERNAL_ERROR,
-    METHOD_NOT_FOUND,
     Error,
     Notification,
     Request,
@@ -141,29 +140,26 @@ class BaseSession(ABC):
                 await self._handle_message(item)
             return
 
-        try:
-            if self._is_valid_response(payload):
-                await self._handle_response(payload)
-            elif self._is_valid_request(payload):
-                task = asyncio.create_task(
-                    self._handle_request(payload),
-                    name=f"handle_request_{payload['id']}",
+        if self._is_valid_response(payload):
+            await self._handle_response(payload)
+        elif self._is_valid_request(payload):
+            task = asyncio.create_task(
+                self._handle_request(payload),
+                name=f"handle_request_{payload['id']}",
+            )
+            self._in_flight_requests[payload["id"]] = task
+            task.add_done_callback(
+                lambda t, request_id=payload["id"]: self._in_flight_requests.pop(
+                    request_id, None
                 )
-                self._in_flight_requests[payload["id"]] = task
-                task.add_done_callback(
-                    lambda t, request_id=payload["id"]: self._in_flight_requests.pop(
-                        request_id, None
-                    )
-                )
-            elif self._is_valid_notification(payload):
-                asyncio.create_task(
-                    self._handle_notification(payload),
-                    name=f"handle_notification_{payload['method']}",
-                )
-            else:
-                raise ValueError(f"Unknown message type: {payload}")
-        except Exception as e:
-            print(f"Error handling message: {e}")
+            )
+        elif self._is_valid_notification(payload):
+            asyncio.create_task(
+                self._handle_notification(payload),
+                name=f"handle_notification_{payload['method']}",
+            )
+        else:
+            raise ValueError(f"Unknown message type: {payload}")
 
     def _is_valid_response(self, payload: dict[str, Any]) -> bool:
         """Check if payload is a valid JSON-RPC response."""
@@ -232,43 +228,50 @@ class BaseSession(ABC):
             return
 
     async def _handle_request(self, payload: dict[str, Any]) -> None:
-        """Handle peer request and send back a response."""
+        """Process peer requests and send back responses.
+
+        Delegates business logic to subclass implementations while providing defensive
+        exception handling. Every request gets a response, even when handlers crash:
+        - Cancellation errors become INTERNAL_ERROR responses with context
+        - Other exceptions become generic INTERNAL_ERROR responses
+
+        Transport failures during sending bubble up intentionally - they indicate
+        session-level problems that require broader cleanup.
+
+        Args:
+            payload: Raw JSON-RPC request payload.
+
+        Raises:
+            ConnectionError: Transport failures during response sending (intentional).
+
+        Note:
+            Runs as background task - exceptions won't be caught by the message loop.
+        """
         message_id = payload["id"]
 
+        # Prepare the response (this is where exceptions can happen)
         try:
             result_or_error = await self._handle_session_request(payload)
 
             if isinstance(result_or_error, Result):
                 response = JSONRPCResponse.from_result(result_or_error, message_id)
-            else:  # Error
+            else:
                 response = JSONRPCError.from_error(result_or_error, message_id)
-
-            await self.transport.send(response.to_wire())
 
         except asyncio.CancelledError:
             error = Error(
-                code=INTERNAL_ERROR,
-                message=f"Request {message_id} cancelled by client",
+                code=INTERNAL_ERROR, message=f"Request {message_id} cancelled"
             )
-            error_response = JSONRPCError.from_error(error, message_id)
-            await self.transport.send(error_response.to_wire())
-
-        except UnknownRequestError as e:
-            error = Error(
-                code=METHOD_NOT_FOUND,
-                message=f"Unknown request method: {e.method}",
-            )
-            error_response = JSONRPCError.from_error(error, message_id)
-            await self.transport.send(error_response.to_wire())
-
+            response = JSONRPCError.from_error(error, message_id)
         except Exception:
-            # Unexpected error during request handling
             error = Error(
                 code=INTERNAL_ERROR,
                 message=f"Internal error processing request {message_id}",
             )
-            error_response = JSONRPCError.from_error(error, message_id)
-            await self.transport.send(error_response.to_wire())
+            response = JSONRPCError.from_error(error, message_id)
+
+        # Send the response (transport failures bubble up)
+        await self.transport.send(response.to_wire())
 
     async def _handle_session_request(self, payload: dict[str, Any]) -> Result | Error:
         """Handle session-specific requests (non-ping)."""
