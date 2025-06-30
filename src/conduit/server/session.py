@@ -360,7 +360,6 @@ class ServerSession(BaseSession):
             raise UnknownNotificationError(method)
 
         notification = notification_class.from_protocol(payload)
-        await self.notifications.put(notification)
 
         registry = self._get_notification_registry()
         if method in registry:

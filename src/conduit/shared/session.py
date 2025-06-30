@@ -21,7 +21,7 @@ from conduit.protocol.jsonrpc import (
     JSONRPCResponse,
 )
 from conduit.protocol.unions import NOTIFICATION_REGISTRY
-from conduit.shared.exceptions import UnknownNotificationError, UnknownRequestError
+from conduit.shared.exceptions import UnknownRequestError
 from conduit.transport.base import Transport
 
 
@@ -40,7 +40,6 @@ class BaseSession(ABC):
         ] = {}
         self._message_loop_task: asyncio.Task[None] | None = None
         self._in_flight_requests: dict[str | int, asyncio.Task[None]] = {}
-        self.notifications: asyncio.Queue[Notification] = asyncio.Queue()
 
     @property
     @abstractmethod
@@ -131,12 +130,8 @@ class BaseSession(ABC):
     ) -> None:
         """Route messages to their handlers without blocking the session.
 
-        The heart of message processing - identifies JSON-RPC message types and
-        dispatches them appropriately. Requests run as background tasks so they
-        can't block notifications or responses from other peers.
-
-        Gracefully handles malformed messages and handler errors to keep the
-        session alive even when individual messages fail.
+        Requests and notifications run as background tasks so they can't block
+        responses or other message processing.
 
         Args:
             payload: JSON-RPC message(s) from the transport.
@@ -161,7 +156,10 @@ class BaseSession(ABC):
                     )
                 )
             elif self._is_valid_notification(payload):
-                await self._handle_notification(payload)
+                asyncio.create_task(
+                    self._handle_notification(payload),
+                    name=f"handle_notification_{payload['method']}",
+                )
             else:
                 raise ValueError(f"Unknown message type: {payload}")
         except Exception as e:
@@ -239,17 +237,8 @@ class BaseSession(ABC):
         notification_class = NOTIFICATION_REGISTRY.get(method)
 
         if notification_class is None:
-            raise UnknownNotificationError(method)
-
-        if method == "notifications/cancelled":
-            notification = CancelledNotification.from_protocol(payload)
-            if notification.request_id in self._in_flight_requests:
-                self._in_flight_requests[notification.request_id].cancel()
-            await self.notifications.put(notification)
+            print(f"Unknown notification method: {method}")
             return
-
-        notification = notification_class.from_protocol(payload)
-        await self.notifications.put(notification)
 
     async def _handle_request(self, payload: dict[str, Any]) -> None:
         """Handle peer request and send back a response."""
