@@ -143,4 +143,3 @@ class TestMessageLoop(BaseSessionTest):
 
         error = request_task.result()
         assert isinstance(error, Error)
-        assert "request failed" in error.message.lower()

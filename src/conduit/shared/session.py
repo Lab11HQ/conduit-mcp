@@ -119,7 +119,7 @@ class BaseSession(ABC):
             if not future.done():
                 error = Error(
                     code=INTERNAL_ERROR,
-                    message="Request failed: Connection closed",
+                    message="Request failed. Session stopped.",
                 )
                 future.set_result(error)
         self._pending_requests.clear()
@@ -130,10 +130,18 @@ class BaseSession(ABC):
         """Route messages to their handlers without blocking the session.
 
         Requests and notifications run as background tasks so they can't block
-        responses or other message processing.
+        responses or other message processing. Routing errors (like invalid
+        message formats) propagate to the message loop for logging.
 
         Args:
             payload: JSON-RPC message(s) from the transport.
+
+        Raises:
+            ValueError: If the message is not a valid JSON-RPC message.
+
+        Note:
+            Routing errors bubble up to the message loop, while request/notification
+            handlers catch their own errors since they run in the background.
         """
         if isinstance(payload, list):
             for item in payload:
