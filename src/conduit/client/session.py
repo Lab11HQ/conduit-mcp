@@ -122,6 +122,10 @@ class ClientSession(BaseSession):
         self.sampling = SamplingManager()
         self.elicitation = ElicitationManager()
 
+    # ================================
+    # Initialization
+    # ================================
+
     @property
     def initialized(self) -> bool:
         return self._initialize_result is not None
@@ -136,7 +140,7 @@ class ClientSession(BaseSession):
 
         Args:
             timeout: How long to wait for the server to respond (seconds).
-                    Defaults to 30 seconds.
+                Defaults to 30 seconds.
 
         Returns:
             Server capabilities, version info, and optional setup instructions.
