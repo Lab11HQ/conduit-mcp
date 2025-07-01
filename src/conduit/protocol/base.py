@@ -194,16 +194,15 @@ class Request(ProtocolModel):
         return result
 
     @classmethod
-    def expected_result_type(cls) -> type["Result"] | None:
+    def expected_result_type(cls) -> type["Result"]:
         """Return the result type this request expects.
 
         This enables type-safe request-response pairing and helps downstream
         code correctly handle responses. Each concrete request class overrides
-        this to return its specific result type, or None for requests that
-        don't expect a response (e.g., SetLevelRequest to set the log level).
+        this to return its specific result type.
 
         Returns:
-            The Result subclass this request expects, or None if no response expected
+            The Result subclass this request expects
         """
         raise NotImplementedError(
             "Subclasses must define this method to return their expected result type."
@@ -230,98 +229,6 @@ class PaginatedRequest(Request):
     Leave this None for the first page, then use the cursor from the sender's
     response to get subsequent pages.
     """
-
-
-class Notification(ProtocolModel):
-    """
-    Base class for MCP notifications - fire-and-forget messages.
-
-    Notifications handle events that don't need responses: progress updates,
-    resource changes, alerts, etc.
-
-    Think of them like broadcasting "hey, this happened" rather than asking
-    "can you do this?" The recipient processes the notification but doesn't
-    send anything back.
-    """
-
-    method: str
-    """
-    The notification type, like "notifications/progress" or "notifications/cancelled".
-    """
-
-    metadata: dict[str, Any] | None = Field(default=None)
-    """
-    Additional context for the notification.
-    """
-
-    @classmethod
-    def from_protocol(cls, data: dict[str, Any]) -> Self:
-        """Create a notification instance from raw JSON-RPC protocol data.
-
-        Transforms the nested JSON-RPC format into a clean Python object.
-        Unlike requests, notifications have simpler metadata handling since
-        they don't use progress tokens directly.
-
-        Args:
-            data: Raw JSON-RPC notification data with method and params
-
-        Returns:
-            A properly constructed notification instance
-        """
-
-        # Extract params
-        params = data.get("params", {})
-        meta = params.get("_meta")
-
-        # Build kwargs for the constructor
-        kwargs = {
-            "method": data["method"],
-        }
-        if meta:
-            kwargs["metadata"] = meta
-
-        # Add subclass-specific fields, respecting aliases
-        for field_name, field_info in cls.model_fields.items():
-            if field_name == "method":
-                continue
-
-            # Use the alias if it exists, otherwise use the field name
-            param_key = field_info.alias if field_info.alias else field_name
-
-            if param_key in params:
-                kwargs[field_name] = params[param_key]
-
-        return cls(**kwargs)
-
-    def to_protocol(self) -> dict[str, Any]:
-        """Convert this notification to MCP protocol format.
-
-        Transforms our Pythonic representation into the nested JSON-RPC structure
-        that MCP expects. Metadata gets positioned in the `_meta` object, and
-        field names use their protocol aliases.
-
-        Note: Like requests, this creates the MCP notification structure without
-        the full JSON-RPC envelope.
-
-        Returns:
-            An MCP-compatible notification dictionary with method and params
-        """
-        params = self.model_dump(
-            exclude={"method", "metadata"},
-            by_alias=True,
-            exclude_none=True,
-            mode="json",
-        )
-        # Attribute is defined on all subclasses but not on the base class. Ignore
-        # linter error.
-        result: dict[str, Any] = {"method": self.method}  # type: ignore[attr-defined]
-
-        if self.metadata:
-            params["_meta"] = self.metadata
-
-        if params:
-            result["params"] = params
-        return result
 
 
 class Result(ProtocolModel):
@@ -522,6 +429,98 @@ class Error(ProtocolModel):
                 "data": error_data.get("data"),
             }
         )
+
+
+class Notification(ProtocolModel):
+    """
+    Base class for MCP notifications - fire-and-forget messages.
+
+    Notifications handle events that don't need responses: progress updates,
+    resource changes, alerts, etc.
+
+    Think of them like broadcasting "hey, this happened" rather than asking
+    "can you do this?" The recipient processes the notification but doesn't
+    send anything back.
+    """
+
+    method: str
+    """
+    The notification type, like "notifications/progress" or "notifications/cancelled".
+    """
+
+    metadata: dict[str, Any] | None = Field(default=None)
+    """
+    Additional context for the notification.
+    """
+
+    @classmethod
+    def from_protocol(cls, data: dict[str, Any]) -> Self:
+        """Create a notification instance from raw JSON-RPC protocol data.
+
+        Transforms the nested JSON-RPC format into a clean Python object.
+        Unlike requests, notifications have simpler metadata handling since
+        they don't use progress tokens directly.
+
+        Args:
+            data: Raw JSON-RPC notification data with method and params
+
+        Returns:
+            A properly constructed notification instance
+        """
+
+        # Extract params
+        params = data.get("params", {})
+        meta = params.get("_meta")
+
+        # Build kwargs for the constructor
+        kwargs = {
+            "method": data["method"],
+        }
+        if meta:
+            kwargs["metadata"] = meta
+
+        # Add subclass-specific fields, respecting aliases
+        for field_name, field_info in cls.model_fields.items():
+            if field_name == "method":
+                continue
+
+            # Use the alias if it exists, otherwise use the field name
+            param_key = field_info.alias if field_info.alias else field_name
+
+            if param_key in params:
+                kwargs[field_name] = params[param_key]
+
+        return cls(**kwargs)
+
+    def to_protocol(self) -> dict[str, Any]:
+        """Convert this notification to MCP protocol format.
+
+        Transforms our Pythonic representation into the nested JSON-RPC structure
+        that MCP expects. Metadata gets positioned in the `_meta` object, and
+        field names use their protocol aliases.
+
+        Note: Like requests, this creates the MCP notification structure without
+        the full JSON-RPC envelope.
+
+        Returns:
+            An MCP-compatible notification dictionary with method and params
+        """
+        params = self.model_dump(
+            exclude={"method", "metadata"},
+            by_alias=True,
+            exclude_none=True,
+            mode="json",
+        )
+        # Attribute is defined on all subclasses but not on the base class. Ignore
+        # linter error.
+        result: dict[str, Any] = {"method": self.method}  # type: ignore[attr-defined]
+
+        if self.metadata:
+            params["_meta"] = self.metadata
+
+        if params:
+            result["params"] = params
+        return result
 
 
 class BaseMetadata(ProtocolModel):

@@ -83,12 +83,13 @@ class BaseSession(ABC):
         if not self.running:
             return
 
-        self._message_loop_task.cancel()
-        try:
-            await self._message_loop_task
-        except asyncio.CancelledError:
-            pass
-        self._message_loop_task = None
+        if self._message_loop_task is not None:
+            self._message_loop_task.cancel()
+            try:
+                await self._message_loop_task
+            except asyncio.CancelledError:
+                pass
+            self._message_loop_task = None
 
         # Cancel any in-flight requests we are handling
         for task in self._in_flight_requests.values():
@@ -294,15 +295,15 @@ class BaseSession(ABC):
         self,
         request: Request,
         timeout: float = 30.0,
-    ) -> Result | Error | None:
+    ) -> Result | Error:
         """Send a request to the peer and wait for its response.
 
-        Generates request IDs, manages the request lifecycle, and handles
-        timeouts. Successful responses are cleaned up by the response handler,
-        while timeouts are cleaned up here.
+        Generates request IDs, manages the request lifecycle, and handles timeouts.
+        Responses are automatically cleaned up when received, while timeouts trigger
+        manual cleanup and send cancellation notifications to the peer.
 
-        Most requests require an initialized session. PingRequests work anytime
-        since they test basic connectivity.
+        Most requests require an initialized session. PingRequests work anytime since
+        they test basic connectivity.
 
         Args:
             request: The MCP request to send
