@@ -21,7 +21,7 @@ class TestNotificationHandling(BaseSessionTest):
         # Assert
         mock_handler.assert_awaited_once_with(notification_payload)
 
-    async def test_logs_handler_exceptions_without_crashing(self):
+    async def test_does_not_crash_on_session_handler_exception(self):
         # Arrange
         mock_handler = AsyncMock(side_effect=ValueError("Handler failed"))
         self.session._handle_session_notification = mock_handler

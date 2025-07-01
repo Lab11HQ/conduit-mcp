@@ -270,7 +270,6 @@ class BaseSession(ABC):
         """
         message_id = payload["id"]
 
-        # Prepare the response (this is where exceptions can happen)
         try:
             result_or_error = await self._handle_session_request(payload)
 
@@ -291,7 +290,6 @@ class BaseSession(ABC):
             )
             response = JSONRPCError.from_error(error, message_id)
 
-        # Send the response (transport failures bubble up)
         await self.transport.send(response.to_wire())
 
     async def _handle_session_request(self, payload: dict[str, Any]) -> Result | Error:

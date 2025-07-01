@@ -1,6 +1,8 @@
 import asyncio
 from unittest.mock import AsyncMock
 
+import pytest
+
 from tests.shared.session.conftest import BaseSessionTest
 
 
@@ -163,3 +165,11 @@ class TestMessageHandler(BaseSessionTest):
         await self.yield_to_event_loop()
 
         assert notification_can_finish.is_set()  # Notification completed
+
+    async def test_raises_value_error_for_invalid_message(self):
+        # Arrange
+        invalid_payload = {"jsonrpc": "2.0", "not": "a", "message": "at all"}
+
+        # Act & Assert
+        with pytest.raises(ValueError):
+            await self.session._handle_message(invalid_payload)

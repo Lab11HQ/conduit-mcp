@@ -36,7 +36,7 @@ class TestMessageLoop(BaseSessionTest):
         assert handled_messages[0] == {"jsonrpc": "2.0", "id": 1, "method": "test/one"}
         assert handled_messages[1] == {"jsonrpc": "2.0", "id": 2, "method": "test/two"}
 
-    async def test_handler_error_doesnt_stop_loop(self):
+    async def test_handler_error_does_not_stop_loop(self):
         """Individual message handling errors don't crash the message loop."""
         # Arrange
         handled_messages = []
