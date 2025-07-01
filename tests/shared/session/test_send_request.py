@@ -131,15 +131,9 @@ class TestSendRequest(BaseSessionTest):
         # Arrange
         request = PingRequest()
 
-        # Act - start request and wait for it to be sent
-        request_task = asyncio.create_task(
-            self.session.send_request(request, timeout=0.05)
-        )
-        await self.wait_for_sent_message("ping")
-
-        # Assert - timeout should raise
+        # Act & Assert - timeout should raise
         with pytest.raises(TimeoutError, match="timed out after 0.05s"):
-            await request_task
+            await self.session.send_request(request, timeout=0.05)
 
         # Assert - cancellation notification was sent
         await self.wait_for_sent_message("notifications/cancelled")
@@ -147,10 +141,10 @@ class TestSendRequest(BaseSessionTest):
         # Assert - two messages total
         assert len(self.transport.sent_messages) == 2
 
+        # Assert - original request was sent
+        ping_message = self.transport.sent_messages[0]
+        assert ping_message["method"] == "ping"
+
         # Assert - cancellation details
-        cancellation_msg = next(
-            msg
-            for msg in self.transport.sent_messages
-            if msg.get("method") == "notifications/cancelled"
-        )
+        cancellation_msg = self.transport.sent_messages[1]
         assert "timed out" in cancellation_msg["params"]["reason"]
