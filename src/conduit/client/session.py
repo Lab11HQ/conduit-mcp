@@ -251,6 +251,11 @@ class ClientSession(BaseSession):
         return await handler(request)
 
     def _get_request_registry(self) -> dict[str, RequestRegistryEntry]:
+        """Get the request registry for the client session.
+
+        The request registry is a dictionary that maps request methods to their
+        corresponding request class and handler function.
+        """
         return {
             "ping": (PingRequest, self._handle_ping),
             "roots/list": (ListRootsRequest, self._handle_list_roots),
@@ -353,6 +358,25 @@ class ClientSession(BaseSession):
     # ================================
 
     async def _handle_session_notification(self, payload: dict[str, Any]) -> None:
+        """Handle incoming notifications from the server.
+
+        Parses the notification payload into the appropriate protocol object and
+        routes it to the registered handler. Unlike requests, notifications are
+        fire-and-forget - no response is sent back to the server.
+
+        Notifications include server state changes (tools/resources/prompts changed),
+        progress updates, cancellation notices, and logging messages.
+
+        Args:
+            payload: Raw JSON-RPC notification payload.
+
+        Raises:
+            UnknownNotificationError: If the notification type isn't recognized.
+
+        Note:
+            Only notifications with registered handlers are processed. Unknown
+            notification types are rejected, but missing handlers are silently ignored.
+        """
         method = payload["method"]
         notification_class = NOTIFICATION_REGISTRY.get(method)
         if notification_class is None:
@@ -383,7 +407,7 @@ class ClientSession(BaseSession):
         await self.callbacks.notify_cancelled(notification)
 
     async def _handle_progress(self, notification: ProgressNotification) -> None:
-        await self.callbacks.notify_progress(notification)
+        await self.callbacks.call_progress(notification)
 
     async def _handle_prompts_list_changed(
         self, notification: PromptListChangedNotification
@@ -391,7 +415,7 @@ class ClientSession(BaseSession):
         result = await self.send_request(ListPromptsRequest())
         if isinstance(result, ListPromptsResult):
             self.server_state.prompts = result.prompts
-            await self.callbacks.notify_prompts_changed(result.prompts)
+            await self.callbacks.call_prompts_changed(result.prompts)
 
     async def _handle_resources_list_changed(
         self, notification: ResourceListChangedNotification
@@ -400,10 +424,10 @@ class ClientSession(BaseSession):
         templates_result = await self.send_request(ListResourceTemplatesRequest())
         if isinstance(resources_result, ListResourcesResult):
             self.server_state.resources = resources_result.resources
-            await self.callbacks.notify_resources_changed(resources_result.resources)
+            await self.callbacks.call_resources_changed(resources_result.resources)
         if isinstance(templates_result, ListResourceTemplatesResult):
             self.server_state.resource_templates = templates_result.resource_templates
-            await self.callbacks.notify_resource_templates_changed(
+            await self.callbacks.call_resource_templates_changed(
                 templates_result.resource_templates
             )
 
@@ -414,10 +438,10 @@ class ClientSession(BaseSession):
         templates_result = await self.send_request(ListResourceTemplatesRequest())
         if isinstance(resources_result, ListResourcesResult):
             self.server_state.resources = resources_result.resources
-            await self.callbacks.notify_resources_changed(resources_result.resources)
+            await self.callbacks.call_resources_changed(resources_result.resources)
         if isinstance(templates_result, ListResourceTemplatesResult):
             self.server_state.resource_templates = templates_result.resource_templates
-            await self.callbacks.notify_resource_templates_changed(
+            await self.callbacks.call_resource_templates_changed(
                 templates_result.resource_templates
             )
 
@@ -427,9 +451,9 @@ class ClientSession(BaseSession):
         tools_result = await self.send_request(ListToolsRequest())
         if isinstance(tools_result, ListToolsResult):
             self.server_state.tools = tools_result.tools
-            await self.callbacks.notify_tools_changed(tools_result.tools)
+            await self.callbacks.call_tools_changed(tools_result.tools)
 
     async def _handle_logging_message(
         self, notification: LoggingMessageNotification
     ) -> None:
-        await self.callbacks.notify_logging_message(notification)
+        await self.callbacks.call_logging_message(notification)

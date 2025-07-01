@@ -77,34 +77,55 @@ class CallbackManager:
         self._cancelled = callback
 
     # Internal notification methods
-    async def notify_progress(self, notification: ProgressNotification) -> None:
+    async def call_progress(self, notification: ProgressNotification) -> None:
         if self._progress:
-            await self._progress(notification)
+            try:
+                await self._progress(notification)
+            except Exception as e:
+                print(f"Progress callback failed: {e}")
 
-    async def notify_tools_changed(self, tools: list[Tool]) -> None:
+    async def call_tools_changed(self, tools: list[Tool]) -> None:
         if self._tools_changed:
-            await self._tools_changed(tools)
+            try:
+                await self._tools_changed(tools)
+            except Exception as e:
+                print(f"Tools changed callback failed: {e}")
 
-    async def notify_resources_changed(self, resources: list[Resource]) -> None:
+    async def call_resources_changed(self, resources: list[Resource]) -> None:
         if self._resources_changed:
-            await self._resources_changed(resources)
+            try:
+                await self._resources_changed(resources)
+            except Exception as e:
+                print(f"Resources changed callback failed: {e}")
 
-    async def notify_resource_templates_changed(
+    async def call_resource_templates_changed(
         self, templates: list[ResourceTemplate]
     ) -> None:
         if self._resource_templates_changed:
-            await self._resource_templates_changed(templates)
+            try:
+                await self._resource_templates_changed(templates)
+            except Exception as e:
+                print(f"Resource templates changed callback failed: {e}")
 
-    async def notify_prompts_changed(self, prompts: list[Prompt]) -> None:
+    async def call_prompts_changed(self, prompts: list[Prompt]) -> None:
         if self._prompts_changed:
-            await self._prompts_changed(prompts)
+            try:
+                await self._prompts_changed(prompts)
+            except Exception as e:
+                print(f"Prompts changed callback failed: {e}")
 
-    async def notify_logging_message(
+    async def call_logging_message(
         self, notification: LoggingMessageNotification
     ) -> None:
         if self._logging_message:
-            await self._logging_message(notification)
+            try:
+                await self._logging_message(notification)
+            except Exception as e:
+                print(f"Logging message callback failed: {e}")
 
-    async def notify_cancelled(self, notification: CancelledNotification) -> None:
+    async def call_cancelled(self, notification: CancelledNotification) -> None:
         if self._cancelled:
-            await self._cancelled(notification)
+            try:
+                await self._cancelled(notification)
+            except Exception as e:
+                print(f"Cancelled callback failed: {e}")
