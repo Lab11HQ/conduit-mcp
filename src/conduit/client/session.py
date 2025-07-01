@@ -221,7 +221,25 @@ class ClientSession(BaseSession):
     # ================================
 
     async def _handle_session_request(self, payload: dict[str, Any]) -> Result | Error:
-        """Handle client-specific requests."""
+        """Handle client-specific requests by routing to appropriate handlers.
+
+        Looks up the request method in the handler registry, parses the request
+        payload into the appropriate protocol object, and delegates to the
+        registered handler function.
+
+        Args:
+            payload: Raw JSON-RPC request payload.
+
+        Returns:
+            Result from the handler, or Error if handler returns one.
+
+        Raises:
+            UnknownRequestError: If the request method is not in the registry.
+
+        Note:
+            Handlers are responsible for capability checking and returning
+            appropriate Error objects rather than raising exceptions.
+        """
         method = payload["method"]
 
         registry = self._get_request_registry()
@@ -253,25 +271,44 @@ class ClientSession(BaseSession):
     ) -> ListRootsResult | Error:
         """Handle server request for filesystem roots.
 
-        Returns available roots if client advertised roots capability,
-        otherwise METHOD_NOT_FOUND error.
+        Only processes requests if the client advertised roots capability during
+        initialization. Delegates actual roots logic to the RootsManager.
 
         Args:
-            request: Parsed roots/list request.
+            request: Parsed roots/list request from server.
 
         Returns:
-            ListRootsResult with roots, or Error if capability missing.
+            ListRootsResult from the roots manager, or Error if:
+            - Client didn't advertise roots capability (METHOD_NOT_FOUND)
+            - Handler raised unexpected exception (INTERNAL_ERROR)
         """
         if self.client_config.capabilities.roots is None:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Client does not support roots capability",
             )
-        return await self.roots.handle_list_roots(request)
+        try:
+            return await self.roots.handle_list_roots(request)
+        except Exception:
+            return Error(code=INTERNAL_ERROR, message="Error in roots handler")
 
     async def _handle_sampling(
         self, request: CreateMessageRequest
     ) -> CreateMessageResult | Error:
+        """Handle server request for LLM sampling.
+
+        Only processes requests if the client advertised sampling capability during
+        initialization. Delegates actual sampling logic to the SamplingManager.
+
+        Args:
+            request: Parsed sampling/createMessage request from server.
+
+        Returns:
+            CreateMessageResult from the configured handler, or Error if:
+            - Client didn't advertise sampling capability (METHOD_NOT_FOUND)
+            - No sampling handler configured (METHOD_NOT_FOUND)
+            - Handler raised unexpected exception (INTERNAL_ERROR)
+        """
         if not self.client_config.capabilities.sampling:
             return Error(
                 code=METHOD_NOT_FOUND,
@@ -285,13 +322,25 @@ class ClientSession(BaseSession):
             return Error(code=INTERNAL_ERROR, message="Error in sampling handler")
 
     async def _handle_elicitation(self, request: ElicitRequest) -> ElicitResult | Error:
-        """Handle server request for elicitation."""
+        """Handle server request for elicitation.
+
+        Only processes requests if the client advertised elicitation capability during
+        initialization. Delegates actual elicitation logic to the ElicitationManager.
+
+        Args:
+            request: Parsed elicitation/create request from server.
+
+        Returns:
+            ElicitResult from the configured handler, or Error if:
+            - Client didn't advertise elicitation capability (METHOD_NOT_FOUND)
+            - No elicitation handler configured (METHOD_NOT_FOUND)
+            - Handler raised unexpected exception (INTERNAL_ERROR)
+        """
         if not self.client_config.capabilities.elicitation:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Client does not support elicitation capability",
             )
-
         try:
             return await self.elicitation.handle_elicitation(request)
         except ElicitationNotConfiguredError as e:

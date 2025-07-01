@@ -253,18 +253,13 @@ class BaseSession(ABC):
         """Process peer requests and send back responses.
 
         Delegates business logic to subclass implementations while providing defensive
-        exception handling. Every request gets a response, even when handlers crash:
-        - Cancellation errors become INTERNAL_ERROR responses with context
-        - Other exceptions become generic INTERNAL_ERROR responses
-
-        Transport failures during sending bubble up intentionally - they indicate
-        session-level problems that require broader cleanup.
+        exception handling. Every request gets a response, even when handlers crash.
 
         Args:
             payload: Raw JSON-RPC request payload.
 
         Raises:
-            ConnectionError: Transport failures during response sending (intentional).
+            ConnectionError: Transport failures during response sending.
 
         Note:
             Runs as background task - exceptions won't be caught by the message loop.
