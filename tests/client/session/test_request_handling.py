@@ -4,6 +4,7 @@ import pytest
 
 from conduit.client.session import ClientSession
 from conduit.protocol.base import METHOD_NOT_FOUND, Error
+from conduit.protocol.common import EmptyResult
 from conduit.protocol.initialization import RootsCapability
 from conduit.protocol.roots import ListRootsResult
 from conduit.shared.exceptions import UnknownRequestError
@@ -26,6 +27,22 @@ class TestRequestRouting(ClientSessionTest):
         # Act & Assert
         with pytest.raises(UnknownRequestError, match="unknown/method"):
             await self.session._handle_session_request(unknown_request)
+
+    async def test_returns_empty_result_for_ping_request(self):
+        """Test that ping requests return EmptyResult."""
+        # Arrange
+        request_payload = {
+            "jsonrpc": "2.0",
+            "id": "test-123",
+            "method": "ping",
+            "params": {},
+        }
+
+        # Act
+        result = await self.session._handle_session_request(request_payload)
+
+        # Assert
+        assert isinstance(result, EmptyResult)
 
 
 class TestRootsRequestHandling(ClientSessionTest):
