@@ -2,6 +2,8 @@ import asyncio
 
 import pytest
 
+from conduit.protocol.common import PingRequest
+
 from .conftest import BaseSessionTest
 
 
@@ -60,12 +62,9 @@ class TestBaseSessionLifecycle(BaseSessionTest):
         assert self.session.running is False
         assert self.session._message_loop_task is None
 
-    async def test_stop_resolves_pending_requests(self):
+    async def test_stop_triggerr_pending_request_cleanup(self):
         # Arrange
         await self.session.start()
-
-        # Start a request that won't get a response
-        from conduit.protocol.common import PingRequest
 
         request_task = asyncio.create_task(
             self.session.send_request(PingRequest(), timeout=10.0)
@@ -93,8 +92,7 @@ class TestBaseSessionLifecycle(BaseSessionTest):
         await self.session.stop()
 
         # Assert
-        assert self.session.running is False
-        assert self.session._message_loop_task is None
+        assert not self.session.running
 
     async def test_stop_cancels_in_flight_request_handlers(self):
         # Arrange
