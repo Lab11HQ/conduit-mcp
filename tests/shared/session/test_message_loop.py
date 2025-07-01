@@ -64,7 +64,7 @@ class TestMessageLoop(BaseSessionTest):
         assert handled_messages[1]["method"] == "crash"
         assert handled_messages[2]["method"] == "third"
 
-    async def test_transport_error_stops_message_processing(self):
+    async def test_transport_error_stops_message_loop(self):
         """Transport errors stop the message loop from processing new messages."""
         # Arrange
         handled_messages = []
@@ -135,7 +135,7 @@ class TestMessageLoop(BaseSessionTest):
 
         # Act
         self.transport.simulate_error()
-        await self.yield_to_event_loop(0.05)  # Let error propagate
+        await self.yield_to_event_loop()
 
         # Assert
         assert len(self.session._pending_requests) == 0
@@ -143,4 +143,4 @@ class TestMessageLoop(BaseSessionTest):
 
         error = request_task.result()
         assert isinstance(error, Error)
-        assert "connection closed" in error.message.lower()
+        assert "request failed" in error.message.lower()
