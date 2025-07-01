@@ -400,13 +400,32 @@ class ClientSession(BaseSession):
         }
 
     async def _handle_cancelled(self, notification: CancelledNotification) -> None:
+        """Handle server cancellation notifications for in-flight requests.
+
+        Cancels the corresponding request task if it exists and notifies the
+        registered callback. Only processes cancellations for requests that
+        are actually in-flight.
+
+        Args:
+            notification: Cancellation notification from server with request ID.
+
+        Note:
+            Request cleanup from _in_flight_requests is handled automatically
+            by the task's done callback when cancellation completes. This handler
+            only initiates cancellation and calls the registered callback.
+        """
         if notification.request_id in self._in_flight_requests:
-            # Note: Done callback on the request task removes it from the
-            # in-flight requests dictionary.
             self._in_flight_requests[notification.request_id].cancel()
-        await self.callbacks.notify_cancelled(notification)
+            await self.callbacks.call_cancelled(notification)
 
     async def _handle_progress(self, notification: ProgressNotification) -> None:
+        """Handle server progress notifications.
+
+        Delegates progress updates to the callback manager.
+
+        Args:
+            notification: Progress notification from server with progress token.
+        """
         await self.callbacks.call_progress(notification)
 
     async def _handle_prompts_list_changed(
