@@ -3,220 +3,158 @@ import asyncio
 import pytest
 
 from conduit.client.session import InvalidProtocolVersionError
-from conduit.protocol.base import PROTOCOL_VERSION
+from conduit.protocol.initialization import InitializeResult
 
-from .conftest import BaseSessionTest
+from .conftest import ClientSessionTest
 
 
-class TestClientSessionInitialization(BaseSessionTest):
-    """Test the initialize() method of the client session.
+class TestInitialization(ClientSessionTest):
+    """Test client session initialization handshake."""
 
-    Note we use the mock_uuid fixture to ensure that the initialize()
-    method always returns the same ID for the initialize request.
-    """
-
-    @pytest.fixture(autouse=True)
-    def mock_uuid(self, monkeypatch):
-        """Mock UUID generation for predictable test IDs."""
-        monkeypatch.setattr("conduit.client.session.uuid.uuid4", lambda: "0")
-
-    async def test_initialize_performs_complete_handshake_and_returns_server_result(
-        self,
-    ):
-        # Arrange: prepare server response
-        server_result = {
-            "protocolVersion": PROTOCOL_VERSION,
-            "capabilities": {"logging": {}},
-            "serverInfo": {"name": "test-server", "version": "1.0.0"},
-        }
-        init_response = {
-            "jsonrpc": "2.0",
-            "id": "0",
-            "result": server_result,
-        }
+    async def test_initialization_handshake_is_successful(self):
+        """Test successful initialization handshake."""
+        # Arrange
+        expected_capabilities = {"tools": {"listChanged": True}}
+        assert self.session.initialized is False
 
         # Act
         init_task = asyncio.create_task(self.session.initialize())
         await self.wait_for_sent_message("initialize")
 
-        # Now respond to the request
-        self.server.send_message(payload=init_response)
+        request_id = self.transport.sent_messages[0]["id"]
+        response = self.create_init_response(
+            request_id, capabilities=expected_capabilities
+        )
+        self.transport.receive_message(response)
+
         result = await init_task
 
-        # Assert: verify complete handshake sequence
-        assert len(self.transport.client_sent_messages) == 2
+        # Assert
+        assert isinstance(result, InitializeResult)
+        assert (
+            result.server_info.name == "test-server"
+        )  # Default from create_init_response
+        assert self.session.initialized is True
 
-        # First message should be InitializeRequest
-        init_request = self.transport.client_sent_messages[0]
-        assert init_request["method"] == "initialize"
-        assert init_request["params"]["clientInfo"]["name"] == "test-client"
-        assert init_request["id"] == "0"
+        # Verify handshake sequence: initialize request + initialized notification
+        assert len(self.transport.sent_messages) == 2
+        assert self.transport.sent_messages[0]["method"] == "initialize"
+        assert self.transport.sent_messages[1]["method"] == "notifications/initialized"
 
-        # Second message should be InitializedNotification
-        init_notification = self.transport.client_sent_messages[1]
-        assert init_notification["method"] == "notifications/initialized"
-        assert "id" not in init_notification  # notifications have no id
-
-        # Session should be marked as initialized
-        assert self.session.server_state.initialized is True
-
-        # Return value should be the server result
-        assert result.protocol_version == PROTOCOL_VERSION
-        assert result.server_info.name == "test-server"
-
-    async def test_initialize_is_idempotent_and_returns_same_result_on_multiple_calls(
-        self,
-    ):
-        # Arrange: prepare server response
-        server_result = {
-            "protocolVersion": PROTOCOL_VERSION,
-            "capabilities": {"logging": {}},
-            "serverInfo": {"name": "test-server", "version": "1.0.0"},
-        }
-        init_response = {
-            "jsonrpc": "2.0",
-            "id": "0",
-            "result": server_result,
-        }
-
-        # Act: start first initialization
+    async def test_initialization_is_idempotent(self):
+        """Test that calling initialize() multiple times returns cached result."""
+        # Arrange
+        # (First initialization)
         init_task = asyncio.create_task(self.session.initialize())
         await self.wait_for_sent_message("initialize")
-        self.server.send_message(payload=init_response)
 
-        # Complete first initialization, then call again
+        request_id = self.transport.sent_messages[0]["id"]
+        response = self.create_init_response(request_id)
+        self.transport.receive_message(response)
+
         result1 = await init_task
+
+        # Act
         result2 = await self.session.initialize()
-        result3 = await self.session.initialize()
 
-        # Assert: handshake only happened once
-        assert (
-            len(self.transport.client_sent_messages) == 2
-        )  # init request + notification only
+        # Assert
+        assert result1 == result2
+        assert len(self.transport.sent_messages) == 2  # Still just init + notification
 
-        # All results should be identical
-        assert result1 is result2 is result3
-        assert result1.server_info.name == "test-server"
+    async def test_initialization_raises_timeout_when_server_does_not_respond(self):
+        """Test initialization timeout when server doesn't respond."""
+        # Act & Assert
+        with pytest.raises(TimeoutError, match="Initialization timed out after 0.1s"):
+            await self.session.initialize(timeout=0.1)
 
-        # Session state should be consistent
-        assert self.session._initializing is None  # No ongoing initialization
+        # Assert cleanup
+        assert not self.session.running
 
-    async def test_initialize_handles_concurrent_calls_and_returns_same_result(self):
-        # Arrange: prepare server response
-        server_result = {
-            "protocolVersion": PROTOCOL_VERSION,
-            "capabilities": {"logging": {}},
-            "serverInfo": {"name": "test-server", "version": "1.0.0"},
-        }
-        init_response = {
-            "jsonrpc": "2.0",
-            "id": "0",
-            "result": server_result,
-        }
-        # Act: start multiple concurrent initialization calls
-        task1 = asyncio.create_task(self.session.initialize())
-        task2 = asyncio.create_task(self.session.initialize())
-        task3 = asyncio.create_task(self.session.initialize())
-
-        # Wait for the first request to be sent (only one should be sent)
-        await self.wait_for_sent_message("initialize")
-
-        # Respond to the single request
-        self.server.send_message(payload=init_response)
-
-        # Wait for all tasks to complete
-        result1, result2, result3 = await asyncio.gather(task1, task2, task3)
-
-        # Assert: only one handshake happened
-        assert (
-            len(self.transport.client_sent_messages) == 2
-        )  # init request + notification only
-
-        # All results should be identical
-        assert result1 is result2 is result3
-        assert result1.server_info.name == "test-server"
-
-        # Session should be properly initialized
-        assert self.session._initializing is None
-
-        # Assert: pending request should be cleaned up
-        assert len(self.session._pending_requests) == 0
-
-    async def test_initialize_stops_session_and_raises_on_protocol_version_mismatch(
-        self,
-    ):
-        # Arrange: prepare server response with wrong protocol version
-        server_result = {
-            "protocolVersion": "NOT_A_VERSION",
-            "capabilities": {"logging": {}},
-            "serverInfo": {"name": "test-server", "version": "1.0.0"},
-        }
-        init_response = {
-            "jsonrpc": "2.0",
-            "id": "0",
-            "result": server_result,
-        }
-        # Act & Assert: initialization should fail
+    async def test_raises_error_when_server_protocol_version_mismatches(self):
+        """Test handling of protocol version mismatch."""
+        # Arrange
         init_task = asyncio.create_task(self.session.initialize())
         await self.wait_for_sent_message("initialize")
-        self.server.send_message(payload=init_response)
+
+        request_id = self.transport.sent_messages[0]["id"]
+        response = self.create_init_response(
+            request_id,
+            protocol_version="1.0.0",  # Different version
+        )
+
+        # Act & Assert
+        self.transport.receive_message(response)
 
         with pytest.raises(
             InvalidProtocolVersionError, match="Protocol version mismatch"
         ):
             await init_task
 
-        # Assert: session should be cleanly stopped
-        assert self.transport.closed is True
-        assert self.session._running is False
-        assert self.session.server_state.initialized is False
+        # Assert cleanup
+        assert not self.session.running
 
-        # Should have sent initialize request but no initialized notification
-        assert len(self.transport.client_sent_messages) == 1
-        assert self.transport.client_sent_messages[0]["method"] == "initialize"
+    async def test_raises_error_when_server_rejects_initialization(self):
+        """Test handling of server initialization error."""
+        # Arrange
+        init_task = asyncio.create_task(self.session.initialize())
+        await self.wait_for_sent_message("initialize")
 
-        # Assert: pending request should be cleaned up
-        assert len(self.session._pending_requests) == 0
+        request_id = self.transport.sent_messages[0]["id"]
+        error_response = self.create_init_error(
+            request_id, message="Server initialization failed"
+        )
 
-    async def test_initialize_raises_timeout_error_and_stops_session_on_timeout(
-        self,
-    ):
-        # Arrange: we'll start initialization but never respond
+        # Act & Assert
+        self.transport.receive_message(error_response)
 
-        # Act & Assert: initialization should timeout
-        with pytest.raises(TimeoutError, match="Initialization timed out after 0.01s"):
-            await self.session.initialize(timeout=0.01)
+        # Server errors should be wrapped in ConnectionError
+        with pytest.raises(ConnectionError):
+            await init_task
 
-        # Assert: should have sent initialize request
-        assert len(self.transport.client_sent_messages) == 1
+        # Assert cleanup
+        assert not self.session.running
 
-        init_request = self.transport.client_sent_messages[0]
-        assert init_request["method"] == "initialize"
-        assert init_request["id"] == "0"
+    async def test_raises_error_when_transport_fails_during_handshake(self):
+        """Test handling of transport failure during handshake."""
+        # Arrange
+        self.transport.simulate_error()
 
-        # Assert: session should be cleanly stopped
-        assert self.transport.closed is True
-        assert self.session._running is False
-        assert self.session.server_state.initialized is False
-
-        # Assert: pending request should be cleaned up
-        assert len(self.session._pending_requests) == 0
-
-    async def test_initialize_stops_session_and_reraises_on_transport_failure(self):
-        # Arrange: make transport fail during send
-        async def failing_send(payload, metadata=None):
-            raise ConnectionError("Network connection lost")
-
-        self.transport.send = failing_send
-
-        # Act & Assert: initialization should fail with transport error
-        with pytest.raises(ConnectionError, match="Network connection lost"):
+        # Act & Assert
+        with pytest.raises(ConnectionError):
             await self.session.initialize()
 
-        # Assert: session should be cleanly stopped
-        assert self.transport.closed is True
-        assert self.session._running is False
-        assert self.session.server_state.initialized is False
+        # Assert cleanup
+        assert not self.session.running
 
-        # Assert: no pending requests left behind
-        assert len(self.session._pending_requests) == 0
+    async def test_updates_server_state_after_successful_initialization(self):
+        """Test that server state is properly updated after initialization."""
+        # Arrange
+        server_capabilities = {
+            "tools": {"listChanged": True},
+            "resources": {"subscribe": True, "listChanged": False},
+            "prompts": {"listChanged": True},
+        }
+
+        init_task = asyncio.create_task(self.session.initialize())
+        await self.wait_for_sent_message("initialize")
+
+        request_id = self.transport.sent_messages[0]["id"]
+        response = self.create_init_response(
+            request_id,
+            server_name="test-server",
+            server_version="2.1.0",
+            capabilities=server_capabilities,
+            instructions="Welcome to the test server!",
+        )
+
+        # Act
+        self.transport.receive_message(response)
+        await init_task
+
+        # Assert
+        assert self.session.server_state.info.name == "test-server"
+        assert self.session.server_state.info.version == "2.1.0"
+        assert self.session.server_state.instructions == "Welcome to the test server!"
+        assert self.session.server_state.capabilities.tools.list_changed is True
+        assert self.session.server_state.capabilities.resources.subscribe is True
+        assert self.session.server_state.capabilities.resources.list_changed is False

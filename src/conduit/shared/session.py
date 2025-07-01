@@ -13,6 +13,7 @@ from conduit.protocol.base import (
     Result,
 )
 from conduit.protocol.common import CancelledNotification, PingRequest
+from conduit.protocol.initialization import InitializeRequest
 from conduit.protocol.jsonrpc import (
     JSONRPCError,
     JSONRPCNotification,
@@ -324,7 +325,9 @@ class BaseSession(ABC):
             TimeoutError: Peer didn't respond in time
         """
         await self.start()
-        if not self.initialized and not isinstance(request, PingRequest):
+        if not self.initialized and not isinstance(
+            request, (PingRequest, InitializeRequest)
+        ):
             raise RuntimeError("Session must be initialized to send non-ping requests")
 
         # Generate request ID and create JSON-RPC wrapper

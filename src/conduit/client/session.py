@@ -13,7 +13,6 @@ Key components:
 """
 
 import asyncio
-import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, TypeVar, cast
@@ -27,7 +26,6 @@ from conduit.client.managers.roots import RootsManager
 from conduit.client.managers.sampling import SamplingManager, SamplingNotConfiguredError
 from conduit.protocol.base import (
     INTERNAL_ERROR,
-    INVALID_PARAMS,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION,
     Error,
@@ -50,7 +48,6 @@ from conduit.protocol.initialization import (
     InitializeResult,
     ServerCapabilities,
 )
-from conduit.protocol.jsonrpc import JSONRPCError, JSONRPCRequest
 from conduit.protocol.logging import LoggingMessageNotification
 from conduit.protocol.prompts import (
     ListPromptsRequest,
@@ -111,152 +108,109 @@ class ServerState:
     resource_templates: list[ResourceTemplate] | None = None
     prompts: list[Prompt] | None = None
 
-    handshake_complete: bool = False
-
 
 class ClientSession(BaseSession):
-    def __init__(
-        self,
-        transport: Transport,
-        config: ClientConfig,
-    ):
+    def __init__(self, transport: Transport, config: ClientConfig):
         super().__init__(transport)
         self.client_config = config
+        self._initialize_result: InitializeResult | None = None
         self.server_state = ServerState()
         self.callbacks = CallbackManager()
 
+        # Domain managers
         self.roots = RootsManager()
         self.sampling = SamplingManager()
         self.elicitation = ElicitationManager()
-        self._initializing: asyncio.Future[InitializeResult] | None = None
-
-    # ================================
-    # Initialization
-    # ================================
 
     @property
     def initialized(self) -> bool:
-        return self.server_state.handshake_complete
+        return self._initialize_result is not None
 
     async def initialize(self, timeout: float = 30.0) -> InitializeResult:
         """Initialize your MCP session with the server.
 
-        Call this once after creating your session—it handles the handshake and
-        starts the message loop. Safe to call multiple times. Subsequent calls
-        return the cached result.
+        Performs the MCP handshake to establish a working connection. This starts
+        the message loop and negotiates capabilities with the server. Call this
+        once after creating your session—it's safe to call multiple times and
+        will return the cached result on subsequent calls.
 
         Args:
-            timeout: How long to wait for the server (seconds).
+            timeout: How long to wait for the server to respond (seconds).
+                    Defaults to 30 seconds.
 
         Returns:
-            Server capabilities and connection details.
+            Server capabilities, version info, and optional setup instructions.
 
         Raises:
-            TimeoutError: Server didn't respond in time.
-            ValueError: Server uses incompatible protocol version.
-            ConnectionError: Connection failed during handshake.
+            TimeoutError: Server didn't respond within the timeout period.
+            InvalidProtocolVersionError: Server uses an incompatible protocol version.
+            ConnectionError: Network failure or server rejected the handshake.
         """
         await self.start()
 
-        if self.server_state.handshake_complete:
-            return InitializeResult(
-                capabilities=self.server_state.capabilities,
-                server_info=self.server_state.info,
-                # Server should always use client's protocol version. Otherwise,
-                # _do_initialize() will fail.
-                protocol_version=self.client_config.protocol_version,
-                instructions=self.server_state.instructions,
-            )
+        if self._initialize_result:
+            return self._initialize_result
 
-        if self._initializing:
-            return await self._initializing
-
-        self._initializing = asyncio.create_task(self._do_initialize(timeout))
         try:
-            result = await self._initializing
-            return result
-        finally:
-            self._initializing = None
-
-    async def _ensure_can_send_request(self, request: Request) -> None:
-        if not self.initialized and not isinstance(request, PingRequest):
-            raise RuntimeError(
-                "Session must be initialized before sending non-ping requests. "
-                "Call initialize() first."
+            self._initialize_result = await asyncio.wait_for(
+                self._do_initialize(), timeout
             )
+            return self._initialize_result
+        except asyncio.TimeoutError:
+            await self.stop()
+            raise TimeoutError(f"Initialization timed out after {timeout}s")
+        except InvalidProtocolVersionError:
+            await self.stop()
+            raise
+        except Exception as e:
+            await self.stop()
+            raise ConnectionError(f"Initialization failed: {e}") from e
 
-    async def _do_initialize(self, timeout: float = 30.0) -> InitializeResult:
-        """Execute the MCP initialization handshake. TODO: Manage server state
-        better.
+    async def _do_initialize(self) -> InitializeResult:
+        """Execute the three-step MCP initialization handshake.
 
-        Performs the three-step protocol: send request, validate response,
-        send completion notification. Stops the session on any failure to
-        prevent partial initialization.
+        1. Send InitializeRequest with client info and capabilities
+        2. Validate the server's InitializeResult response
+        3. Send InitializedNotification to complete the handshake
 
-        Args:
-            timeout: Maximum seconds to wait for server response.
-
-        Returns:
-            Validated server initialization result.
-
-        Raises:
-            TimeoutError: Server didn't respond in time.
-            ValueError: Protocol version mismatch or server error.
-            ConnectionError: Transport failure.
+        The server state is updated with the negotiated capabilities and info.
         """
-        await self.start()
-        init_request = InitializeRequest(
+        # Send initialization request
+        request = self._create_init_request()
+        result = await self.send_request(request)
+
+        # Validate response
+        if isinstance(result, Error):
+            raise RuntimeError(result.message)
+
+        init_result = cast(InitializeResult, result)
+        self._validate_protocol_version(init_result)
+
+        # Complete handshake
+        await self.send_notification(InitializedNotification())
+        self._store_init_result(init_result)
+
+        return init_result
+
+    def _create_init_request(self) -> InitializeRequest:
+        return InitializeRequest(
             client_info=self.client_config.client_info,
             capabilities=self.client_config.capabilities,
             protocol_version=self.client_config.protocol_version,
         )
-        request_id = str(uuid.uuid4())
-        jsonrpc_request = JSONRPCRequest.from_request(init_request, request_id)
 
-        # Set up response waiting.
-        future: asyncio.Future[Result | Error] = asyncio.Future()
-        self._pending_requests[request_id] = (init_request, future)
-
-        try:
-            await self.transport.send(jsonrpc_request.to_wire())
-            result_or_error = await asyncio.wait_for(future, timeout)
-            if isinstance(result_or_error, Error):
-                await self.close()
-                raise ValueError(f"Initialization failed: {result_or_error.message}")
-
-            init_result = cast(InitializeResult, result_or_error)
-            if init_result.protocol_version != self.client_config.protocol_version:
-                raise InvalidProtocolVersionError(
-                    f"Protocol version mismatch: client version "
-                    f"{self.client_config.protocol_version} !="
-                    f" server version {init_result.protocol_version}"
-                )
-
-            initialized_notification = InitializedNotification()
-            await self.send_notification(initialized_notification)
-
-            self.server_state.capabilities = init_result.capabilities
-            self.server_state.instructions = init_result.instructions
-            self.server_state.info = init_result.server_info
-            self.server_state.handshake_complete = True
-            return init_result
-        except asyncio.TimeoutError:
-            await self.close()
-            raise TimeoutError(f"Initialization timed out after {timeout}s")
-        except InvalidProtocolVersionError as e:
-            error = Error(
-                code=INVALID_PARAMS,
-                message=str(e),
+    def _validate_protocol_version(self, result: InitializeResult) -> None:
+        if result.protocol_version != self.client_config.protocol_version:
+            raise InvalidProtocolVersionError(
+                "Protocol version mismatch: client="
+                f"{self.client_config.protocol_version}, "
+                f"server={result.protocol_version}"
             )
-            jsonrpc_error = JSONRPCError.from_error(error, request_id)
-            await self.transport.send(jsonrpc_error.to_wire())
-            await self.close()
-            raise
-        except Exception:
-            await self.close()
-            raise
-        finally:
-            self._pending_requests.pop(request_id, None)
+
+    def _store_init_result(self, result: InitializeResult) -> None:
+        self.server_state.capabilities = result.capabilities
+        self.server_state.instructions = result.instructions
+        self.server_state.info = result.server_info
 
     # ================================
     # Request handlers
