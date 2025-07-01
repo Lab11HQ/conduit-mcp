@@ -1,12 +1,15 @@
-"""Low-level MCP client session implementation.
+"""Client session implementation for MCP.
 
-This module contains the internal protocol engine that handles MCP communication.
-Most users should use the higher-level MCPClient class instead—this is for when you
-need direct control over the protocol lifecycle.
+The ClientSession extends BaseSession with client-specific behavior:
+- Initialization handshake with servers
+- Server capability tracking and state management
+- Request delegation to domain-specific managers
+- Notification handling for server state changes
 
-The ClientSession manages JSON-RPC message routing, maintains connection state,
-and handles the MCP initialization handshake. It's designed to be wrapped by
-more user-friendly interfaces.
+Key components:
+- Managers: Handle domain logic (tools, resources, prompts, etc.)
+- State tracking: Server capabilities, available resources/tools
+- Callbacks: Notify application of server state changes
 """
 
 import asyncio
@@ -126,6 +129,10 @@ class ClientSession(BaseSession):
         self.sampling = SamplingManager()
         self.elicitation = ElicitationManager()
         self._initializing: asyncio.Future[InitializeResult] | None = None
+
+    # ================================
+    # Initialization
+    # ================================
 
     @property
     def initialized(self) -> bool:
@@ -251,6 +258,10 @@ class ClientSession(BaseSession):
         finally:
             self._pending_requests.pop(request_id, None)
 
+    # ================================
+    # Request handlers
+    # ================================
+
     async def _handle_session_request(self, payload: dict[str, Any]) -> Result | Error:
         """Handle client-specific requests."""
         method = payload["method"]
@@ -329,6 +340,10 @@ class ClientSession(BaseSession):
             return Error(code=METHOD_NOT_FOUND, message=str(e))
         except Exception:
             return Error(code=INTERNAL_ERROR, message="Error in elicitation handler")
+
+    # ================================
+    # Notification handlers
+    # ================================
 
     async def _handle_session_notification(self, payload: dict[str, Any]) -> None:
         method = payload["method"]
