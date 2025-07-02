@@ -526,7 +526,7 @@ class ClientSession(BaseSession):
 
         Note:
             Only calls callback if the resource read succeeds. Failed requests
-            are silently ignored to avoid disrupting the session.
+            are silently ignored.
         """
         try:
             result = await self.send_request(ReadResourceRequest(uri=notification.uri))

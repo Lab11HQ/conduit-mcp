@@ -133,8 +133,34 @@ class CallbackManager:
     def on_resource_updated(
         self, callback: Callable[[str, ReadResourceResult], Awaitable[None]]
     ) -> None:
-        """Register callback for when server resource is updated."""
+        """Register your callback for when a specific resource is updated.
+
+        Servers send notifications when individual resources change. We
+        automatically read the updated resource content and call your callback
+        with both the resource URI and the fresh data.
+
+        Args:
+            callback: Your async function called with (uri, result) when a
+                resource is updated. Gets the resource URI string and
+                ReadResourceResult with the updated content.
+        """
         self._resource_updated = callback
+
+    async def call_resource_updated(self, uri: str, result: ReadResourceResult) -> None:
+        """Invoke your registered resource updated callback with URI and result.
+
+        Calls your resource updated callback if you've registered one. Logs any
+        errors that occur.
+
+        Args:
+            uri: Resource URI that was updated.
+            result: Fresh resource data from the server.
+        """
+        if self._resource_updated:
+            try:
+                await self._resource_updated(uri, result)
+            except Exception as e:
+                print(f"Resource updated callback failed: {e}")
 
     def on_prompts_changed(
         self, callback: Callable[[list[Prompt]], Awaitable[None]]
@@ -202,13 +228,6 @@ class CallbackManager:
                 print(f"Cancelled callback failed: {e}")
 
     # Internal notification methods
-
-    async def call_resource_updated(self, uri: str, result: ReadResourceResult) -> None:
-        if self._resource_updated:
-            try:
-                await self._resource_updated(uri, result)
-            except Exception as e:
-                print(f"Resource updated callback failed: {e}")
 
     async def call_logging_message(
         self, notification: LoggingMessageNotification
