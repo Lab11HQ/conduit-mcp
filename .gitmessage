@@ -1,0 +1,22 @@
+<type>: <description>
+
+What changed and why:
+
+
+Impact:
+
+
+# Types:
+#   feat:     new feature or enhancement
+#   fix:      bug fix
+#   docs:     documentation changes
+#   test:     adding or updating tests
+#   refactor: code restructuring without behavior change
+#   chore:    maintenance tasks, deps, tooling
+#
+# Guidelines:
+# - Use imperative mood ("add" not "added")
+# - First line ~50-60 chars (clarity over brevity)
+# - Wrap body at 72 characters
+# - Focus on the value and reasoning
+# - Consider the human + AI experience

@@ -45,3 +45,6 @@ pre-commit run --all-files
 # or with uv
 uv run pre-commit run --all-files
 ```
+
+# Set up commit message template
+git config commit.template .gitmessage
