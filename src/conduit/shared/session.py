@@ -210,10 +210,13 @@ class BaseSession(ABC):
         else:
             print(f"Unmatched response for request ID {message_id}")
 
+    # TODO: TEST THIS
     def _parse_response(
         self, payload: dict[str, Any], original_request: Request
     ) -> Result | Error:
         """Parse JSON-RPC response into typed Result or Error objects.
+
+        If we can't parse the response, we return an error.
 
         Args:
             payload: Raw JSON-RPC response from peer.
@@ -223,9 +226,33 @@ class BaseSession(ABC):
             Typed Result object for success, or Error object for failures.
         """
         if "result" in payload:
-            result_type = original_request.expected_result_type()
-            return result_type.from_protocol(payload)
-        return Error.from_protocol(payload)
+            try:
+                result_type = original_request.expected_result_type()
+                return result_type.from_protocol(payload)
+            except Exception as e:
+                return Error(
+                    code=INTERNAL_ERROR,
+                    message=f"Failed to parse {result_type.__name__} response",
+                    data={
+                        "expected_type": result_type.__name__,
+                        "full_response": payload,
+                        "parse_error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                )
+        else:
+            try:
+                return Error.from_protocol(payload)
+            except Exception as e:
+                return Error(
+                    code=INTERNAL_ERROR,
+                    message="Failed to parse response",
+                    data={
+                        "full_response": payload,
+                        "parse_error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                )
 
     async def _handle_notification(self, payload: dict[str, Any]) -> None:
         """Process peer notifications, delegating to subclass implementations.
@@ -304,6 +331,10 @@ class BaseSession(ABC):
         Responses are automatically cleaned up when received, while timeouts trigger
         manual cleanup and send cancellation notifications to the peer.
 
+        The returned Result object is automatically typed based on the request type
+        (e.g., InitializeRequest returns InitializeResult). This parsing happens
+        in the response handler using the request's expected_result_type().
+
         Most requests require an initialized session. PingRequests work anytime since
         they test basic connectivity.
 
@@ -312,7 +343,7 @@ class BaseSession(ABC):
             timeout: How long to wait for a response (seconds)
 
         Returns:
-            Peer's response as Result or Error object.
+            Peer's response as typed Result or Error object.
 
         Raises:
             RuntimeError: Session not initialized (client hasn't sent initialized
