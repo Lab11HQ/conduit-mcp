@@ -60,6 +60,8 @@ from conduit.protocol.resources import (
     ListResourcesResult,
     ListResourceTemplatesRequest,
     ListResourceTemplatesResult,
+    ReadResourceRequest,
+    ReadResourceResult,
     Resource,
     ResourceListChangedNotification,
     ResourceTemplate,
@@ -489,16 +491,24 @@ class ClientSession(BaseSession):
     async def _handle_resources_updated(
         self, notification: ResourceUpdatedNotification
     ) -> None:
-        resources_result = await self.send_request(ListResourcesRequest())
-        templates_result = await self.send_request(ListResourceTemplatesRequest())
-        if isinstance(resources_result, ListResourcesResult):
-            self.server_state.resources = resources_result.resources
-            await self.callbacks.call_resources_changed(resources_result.resources)
-        if isinstance(templates_result, ListResourceTemplatesResult):
-            self.server_state.resource_templates = templates_result.resource_templates
-            await self.callbacks.call_resource_templates_changed(
-                templates_result.resource_templates
-            )
+        """Handle notification that a specific resource has been updated.
+
+        Reads the updated resource content and calls the registered callback
+        with the URI and fresh resource data.
+
+        Args:
+            notification: Notification with URI of the updated resource.
+
+        Note:
+            Only calls callback if the resource read succeeds. Failed requests
+            are silently ignored to avoid disrupting the session.
+        """
+        try:
+            result = await self.send_request(ReadResourceRequest(uri=notification.uri))
+            if isinstance(result, ReadResourceResult):
+                await self.callbacks.call_resource_updated(notification.uri, result)
+        except Exception:
+            pass
 
     async def _handle_tools_list_changed(
         self, notification: ToolListChangedNotification

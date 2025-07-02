@@ -7,12 +7,18 @@ from conduit.protocol.common import (
     CancelledNotification,
     ProgressNotification,
 )
+from conduit.protocol.content import TextResourceContents
 from conduit.protocol.logging import LoggingMessageNotification
 from conduit.protocol.prompts import (
     ListPromptsRequest,
     ListPromptsResult,
     Prompt,
     PromptListChangedNotification,
+)
+from conduit.protocol.resources import (
+    ReadResourceRequest,
+    ReadResourceResult,
+    ResourceUpdatedNotification,
 )
 from conduit.protocol.tools import (
     JSONSchema,
@@ -237,3 +243,63 @@ class TestToolsListChangedHandling(ClientSessionTest):
         self.session.send_request.assert_awaited_once()
         assert self.session.server_state.tools == initial_tools
         self.session.callbacks.call_tools_changed.assert_not_called()
+
+
+class TestResourcesUpdatedHandling(ClientSessionTest):
+    async def test_reads_specific_resource_and_calls_callback_on_successful_read(self):
+        # Arrange
+        resource_uri = "file:///test/resource.txt"
+        notification = ResourceUpdatedNotification(uri=resource_uri)
+
+        read_result = ReadResourceResult(
+            contents=[TextResourceContents(uri=resource_uri, text="Updated content")]
+        )
+
+        self.session.send_request = AsyncMock(return_value=read_result)
+        self.session.callbacks.call_resource_updated = AsyncMock()
+
+        # Act
+        await self.session._handle_resources_updated(notification)
+
+        # Assert
+        self.session.send_request.assert_awaited_once()
+        sent_request = self.session.send_request.call_args[0][0]
+        assert isinstance(sent_request, ReadResourceRequest)
+        assert sent_request.uri == resource_uri
+
+        self.session.callbacks.call_resource_updated.assert_awaited_once_with(
+            resource_uri, read_result
+        )
+
+    async def test_ignores_server_error_response_silently(self):
+        # Arrange
+        resource_uri = "file:///test/resource.txt"
+        notification = ResourceUpdatedNotification(uri=resource_uri)
+        error_result = Error(code=METHOD_NOT_FOUND, message="Resource not found")
+
+        self.session.send_request = AsyncMock(return_value=error_result)
+        self.session.callbacks.call_resource_updated = AsyncMock()
+
+        # Act
+        await self.session._handle_resources_updated(notification)
+
+        # Assert
+        self.session.send_request.assert_awaited_once()
+        self.session.callbacks.call_resource_updated.assert_not_called()
+
+    async def test_ignores_request_failure_silently(self):
+        # Arrange
+        resource_uri = "file:///test/resource.txt"
+        notification = ResourceUpdatedNotification(uri=resource_uri)
+
+        self.session.send_request = AsyncMock(
+            side_effect=ConnectionError("Network failure")
+        )
+        self.session.callbacks.call_resource_updated = AsyncMock()
+
+        # Act
+        await self.session._handle_resources_updated(notification)
+
+        # Assert
+        self.session.send_request.assert_awaited_once()
+        self.session.callbacks.call_resource_updated.assert_not_called()
