@@ -424,7 +424,7 @@ class ClientSession(BaseSession):
     async def _handle_cancelled(self, notification: CancelledNotification) -> None:
         """Handle server cancellation notifications for in-flight requests.
 
-        Cancels the corresponding request task if it exists and notifies the
+        Cancels the corresponding request task if it exists and calls the
         registered callback. Only processes cancellations for requests that
         are actually in-flight.
 
