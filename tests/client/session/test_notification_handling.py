@@ -2,7 +2,11 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from conduit.protocol.common import CancelledNotification, ProgressNotification
+from conduit.protocol.common import (
+    CancelledNotification,
+    ProgressNotification,
+)
+from conduit.protocol.logging import LoggingMessageNotification
 from conduit.shared.exceptions import UnknownNotificationError
 from tests.client.session.conftest import ClientSessionTest
 
@@ -74,4 +78,23 @@ class TestProgressNotificationHandling(ClientSessionTest):
         # Assert
         self.session.callbacks.call_progress.assert_awaited_once_with(
             progress_notification
+        )
+
+
+class TestLoggingNotificationHandling(ClientSessionTest):
+    async def test_delegates_logging_notification_to_callback_manager(self):
+        # Arrange
+        logging_notification = LoggingMessageNotification(
+            level="info", data="Test log message"
+        )
+
+        # Mock the callback manager method
+        self.session.callbacks.call_logging_message = AsyncMock()
+
+        # Act
+        await self.session._handle_logging_message(logging_notification)
+
+        # Assert
+        self.session.callbacks.call_logging_message.assert_awaited_once_with(
+            logging_notification
         )

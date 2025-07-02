@@ -495,4 +495,11 @@ class ClientSession(BaseSession):
     async def _handle_logging_message(
         self, notification: LoggingMessageNotification
     ) -> None:
+        """Handle server logging message notifications.
+
+        Delegates logging messages to the callback manager.
+
+        Args:
+            notification: Logging message notification from server.
+        """
         await self.callbacks.call_logging_message(notification)
