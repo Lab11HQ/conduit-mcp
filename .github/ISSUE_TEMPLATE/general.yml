@@ -1,0 +1,25 @@
+name: General Issue
+description: Something that doesn't fit the other categories
+title: "[General]: "
+labels: ["needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Sometimes the best issues don't fit a template. Tell us what's on your mind!
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What would you like to share?
+      placeholder: |
+        This could be:
+        - A use case we haven't considered
+        - Feedback on the developer experience  
+        - An idea that's still forming
+        - Something else entirely
+
+        We're all ears!
+    validations:
+      required: true
