@@ -477,16 +477,36 @@ class ClientSession(BaseSession):
     async def _handle_resources_list_changed(
         self, notification: ResourceListChangedNotification
     ) -> None:
-        resources_result = await self.send_request(ListResourcesRequest())
-        templates_result = await self.send_request(ListResourceTemplatesRequest())
-        if isinstance(resources_result, ListResourcesResult):
-            self.server_state.resources = resources_result.resources
-            await self.callbacks.call_resources_changed(resources_result.resources)
-        if isinstance(templates_result, ListResourceTemplatesResult):
-            self.server_state.resource_templates = templates_result.resource_templates
-            await self.callbacks.call_resource_templates_changed(
-                templates_result.resource_templates
-            )
+        """Handle server notification that the resources list has changed.
+
+        Fetches the updated resources and resource templates lists from the server,
+        updates local server state, and calls the registered callbacks with the
+        new data.
+
+        Args:
+            notification: Notification that resources list has changed
+                (content ignored).
+
+        Note:
+            Updates state and calls callbacks independently for resources and templates.
+            If one request fails, the other may still succeed. Failed requests are
+            silently ignored to avoid disrupting the session.
+        """
+        try:
+            resources_result = await self.send_request(ListResourcesRequest())
+            templates_result = await self.send_request(ListResourceTemplatesRequest())
+            if isinstance(resources_result, ListResourcesResult):
+                self.server_state.resources = resources_result.resources
+                await self.callbacks.call_resources_changed(resources_result.resources)
+            if isinstance(templates_result, ListResourceTemplatesResult):
+                self.server_state.resource_templates = (
+                    templates_result.resource_templates
+                )
+                await self.callbacks.call_resource_templates_changed(
+                    templates_result.resource_templates
+                )
+        except Exception:
+            pass
 
     async def _handle_resources_updated(
         self, notification: ResourceUpdatedNotification
