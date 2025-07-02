@@ -503,10 +503,26 @@ class ClientSession(BaseSession):
     async def _handle_tools_list_changed(
         self, notification: ToolListChangedNotification
     ) -> None:
-        tools_result = await self.send_request(ListToolsRequest())
-        if isinstance(tools_result, ListToolsResult):
-            self.server_state.tools = tools_result.tools
-            await self.callbacks.call_tools_changed(tools_result.tools)
+        """Handle server notification that the tools list has changed.
+
+        Fetches the updated tools list from the server, updates local server
+        state, and calls the registered callback with the new tools.
+
+        Args:
+            notification: Notification that tools have changed (content ignored).
+
+        Note:
+            Only updates state and calls the callback if the request succeeds with
+            valid results. Failed requests and server errors are silently ignored
+            to avoid disrupting the session.
+        """
+        try:
+            tools_result = await self.send_request(ListToolsRequest())
+            if isinstance(tools_result, ListToolsResult):
+                self.server_state.tools = tools_result.tools
+                await self.callbacks.call_tools_changed(tools_result.tools)
+        except Exception:
+            pass
 
     async def _handle_logging_message(
         self, notification: LoggingMessageNotification

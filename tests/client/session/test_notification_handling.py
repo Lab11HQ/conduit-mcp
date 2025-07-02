@@ -14,6 +14,13 @@ from conduit.protocol.prompts import (
     Prompt,
     PromptListChangedNotification,
 )
+from conduit.protocol.tools import (
+    JSONSchema,
+    ListToolsRequest,
+    ListToolsResult,
+    Tool,
+    ToolListChangedNotification,
+)
 from conduit.shared.exceptions import UnknownNotificationError
 from tests.client.session.conftest import ClientSessionTest
 
@@ -163,3 +170,70 @@ class TestPromptsListChangedHandling(ClientSessionTest):
         self.session.send_request.assert_awaited_once()
         assert self.session.server_state.prompts == initial_prompts
         self.session.callbacks.call_prompts_changed.assert_not_called()
+
+
+class TestToolsListChangedHandling(ClientSessionTest):
+    async def test_updates_state_and_calls_callback_on_successful_refresh(self):
+        # Arrange
+        notification = ToolListChangedNotification()
+
+        tools = [
+            Tool(
+                name="test-tool", description="A test tool", input_schema=JSONSchema()
+            ),
+            Tool(
+                name="another-tool",
+                description="Another test tool",
+                input_schema=JSONSchema(),
+            ),
+        ]
+        result = ListToolsResult(tools=tools)
+
+        self.session.send_request = AsyncMock(return_value=result)
+        self.session.callbacks.call_tools_changed = AsyncMock()
+
+        # Act
+        await self.session._handle_tools_list_changed(notification)
+
+        # Assert
+        self.session.send_request.assert_awaited_once()
+        sent_request = self.session.send_request.call_args[0][0]
+        assert isinstance(sent_request, ListToolsRequest)
+
+        assert self.session.server_state.tools == tools
+        self.session.callbacks.call_tools_changed.assert_awaited_once_with(tools)
+
+    async def test_ignores_server_error_response_silently(self):
+        # Arrange
+        notification = ToolListChangedNotification()
+        error_result = Error(code=METHOD_NOT_FOUND, message="Tools not supported")
+
+        self.session.send_request = AsyncMock(return_value=error_result)
+        self.session.callbacks.call_tools_changed = AsyncMock()
+        initial_tools = self.session.server_state.tools
+
+        # Act
+        await self.session._handle_tools_list_changed(notification)
+
+        # Assert
+        self.session.send_request.assert_awaited_once()
+        assert self.session.server_state.tools == initial_tools
+        self.session.callbacks.call_tools_changed.assert_not_called()
+
+    async def test_ignores_request_failure_silently(self):
+        # Arrange
+        notification = ToolListChangedNotification()
+
+        self.session.send_request = AsyncMock(
+            side_effect=ConnectionError("Network failure")
+        )
+        self.session.callbacks.call_tools_changed = AsyncMock()
+        initial_tools = self.session.server_state.tools
+
+        # Act
+        await self.session._handle_tools_list_changed(notification)
+
+        # Assert
+        self.session.send_request.assert_awaited_once()
+        assert self.session.server_state.tools == initial_tools
+        self.session.callbacks.call_tools_changed.assert_not_called()
