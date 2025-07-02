@@ -451,10 +451,26 @@ class ClientSession(BaseSession):
     async def _handle_prompts_list_changed(
         self, notification: PromptListChangedNotification
     ) -> None:
-        result = await self.send_request(ListPromptsRequest())
-        if isinstance(result, ListPromptsResult):
-            self.server_state.prompts = result.prompts
-            await self.callbacks.call_prompts_changed(result.prompts)
+        """Handle server notification that the prompts list has changed.
+
+        Fetches the updated prompts list from the server, updates local server
+        state, and calls the registered callback with the new prompts.
+
+        Args:
+            notification: Notification that prompts have changed (content ignored).
+
+        Note:
+            Only updates state and calls callback if the request succeeds with
+            valid results. Failed requests and server errors are silently ignored
+            to avoid disrupting the session.
+        """
+        try:
+            result = await self.send_request(ListPromptsRequest())
+            if isinstance(result, ListPromptsResult):
+                self.server_state.prompts = result.prompts
+                await self.callbacks.call_prompts_changed(result.prompts)
+        except Exception:
+            pass
 
     async def _handle_resources_list_changed(
         self, notification: ResourceListChangedNotification

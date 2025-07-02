@@ -2,11 +2,18 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from conduit.protocol.base import METHOD_NOT_FOUND, Error
 from conduit.protocol.common import (
     CancelledNotification,
     ProgressNotification,
 )
 from conduit.protocol.logging import LoggingMessageNotification
+from conduit.protocol.prompts import (
+    ListPromptsRequest,
+    ListPromptsResult,
+    Prompt,
+    PromptListChangedNotification,
+)
 from conduit.shared.exceptions import UnknownNotificationError
 from tests.client.session.conftest import ClientSessionTest
 
@@ -98,3 +105,61 @@ class TestLoggingNotificationHandling(ClientSessionTest):
         self.session.callbacks.call_logging_message.assert_awaited_once_with(
             logging_notification
         )
+
+
+class TestPromptsListChangedHandling(ClientSessionTest):
+    async def test_updates_state_and_calls_callback_on_successful_refresh(self):
+        # Arrange
+        notification = PromptListChangedNotification()
+        prompts = [
+            Prompt(name="test-prompt", description="A test prompt"),
+            Prompt(name="another-prompt", description="Another test prompt"),
+        ]
+        result = ListPromptsResult(prompts=prompts)
+        self.session.send_request = AsyncMock(return_value=result)
+        self.session.callbacks.call_prompts_changed = AsyncMock()
+
+        # Act
+        await self.session._handle_prompts_list_changed(notification)
+
+        # Assert
+        self.session.send_request.assert_awaited_once()
+        sent_request = self.session.send_request.call_args[0][0]
+        assert isinstance(sent_request, ListPromptsRequest)
+
+        assert self.session.server_state.prompts == prompts
+
+        self.session.callbacks.call_prompts_changed.assert_awaited_once_with(prompts)
+
+    async def test_ignores_server_error_response_silently(self):
+        # Arrange
+        notification = PromptListChangedNotification()
+        error_result = Error(code=METHOD_NOT_FOUND, message="Prompts not supported")
+        self.session.send_request = AsyncMock(return_value=error_result)
+        self.session.callbacks.call_prompts_changed = AsyncMock()
+        initial_prompts = self.session.server_state.prompts
+
+        # Act
+        await self.session._handle_prompts_list_changed(notification)
+
+        # Assert
+        self.session.send_request.assert_awaited_once()
+        assert self.session.server_state.prompts == initial_prompts
+        self.session.callbacks.call_prompts_changed.assert_not_called()
+
+    async def test_ignores_request_failure_silently(self):
+        # Arrange
+        notification = PromptListChangedNotification()
+        self.session.send_request = AsyncMock(
+            side_effect=ConnectionError("Network failure")
+        )
+        self.session.callbacks.call_prompts_changed = AsyncMock()
+        initial_prompts = self.session.server_state.prompts
+
+        # Act
+        await self.session._handle_prompts_list_changed(notification)
+
+        # Assert
+        self.session.send_request.assert_awaited_once()
+        assert self.session.server_state.prompts == initial_prompts
+        self.session.callbacks.call_prompts_changed.assert_not_called()
