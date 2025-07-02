@@ -15,7 +15,7 @@ Key components:
 import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, TypeVar, cast
+from typing import Any, TypeVar
 
 from conduit.client.managers.callbacks import CallbackManager
 from conduit.client.managers.elicitation import (
@@ -178,25 +178,34 @@ class ClientSession(BaseSession):
         3. Send InitializedNotification to complete the handshake
 
         The server state is updated with the negotiated capabilities and info.
+
+        Raises:
+            RuntimeError: If the server returns an error or unexpected response type
+                during initialization.
+            InvalidProtocolVersionError: If the server uses an incompatible
+                protocol version.
         """
-        # Send initialization request
-        request = self._create_init_request()
-        result = await self.send_request(request)
+        init_request = self._create_init_request()
+        response = await self.send_request(init_request)
 
-        # Validate response
-        if isinstance(result, Error):
-            raise RuntimeError(result.message)
+        if isinstance(response, Error):
+            raise RuntimeError(response.message)
+        if not isinstance(response, InitializeResult):
+            raise RuntimeError("Server returned unexpected response type")
 
-        init_result = cast(InitializeResult, result)
-        self._validate_protocol_version(init_result)
+        self._validate_protocol_version(response)
 
-        # Complete handshake
         await self.send_notification(InitializedNotification())
-        self._store_init_result(init_result)
+        self._store_init_result(response)
 
-        return init_result
+        return response
 
     def _create_init_request(self) -> InitializeRequest:
+        """Create an InitializeRequest with client info and capabilities.
+
+        Returns:
+            InitializeRequest with client info and capabilities.
+        """
         return InitializeRequest(
             client_info=self.client_config.client_info,
             capabilities=self.client_config.capabilities,
@@ -204,6 +213,12 @@ class ClientSession(BaseSession):
         )
 
     def _validate_protocol_version(self, result: InitializeResult) -> None:
+        """Ensure the server's protocol version matches the client's.
+
+        Raises:
+            InvalidProtocolVersionError: If the server uses an incompatible
+                protocol version.
+        """
         if result.protocol_version != self.client_config.protocol_version:
             raise InvalidProtocolVersionError(
                 "Protocol version mismatch: client="
@@ -212,6 +227,11 @@ class ClientSession(BaseSession):
             )
 
     def _store_init_result(self, result: InitializeResult) -> None:
+        """Store the server's capabilities, instructions, and info in the server state.
+
+        Args:
+            result: InitializeResult from server.
+        """
         self.server_state.capabilities = result.capabilities
         self.server_state.instructions = result.instructions
         self.server_state.info = result.server_info

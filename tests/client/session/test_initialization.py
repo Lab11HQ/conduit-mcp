@@ -9,10 +9,7 @@ from .conftest import ClientSessionTest
 
 
 class TestInitialization(ClientSessionTest):
-    """Test client session initialization handshake."""
-
     async def test_initialization_handshake_is_successful(self):
-        """Test successful initialization handshake."""
         # Arrange
         expected_capabilities = {"tools": {"listChanged": True}}
         assert self.session.initialized is False
@@ -104,15 +101,34 @@ class TestInitialization(ClientSessionTest):
             request_id, message="Server initialization failed"
         )
 
-        # Act & Assert
+        # Act
         self.transport.receive_message(error_response)
 
-        # Server errors should be wrapped in ConnectionError
+        # Assert: Server errors should be wrapped in ConnectionError
         with pytest.raises(ConnectionError):
             await init_task
 
-        # Assert cleanup
+        # Assert Cleanup
         assert not self.session.running
+
+    async def test_raises_error_when_server_returns_unexpected_response_type(self):
+        # Arrange
+        init_task = asyncio.create_task(self.session.initialize())
+        await self.wait_for_sent_message("initialize")
+
+        request_id = self.transport.sent_messages[0]["id"]
+        unexpected_response = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": "Not an InitializeResult",
+        }
+
+        # Act
+        self.transport.receive_message(unexpected_response)
+
+        # Assert
+        with pytest.raises(ConnectionError):
+            await init_task
 
     async def test_raises_error_when_transport_fails_during_handshake(self):
         """Test handling of transport failure during handshake."""
