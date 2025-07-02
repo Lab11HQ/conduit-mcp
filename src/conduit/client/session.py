@@ -424,7 +424,7 @@ class ClientSession(BaseSession):
     async def _handle_cancelled(self, notification: CancelledNotification) -> None:
         """Handle server cancellation notifications for in-flight requests.
 
-        Cancels the corresponding request task if it exists and notifies the
+        Cancels the corresponding request task if it exists and calls the
         registered callback. Only processes cancellations for requests that
         are actually in-flight.
 
@@ -479,34 +479,39 @@ class ClientSession(BaseSession):
     ) -> None:
         """Handle server notification that the resources list has changed.
 
-        Fetches the updated resources and resource templates lists from the server,
-        updates local server state, and calls the registered callbacks with the
-        new data.
+        Fetches both the updated resources and resource templates from the server,
+        updates local server state for successful requests, and calls the registered
+        callback if at least one request succeeds.
 
         Args:
             notification: Notification that resources list has changed
                 (content ignored).
 
         Note:
-            Updates state and calls callbacks independently for resources and templates.
-            If one request fails, the other may still succeed. Failed requests are
-            silently ignored to avoid disrupting the session.
+            Calls the callback when at least one request succeeds, passing empty
+            lists for failed requests. If both requests fail, no callback is made.
         """
+        resources: list[Resource] = []
+        templates: list[ResourceTemplate] = []
+
         try:
             resources_result = await self.send_request(ListResourcesRequest())
-            templates_result = await self.send_request(ListResourceTemplatesRequest())
             if isinstance(resources_result, ListResourcesResult):
-                self.server_state.resources = resources_result.resources
-                await self.callbacks.call_resources_changed(resources_result.resources)
-            if isinstance(templates_result, ListResourceTemplatesResult):
-                self.server_state.resource_templates = (
-                    templates_result.resource_templates
-                )
-                await self.callbacks.call_resource_templates_changed(
-                    templates_result.resource_templates
-                )
+                resources = resources_result.resources
+                self.server_state.resources = resources
         except Exception:
             pass
+
+        try:
+            templates_result = await self.send_request(ListResourceTemplatesRequest())
+            if isinstance(templates_result, ListResourceTemplatesResult):
+                templates = templates_result.resource_templates
+                self.server_state.resource_templates = templates
+        except Exception:
+            pass
+
+        if resources or templates:
+            await self.callbacks.call_resources_changed(resources, templates)
 
     async def _handle_resources_updated(
         self, notification: ResourceUpdatedNotification
@@ -521,7 +526,7 @@ class ClientSession(BaseSession):
 
         Note:
             Only calls callback if the resource read succeeds. Failed requests
-            are silently ignored to avoid disrupting the session.
+            are silently ignored.
         """
         try:
             result = await self.send_request(ReadResourceRequest(uri=notification.uri))
