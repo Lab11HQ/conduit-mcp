@@ -1,50 +1,100 @@
-# Contributing
+# Contributing to conduit-mcp
 
-Contributions are welcome! We're building a delightful Python SDK for the Model Context Protocol.
+Welcome! We're building an SDK that's powerful and intuitive. These practices help us deliver on that promise together.
 
-## Prerequisites
+## Quick Start
 
+**Prerequisites:**
 - Python 3.12+
 - uv (recommended for environment management)
 
-## Setup
-
-Clone the repository:
-
+**Setup:**
 ```bash
 git clone https://github.com/davenpi/conduit-mcp.git 
 cd conduit-mcp
-```
-
-Create and sync the environment:
-
-```bash
 uv sync
 ```
 
-This installs all dependencies, including dev tools.
-
-Activate the virtual environment (e.g., `source .venv/bin/activate` or via your IDE).
-
-## Code quality
-
-We use pre-commit for formatting, linting, and type-checking. All PRs must pass these checks.
-
-Install the hooks locally:
-
+**Install development tools:**
 ```bash
-pre-commit install
-# or with uv
+# Set up commit message template
+git config commit.template .gitmessage
+
+# Install pre-commit hooks
 uv run pre-commit install
 ```
 
-The hooks run automatically on `git commit`. You can also run them manually:
+You're ready to contribute!
 
-```bash
-pre-commit run --all-files
-# or with uv
-uv run pre-commit run --all-files
+## Development Workflow
+
+### Working on Changes
+
+1. **Create a feature branch:**
+   ```bash
+   git checkout -b feat/your-feature-name
+   # or fix/bug-description, docs/improvement, etc.
+   ```
+
+2. **Make your changes**
+
+3. **Push and create a PR:**
+   ```bash
+   git push -u origin feat/your-feature-name
+   ```
+
+### Commit Messages
+
+The `.gitmessage` template guides you toward structured commits:
+
+```text
+feat: add defensive parsing to response handling
+
+What changed and why:
+
+Enhanced _parse_response() to handle malformed server responses gracefully instead
+of letting validation errors pass silently.
+
+Impact:
+
+Makes the SDK robust against misbehaving servers while maintaining the typed
+request/response contract.
 ```
 
-# Set up commit message template
-git config commit.template .gitmessage
+**Why structured commits?**
+- Easier debugging and code archaeology
+- Keeps commits focused
+- Faster onboarding for new contributors (human and AI!)
+
+## Code Quality
+
+We use automated tools to maintain consistency:
+
+```bash
+# Run all checks (formatting, linting)
+uv run pre-commit run --all-files
+
+# Or let them run automatically on commit
+git commit  # hooks run automatically
+```
+
+**Our standards:**
+- Type hints for all public APIs
+- Clear, narrative docs
+- Comprehensive tests for documented behavior
+
+## Testing
+
+```bash
+# Run the full test suite
+uv run pytest
+
+# Run specific tests
+uv run pytest tests/client/session/
+```
+
+We aim for comprehensive test coverage, especially for the public API surface.
+
+## Questions?
+
+Open an issue or start a discussion. We're here to help you contribute successfully!
