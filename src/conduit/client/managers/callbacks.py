@@ -6,6 +6,7 @@ from conduit.protocol.prompts import (
     Prompt,
 )
 from conduit.protocol.resources import (
+    ReadResourceResult,
     Resource,
     ResourceTemplate,
 )
@@ -23,6 +24,9 @@ class CallbackManager:
         self._resources_changed: Callable[[list[Resource]], Awaitable[None]] | None = (
             None
         )
+        self._resource_updated: (
+            Callable[[str, ReadResourceResult], Awaitable[None]] | None
+        ) = None
         self._resource_templates_changed: (
             Callable[[list[ResourceTemplate]], Awaitable[None]] | None
         ) = None
@@ -51,6 +55,12 @@ class CallbackManager:
     ) -> None:
         """Register callback for when server resources change."""
         self._resources_changed = callback
+
+    def on_resource_updated(
+        self, callback: Callable[[str, ReadResourceResult], Awaitable[None]]
+    ) -> None:
+        """Register callback for when server resource is updated."""
+        self._resource_updated = callback
 
     def on_resource_templates_changed(
         self, callback: Callable[[list[ResourceTemplate]], Awaitable[None]]
@@ -97,6 +107,13 @@ class CallbackManager:
                 await self._resources_changed(resources)
             except Exception as e:
                 print(f"Resources changed callback failed: {e}")
+
+    async def call_resource_updated(self, uri: str, result: ReadResourceResult) -> None:
+        if self._resource_updated:
+            try:
+                await self._resource_updated(uri, result)
+            except Exception as e:
+                print(f"Resource updated callback failed: {e}")
 
     async def call_resource_templates_changed(
         self, templates: list[ResourceTemplate]

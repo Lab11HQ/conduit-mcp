@@ -60,6 +60,8 @@ from conduit.protocol.resources import (
     ListResourcesResult,
     ListResourceTemplatesRequest,
     ListResourceTemplatesResult,
+    ReadResourceRequest,
+    ReadResourceResult,
     Resource,
     ResourceListChangedNotification,
     ResourceTemplate,
@@ -451,48 +453,115 @@ class ClientSession(BaseSession):
     async def _handle_prompts_list_changed(
         self, notification: PromptListChangedNotification
     ) -> None:
-        result = await self.send_request(ListPromptsRequest())
-        if isinstance(result, ListPromptsResult):
-            self.server_state.prompts = result.prompts
-            await self.callbacks.call_prompts_changed(result.prompts)
+        """Handle server notification that the prompts list has changed.
+
+        Fetches the updated prompts list from the server, updates local server
+        state, and calls the registered callback with the new prompts.
+
+        Args:
+            notification: Notification that prompts have changed (content ignored).
+
+        Note:
+            Only updates state and calls callback if the request succeeds with
+            valid results. Failed requests and server errors are silently ignored
+            to avoid disrupting the session.
+        """
+        try:
+            result = await self.send_request(ListPromptsRequest())
+            if isinstance(result, ListPromptsResult):
+                self.server_state.prompts = result.prompts
+                await self.callbacks.call_prompts_changed(result.prompts)
+        except Exception:
+            pass
 
     async def _handle_resources_list_changed(
         self, notification: ResourceListChangedNotification
     ) -> None:
-        resources_result = await self.send_request(ListResourcesRequest())
-        templates_result = await self.send_request(ListResourceTemplatesRequest())
-        if isinstance(resources_result, ListResourcesResult):
-            self.server_state.resources = resources_result.resources
-            await self.callbacks.call_resources_changed(resources_result.resources)
-        if isinstance(templates_result, ListResourceTemplatesResult):
-            self.server_state.resource_templates = templates_result.resource_templates
-            await self.callbacks.call_resource_templates_changed(
-                templates_result.resource_templates
-            )
+        """Handle server notification that the resources list has changed.
+
+        Fetches the updated resources and resource templates lists from the server,
+        updates local server state, and calls the registered callbacks with the
+        new data.
+
+        Args:
+            notification: Notification that resources list has changed
+                (content ignored).
+
+        Note:
+            Updates state and calls callbacks independently for resources and templates.
+            If one request fails, the other may still succeed. Failed requests are
+            silently ignored to avoid disrupting the session.
+        """
+        try:
+            resources_result = await self.send_request(ListResourcesRequest())
+            templates_result = await self.send_request(ListResourceTemplatesRequest())
+            if isinstance(resources_result, ListResourcesResult):
+                self.server_state.resources = resources_result.resources
+                await self.callbacks.call_resources_changed(resources_result.resources)
+            if isinstance(templates_result, ListResourceTemplatesResult):
+                self.server_state.resource_templates = (
+                    templates_result.resource_templates
+                )
+                await self.callbacks.call_resource_templates_changed(
+                    templates_result.resource_templates
+                )
+        except Exception:
+            pass
 
     async def _handle_resources_updated(
         self, notification: ResourceUpdatedNotification
     ) -> None:
-        resources_result = await self.send_request(ListResourcesRequest())
-        templates_result = await self.send_request(ListResourceTemplatesRequest())
-        if isinstance(resources_result, ListResourcesResult):
-            self.server_state.resources = resources_result.resources
-            await self.callbacks.call_resources_changed(resources_result.resources)
-        if isinstance(templates_result, ListResourceTemplatesResult):
-            self.server_state.resource_templates = templates_result.resource_templates
-            await self.callbacks.call_resource_templates_changed(
-                templates_result.resource_templates
-            )
+        """Handle notification that a specific resource has been updated.
+
+        Reads the updated resource content and calls the registered callback
+        with the URI and fresh resource data.
+
+        Args:
+            notification: Notification with URI of the updated resource.
+
+        Note:
+            Only calls callback if the resource read succeeds. Failed requests
+            are silently ignored to avoid disrupting the session.
+        """
+        try:
+            result = await self.send_request(ReadResourceRequest(uri=notification.uri))
+            if isinstance(result, ReadResourceResult):
+                await self.callbacks.call_resource_updated(notification.uri, result)
+        except Exception:
+            pass
 
     async def _handle_tools_list_changed(
         self, notification: ToolListChangedNotification
     ) -> None:
-        tools_result = await self.send_request(ListToolsRequest())
-        if isinstance(tools_result, ListToolsResult):
-            self.server_state.tools = tools_result.tools
-            await self.callbacks.call_tools_changed(tools_result.tools)
+        """Handle server notification that the tools list has changed.
+
+        Fetches the updated tools list from the server, updates local server
+        state, and calls the registered callback with the new tools.
+
+        Args:
+            notification: Notification that tools have changed (content ignored).
+
+        Note:
+            Only updates state and calls the callback if the request succeeds with
+            valid results. Failed requests and server errors are silently ignored
+            to avoid disrupting the session.
+        """
+        try:
+            tools_result = await self.send_request(ListToolsRequest())
+            if isinstance(tools_result, ListToolsResult):
+                self.server_state.tools = tools_result.tools
+                await self.callbacks.call_tools_changed(tools_result.tools)
+        except Exception:
+            pass
 
     async def _handle_logging_message(
         self, notification: LoggingMessageNotification
     ) -> None:
+        """Handle server logging message notifications.
+
+        Delegates logging messages to the callback manager.
+
+        Args:
+            notification: Logging message notification from server.
+        """
         await self.callbacks.call_logging_message(notification)
