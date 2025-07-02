@@ -72,8 +72,32 @@ class CallbackManager:
     def on_tools_changed(
         self, callback: Callable[[list[Tool]], Awaitable[None]]
     ) -> None:
-        """Register callback for when server tools change."""
+        """Register your callback for when server tools change.
+
+        Servers send a signal when their tool catalog changes - tools added,
+        removed, or modified. We automatically fetch the updated list and
+        call your callback with the new list.
+
+        Args:
+            callback: Your async function called with the new list of tools
+                whenever the server's tool catalog changes.
+        """
         self._tools_changed = callback
+
+    async def call_tools_changed(self, tools: list[Tool]) -> None:
+        """Invoke your registered tools changed callback with the updated tools.
+
+        Calls your tools callback if you've registered one. Logs any errors
+        that occur.
+
+        Args:
+            tools: Current tools list to pass through to your callback.
+        """
+        if self._tools_changed:
+            try:
+                await self._tools_changed(tools)
+            except Exception as e:
+                print(f"Tools changed callback failed: {e}")
 
     def on_resources_changed(
         self, callback: Callable[[list[Resource]], Awaitable[None]]
@@ -112,13 +136,6 @@ class CallbackManager:
         self._cancelled = callback
 
     # Internal notification methods
-
-    async def call_tools_changed(self, tools: list[Tool]) -> None:
-        if self._tools_changed:
-            try:
-                await self._tools_changed(tools)
-            except Exception as e:
-                print(f"Tools changed callback failed: {e}")
 
     async def call_resources_changed(self, resources: list[Resource]) -> None:
         if self._resources_changed:
