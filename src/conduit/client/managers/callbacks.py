@@ -139,8 +139,32 @@ class CallbackManager:
     def on_prompts_changed(
         self, callback: Callable[[list[Prompt]], Awaitable[None]]
     ) -> None:
-        """Register callback for when server prompts change."""
+        """Register your callback for when server prompts change.
+
+        Servers send a signal when their prompt catalog changes - prompts
+        added, removed, or modified. We automatically fetch the updated prompts
+        list and call your callback with the current prompts.
+
+        Args:
+            callback: Your async function called with the updated list[Prompt]
+                whenever the server's prompt catalog changes.
+        """
         self._prompts_changed = callback
+
+    async def call_prompts_changed(self, prompts: list[Prompt]) -> None:
+        """Invoke your registered prompts changed callback with the updated prompts.
+
+        Calls your prompts callback if you've registered one. Logs any errors
+        that occur.
+
+        Args:
+            prompts: Current prompts list to pass through to your callback.
+        """
+        if self._prompts_changed:
+            try:
+                await self._prompts_changed(prompts)
+            except Exception as e:
+                print(f"Prompts changed callback failed: {e}")
 
     def on_logging_message(
         self, callback: Callable[[LoggingMessageNotification], Awaitable[None]]
@@ -162,13 +186,6 @@ class CallbackManager:
                 await self._resource_updated(uri, result)
             except Exception as e:
                 print(f"Resource updated callback failed: {e}")
-
-    async def call_prompts_changed(self, prompts: list[Prompt]) -> None:
-        if self._prompts_changed:
-            try:
-                await self._prompts_changed(prompts)
-            except Exception as e:
-                print(f"Prompts changed callback failed: {e}")
 
     async def call_logging_message(
         self, notification: LoggingMessageNotification
