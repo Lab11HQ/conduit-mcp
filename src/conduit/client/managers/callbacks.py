@@ -195,8 +195,34 @@ class CallbackManager:
     def on_logging_message(
         self, callback: Callable[[LoggingMessageNotification], Awaitable[None]]
     ) -> None:
-        """Register callback for server logging messages."""
+        """Register your callback for server logging messages.
+
+        Servers send log messages during operations to provide debugging
+        information and status updates. Your callback receives the complete
+        notification with all logging details.
+
+        Args:
+            callback: Your async function called with each LoggingMessageNotification.
+                Gets level, data, and logger (optional) fields.
+        """
         self._logging_message = callback
+
+    async def call_logging_message(
+        self, notification: LoggingMessageNotification
+    ) -> None:
+        """Invoke your registered logging message callback with the notification.
+
+        Calls your logging callback if you've registered one. Logs any errors
+        that occur.
+
+        Args:
+            notification: Logging notification to pass through to your callback.
+        """
+        if self._logging_message:
+            try:
+                await self._logging_message(notification)
+            except Exception as e:
+                print(f"Logging message callback failed: {e}")
 
     def on_cancelled(
         self, callback: Callable[[CancelledNotification], Awaitable[None]]
@@ -228,12 +254,3 @@ class CallbackManager:
                 print(f"Cancelled callback failed: {e}")
 
     # Internal notification methods
-
-    async def call_logging_message(
-        self, notification: LoggingMessageNotification
-    ) -> None:
-        if self._logging_message:
-            try:
-                await self._logging_message(notification)
-            except Exception as e:
-                print(f"Logging message callback failed: {e}")
