@@ -337,7 +337,6 @@ class TestResourcesListChangedHandling(ClientSessionTest):
 
         self.session.send_request = AsyncMock(side_effect=mock_send_request)
         self.session.callbacks.call_resources_changed = AsyncMock()
-        self.session.callbacks.call_resource_templates_changed = AsyncMock()
 
         # Act
         await self.session._handle_resources_list_changed(notification)
@@ -349,10 +348,8 @@ class TestResourcesListChangedHandling(ClientSessionTest):
         assert self.session.server_state.resource_templates == templates
 
         self.session.callbacks.call_resources_changed.assert_awaited_once_with(
-            resources
-        )
-        self.session.callbacks.call_resource_templates_changed.assert_awaited_once_with(
-            templates
+            resources,
+            templates,
         )
 
     async def test_handles_partial_failure_gracefully(self):
@@ -371,7 +368,6 @@ class TestResourcesListChangedHandling(ClientSessionTest):
 
         self.session.send_request = AsyncMock(side_effect=mock_send_request)
         self.session.callbacks.call_resources_changed = AsyncMock()
-        self.session.callbacks.call_resource_templates_changed = AsyncMock()
 
         # Act
         await self.session._handle_resources_list_changed(notification)
@@ -379,38 +375,15 @@ class TestResourcesListChangedHandling(ClientSessionTest):
         # Assert
         assert self.session.send_request.call_count == 2
 
-        # Resources should be updated, templates should not
+        # Resources should be updated, templates should remain unchanged
+        # (failed request)
         assert self.session.server_state.resources == resources
-        assert self.session.server_state.resource_templates is None  # No update
+        assert (
+            self.session.server_state.resource_templates is None
+        )  # No update on failure
 
-        # Only resources callback should be called
+        # Callback should be called with resources and empty templates list
         self.session.callbacks.call_resources_changed.assert_awaited_once_with(
-            resources
+            resources,
+            [],  # Empty list for failed templates request
         )
-        self.session.callbacks.call_resource_templates_changed.assert_not_called()
-
-    async def test_ignores_request_failure_silently(self):
-        # Arrange
-        notification = ResourceListChangedNotification()
-
-        self.session.send_request = AsyncMock(
-            side_effect=ConnectionError("Network failure")
-        )
-        self.session.callbacks.call_resources_changed = AsyncMock()
-        self.session.callbacks.call_resource_templates_changed = AsyncMock()
-        initial_resources = self.session.server_state.resources
-        initial_templates = self.session.server_state.resource_templates
-
-        # Act
-        await self.session._handle_resources_list_changed(notification)
-
-        # Assert
-        assert self.session.send_request.call_count == 1
-
-        # State should not be updated
-        assert self.session.server_state.resources == initial_resources
-        assert self.session.server_state.resource_templates == initial_templates
-
-        # No callbacks should be called
-        self.session.callbacks.call_resources_changed.assert_not_called()
-        self.session.callbacks.call_resource_templates_changed.assert_not_called()

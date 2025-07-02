@@ -30,13 +30,10 @@ class TestClientCallbackManager:
                 "resources_changed",
                 "on_resources_changed",
                 "call_resources_changed",
-                [Resource(name="test", uri="test://hi.txt")],
-            ),
-            (
-                "resource_templates_changed",
-                "on_resource_templates_changed",
-                "call_resource_templates_changed",
-                [ResourceTemplate(name="test", uri_template="test://{id}")],
+                [
+                    [Resource(name="test", uri="test://hi.txt")],
+                    [ResourceTemplate(name="test", uri_template="test://{id}")],
+                ],
             ),
             (
                 "prompts_changed",
@@ -66,11 +63,13 @@ class TestClientCallbackManager:
         callback = AsyncMock()
         getattr(manager, register_method)(callback)
 
-        # Act
-        await getattr(manager, notify_method)(test_data)
-
-        # Assert
-        callback.assert_awaited_once_with(test_data)
+        # Act & Assert
+        if callback_type == "resources_changed":
+            await getattr(manager, notify_method)(*test_data)
+            callback.assert_awaited_once_with(*test_data)
+        else:
+            await getattr(manager, notify_method)(test_data)
+            callback.assert_awaited_once_with(test_data)
 
     @pytest.mark.parametrize(
         "callback_type,notify_method,test_data",
@@ -88,12 +87,10 @@ class TestClientCallbackManager:
             (
                 "resources_changed",
                 "call_resources_changed",
-                [Resource(name="test", uri="test://hi.txt")],
-            ),
-            (
-                "resource_templates_changed",
-                "call_resource_templates_changed",
-                [ResourceTemplate(name="test", uri_template="test://{id}")],
+                [
+                    [Resource(name="test", uri="test://hi.txt")],
+                    [ResourceTemplate(name="test", uri_template="test://{id}")],
+                ],
             ),
             ("prompts_changed", "call_prompts_changed", [Prompt(name="test")]),
             (
@@ -115,4 +112,7 @@ class TestClientCallbackManager:
         manager = CallbackManager()
 
         # Act & Assert (should not raise)
-        await getattr(manager, notify_method)(test_data)
+        if callback_type == "resources_changed":
+            await getattr(manager, notify_method)(*test_data)
+        else:
+            await getattr(manager, notify_method)(test_data)

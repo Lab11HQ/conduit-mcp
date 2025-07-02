@@ -21,14 +21,11 @@ class CallbackManager:
     def __init__(self):
         self._progress: Callable[[ProgressNotification], Awaitable[None]] | None = None
         self._tools_changed: Callable[[list[Tool]], Awaitable[None]] | None = None
-        self._resources_changed: Callable[[list[Resource]], Awaitable[None]] | None = (
-            None
-        )
+        self._resources_changed: (
+            Callable[[list[Resource], list[ResourceTemplate]], Awaitable[None]] | None
+        ) = None
         self._resource_updated: (
             Callable[[str, ReadResourceResult], Awaitable[None]] | None
-        ) = None
-        self._resource_templates_changed: (
-            Callable[[list[ResourceTemplate]], Awaitable[None]] | None
         ) = None
         self._prompts_changed: Callable[[list[Prompt]], Awaitable[None]] | None = None
         self._logging_message: (
@@ -100,22 +97,44 @@ class CallbackManager:
                 print(f"Tools changed callback failed: {e}")
 
     def on_resources_changed(
-        self, callback: Callable[[list[Resource]], Awaitable[None]]
+        self,
+        callback: Callable[[list[Resource], list[ResourceTemplate]], Awaitable[None]],
     ) -> None:
-        """Register callback for when server resources change."""
+        """Register your callback for when server resources change.
+
+        Servers send a signal when their resource catalog changes - resources
+        added, removed, or modified. We automatically fetch both the updated
+        resources list and resource templates, then call your callback with both.
+
+        Args:
+            callback: Your async function called with (resources, templates)
+                     whenever the server's resource catalog changes.
+        """
         self._resources_changed = callback
+
+    async def call_resources_changed(
+        self, resources: list[Resource], templates: list[ResourceTemplate]
+    ) -> None:
+        """Invoke your registered resources callback.
+
+        Calls your resources callback if you've registered one. Logs any errors
+        that occur.
+
+        Args:
+            resources: Current resources list to pass through to your callback.
+            templates: Current resource templates list to pass through to your callback.
+        """
+        if self._resources_changed:
+            try:
+                await self._resources_changed(resources, templates)
+            except Exception as e:
+                print(f"Resources changed callback failed: {e}")
 
     def on_resource_updated(
         self, callback: Callable[[str, ReadResourceResult], Awaitable[None]]
     ) -> None:
         """Register callback for when server resource is updated."""
         self._resource_updated = callback
-
-    def on_resource_templates_changed(
-        self, callback: Callable[[list[ResourceTemplate]], Awaitable[None]]
-    ) -> None:
-        """Register callback for when server resource templates change."""
-        self._resource_templates_changed = callback
 
     def on_prompts_changed(
         self, callback: Callable[[list[Prompt]], Awaitable[None]]
@@ -137,28 +156,12 @@ class CallbackManager:
 
     # Internal notification methods
 
-    async def call_resources_changed(self, resources: list[Resource]) -> None:
-        if self._resources_changed:
-            try:
-                await self._resources_changed(resources)
-            except Exception as e:
-                print(f"Resources changed callback failed: {e}")
-
     async def call_resource_updated(self, uri: str, result: ReadResourceResult) -> None:
         if self._resource_updated:
             try:
                 await self._resource_updated(uri, result)
             except Exception as e:
                 print(f"Resource updated callback failed: {e}")
-
-    async def call_resource_templates_changed(
-        self, templates: list[ResourceTemplate]
-    ) -> None:
-        if self._resource_templates_changed:
-            try:
-                await self._resource_templates_changed(templates)
-            except Exception as e:
-                print(f"Resource templates changed callback failed: {e}")
 
     async def call_prompts_changed(self, prompts: list[Prompt]) -> None:
         if self._prompts_changed:
