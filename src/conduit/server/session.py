@@ -488,6 +488,17 @@ class ServerSession(BaseSession):
 
         return await self.logging.handle_set_level(request)
 
+    # ================================
+    # Ping
+    # ================================
+
+    async def _handle_ping(self, request: PingRequest) -> EmptyResult | Error:
+        return EmptyResult()
+
+    # ================================
+    # Request registry
+    # ================================
+
     def _get_request_registry(self) -> dict[str, RequestRegistryEntry]:
         return {
             "ping": (PingRequest, self._handle_ping),
@@ -507,9 +518,6 @@ class ServerSession(BaseSession):
             "completion/complete": (CompleteRequest, self._handle_complete),
             "logging/setLevel": (SetLevelRequest, self._handle_set_level),
         }
-
-    async def _handle_ping(self, request: PingRequest) -> EmptyResult | Error:
-        return EmptyResult()
 
     # TODO: Test!
     async def _handle_session_notification(self, payload: dict[str, Any]) -> None:
