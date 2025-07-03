@@ -89,8 +89,11 @@ class ServerConfig:
 @dataclass
 class ClientState:
     capabilities: ClientCapabilities | None = None
+    info: Implementation | None = None
+    protocol_version: str | None = None
+
+    # Domain state
     roots: list[Root] | None = None
-    handshake_complete: bool = False
 
 
 class ServerSession(BaseSession):
@@ -102,8 +105,9 @@ class ServerSession(BaseSession):
         super().__init__(transport)
         self.server_config = config
         self.client_state = ClientState()
+        self._received_initialized: bool = False
 
-        # Managers
+        # Domain managers
         self.tools = ToolManager()
         self.resources = ResourceManager()
         self.prompts = PromptManager()
@@ -113,14 +117,7 @@ class ServerSession(BaseSession):
 
     @property
     def initialized(self) -> bool:
-        return self.client_state.handshake_complete
-
-    async def _ensure_can_send_request(self, request: Request) -> None:
-        if not self.initialized and not isinstance(request, PingRequest):
-            raise RuntimeError(
-                "Session must be initialized before sending non-ping requests. "
-                "Client must send initialized notification first."
-            )
+        return self._received_initialized
 
     async def _handle_session_request(self, payload: dict[str, Any]) -> Result | Error:
         method = payload["method"]
@@ -159,13 +156,41 @@ class ServerSession(BaseSession):
     async def _handle_initialize(
         self, request: InitializeRequest
     ) -> InitializeResult | Error:
-        self.client_state.capabilities = request.capabilities
+        """Handle client initialization request.
+
+        Stores client capabilities and info for the session, then responds with
+        server capabilities to continue the initialization handshake.
+
+        Args:
+            request: The client's initialization request containing capabilities,
+                version, and implementation details.
+
+        Returns:
+            InitializeResult: The server's response containing its capabilities,
+                version, and instructions for the client.
+        """
+        self._store_client_state(request)
         return InitializeResult(
             capabilities=self.server_config.capabilities,
             server_info=self.server_config.info,
             protocol_version=self.server_config.protocol_version,
             instructions=self.server_config.instructions,
         )
+
+    def _store_client_state(self, request: InitializeRequest) -> None:
+        """Store client information from initialization request.
+
+        Captures the client's capabilities, version, and implementation details
+        for use throughout the session. This information helps the server adapt
+        its behavior based on what the client supports.
+
+        Args:
+            request: The client's initialization request containing capabilities,
+                version, and implementation details.
+        """
+        self.client_state.capabilities = request.capabilities
+        self.client_state.info = request.client_info
+        self.client_state.protocol_version = request.protocol_version
 
     async def _handle_list_tools(
         self, request: ListToolsRequest
@@ -393,5 +418,13 @@ class ServerSession(BaseSession):
             await self.callbacks.notify_roots_changed(result.roots)
 
     async def _handle_initialized(self, notification: InitializedNotification) -> None:
-        self.client_state.handshake_complete = True
+        """Complete the initialization handshake.
+
+        Marks the server as fully initialized and notifies any registered callbacks.
+        After this point, the session is ready for normal operation.
+
+        Args:
+            notification: Confirmation from the client that initialization completed.
+        """
+        self._received_initialized = True
         await self.callbacks.notify_initialized()
