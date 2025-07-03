@@ -462,6 +462,32 @@ class ServerSession(BaseSession):
                 message="Error generating completions.",
             )
 
+    # ================================
+    # Logging
+    # ================================
+
+    async def _handle_set_level(self, request: SetLevelRequest) -> EmptyResult | Error:
+        """Set the MCP protocol logging level.
+
+        The manager handles level setting and callback notifications internally.
+        Callback failures don't cause protocol errors since the level is successfully
+        set.
+
+        Args:
+            request: Set level request with the new logging level.
+
+        Returns:
+            EmptyResult: Level set successfully.
+            Error: If logging capability not supported.
+        """
+        if self.server_config.capabilities.logging is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support logging capability",
+            )
+
+        return await self.logging.handle_set_level(request)
+
     def _get_request_registry(self) -> dict[str, RequestRegistryEntry]:
         return {
             "ping": (PingRequest, self._handle_ping),
@@ -484,21 +510,6 @@ class ServerSession(BaseSession):
 
     async def _handle_ping(self, request: PingRequest) -> EmptyResult | Error:
         return EmptyResult()
-
-    async def _handle_set_level(self, request: SetLevelRequest) -> EmptyResult | Error:
-        if self.server_config.capabilities.logging is None:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message="Server does not support logging capability",
-            )
-
-        try:
-            return await self.logging.handle_set_level(request)
-        except Exception:
-            return Error(
-                code=INTERNAL_ERROR,
-                message="Error in log level change handler",
-            )
 
     # TODO: Test!
     async def _handle_session_notification(self, payload: dict[str, Any]) -> None:
