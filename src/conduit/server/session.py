@@ -221,6 +221,61 @@ class ServerSession(BaseSession):
         except KeyError:
             return Error(code=METHOD_NOT_FOUND, message=f"Unknown tool: {request.name}")
 
+    # ================================
+    # Prompts
+    # ================================
+
+    async def _handle_list_prompts(
+        self, request: ListPromptsRequest
+    ) -> ListPromptsResult | Error:
+        """List available prompts.
+
+        Args:
+            request: List prompts request with optional pagination.
+
+        Returns:
+            ListPromptsResult: List of available prompts.
+            Error: If prompts capability not supported.
+        """
+        if self.server_config.capabilities.prompts is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support prompts capability",
+            )
+        return await self.prompts.handle_list_prompts(request)
+
+    async def _handle_get_prompt(
+        self, request: GetPromptRequest
+    ) -> GetPromptResult | Error:
+        """Retrieve a specific prompt with the given arguments.
+
+        The manager handles prompt execution and raises exceptions for unknown
+        prompts or handler failures. We convert these to appropriate protocol
+        errors.
+
+        Args:
+            request: Get prompt request with name and arguments.
+
+        Returns:
+            GetPromptResult: Prompt messages and metadata.
+            Error: If prompts capability not supported, prompt unknown, or handler
+                fails.
+        """
+        if self.server_config.capabilities.prompts is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support prompts capability",
+            )
+        try:
+            return await self.prompts.handle_get_prompt(request)
+        except KeyError as e:
+            return Error(code=METHOD_NOT_FOUND, message=str(e))
+        except Exception:
+            return Error(
+                code=INTERNAL_ERROR,
+                message="Error in prompt handler",
+            )
+
     def _get_request_registry(self) -> dict[str, RequestRegistryEntry]:
         return {
             "ping": (PingRequest, self._handle_ping),
@@ -337,34 +392,6 @@ class ServerSession(BaseSession):
             return Error(
                 code=INTERNAL_ERROR,
                 message="Error in resource unsubscribe handler",
-            )
-
-    async def _handle_list_prompts(
-        self, request: ListPromptsRequest
-    ) -> ListPromptsResult | Error:
-        if self.server_config.capabilities.prompts is None:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message="Server does not support prompts capability",
-            )
-        return await self.prompts.handle_list_prompts(request)
-
-    async def _handle_get_prompt(
-        self, request: GetPromptRequest
-    ) -> GetPromptResult | Error:
-        if self.server_config.capabilities.prompts is None:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message="Server does not support prompts capability",
-            )
-        try:
-            return await self.prompts.handle_get_prompt(request)
-        except KeyError as e:
-            return Error(code=METHOD_NOT_FOUND, message=str(e))
-        except Exception:
-            return Error(
-                code=INTERNAL_ERROR,
-                message="Error in prompt handler",
             )
 
     async def _handle_complete(
