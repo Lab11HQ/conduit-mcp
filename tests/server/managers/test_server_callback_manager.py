@@ -14,13 +14,13 @@ class TestServerCallbackManager:
             (
                 "progress",
                 "on_progress",
-                "notify_progress",
+                "call_progress",
                 ProgressNotification(progress_token="123", progress=75),
             ),
             (
                 "roots_changed",
                 "on_roots_changed",
-                "notify_roots_changed",
+                "call_roots_changed",
                 [Root(uri="file:///test")],
             ),
             (
@@ -32,7 +32,7 @@ class TestServerCallbackManager:
             (
                 "cancelled",
                 "on_cancelled",
-                "notify_cancelled",
+                "call_cancelled",
                 CancelledNotification(request_id="456", reason="timeout"),
             ),
         ],
@@ -62,14 +62,14 @@ class TestServerCallbackManager:
         [
             (
                 "progress",
-                "notify_progress",
+                "call_progress",
                 ProgressNotification(progress_token="123", progress=75),
             ),
-            ("roots_changed", "notify_roots_changed", [Root(uri="file:///test")]),
+            ("roots_changed", "call_roots_changed", [Root(uri="file:///test")]),
             ("initialized", "call_initialized", None),
             (
                 "cancelled",
-                "notify_cancelled",
+                "call_cancelled",
                 CancelledNotification(request_id="456", reason="timeout"),
             ),
         ],
