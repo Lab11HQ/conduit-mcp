@@ -89,8 +89,11 @@ class ServerConfig:
 @dataclass
 class ClientState:
     capabilities: ClientCapabilities | None = None
+    info: Implementation | None = None
+    protocol_version: str | None = None
+
+    # Domain state
     roots: list[Root] | None = None
-    handshake_complete: bool = False
 
 
 class ServerSession(BaseSession):
@@ -102,8 +105,9 @@ class ServerSession(BaseSession):
         super().__init__(transport)
         self.server_config = config
         self.client_state = ClientState()
+        self._received_initialized: bool = False
 
-        # Managers
+        # Domain managers
         self.tools = ToolManager()
         self.resources = ResourceManager()
         self.prompts = PromptManager()
@@ -111,16 +115,63 @@ class ServerSession(BaseSession):
         self.completions = CompletionManager()
         self.callbacks = CallbackManager()
 
+    # ================================
+    # Initialization
+    # ================================
     @property
     def initialized(self) -> bool:
-        return self.client_state.handshake_complete
+        return self._received_initialized
 
-    async def _ensure_can_send_request(self, request: Request) -> None:
-        if not self.initialized and not isinstance(request, PingRequest):
-            raise RuntimeError(
-                "Session must be initialized before sending non-ping requests. "
-                "Client must send initialized notification first."
-            )
+    async def _handle_initialize(
+        self, request: InitializeRequest
+    ) -> InitializeResult | Error:
+        """Handle client initialization request.
+
+        Stores client capabilities and info for the session, then responds with
+        server capabilities to continue the initialization handshake.
+
+        Args:
+            request: The client's initialization request containing capabilities,
+                version, and implementation details.
+
+        Returns:
+            InitializeResult: The server's response containing its capabilities,
+                version, and instructions for the client.
+        """
+        self._store_client_state(request)
+        return InitializeResult(
+            capabilities=self.server_config.capabilities,
+            server_info=self.server_config.info,
+            protocol_version=self.server_config.protocol_version,
+            instructions=self.server_config.instructions,
+        )
+
+    async def _handle_initialized(self, notification: InitializedNotification) -> None:
+        """Complete the initialization handshake.
+
+        Marks the server as fully initialized and notifies any registered callbacks.
+        After this point, the session is ready for normal operation.
+
+        Args:
+            notification: Confirmation from the client that initialization completed.
+        """
+        self._received_initialized = True
+        await self.callbacks.call_initialized()
+
+    def _store_client_state(self, request: InitializeRequest) -> None:
+        """Store client information from initialization request.
+
+        Captures the client's capabilities, version, and implementation details
+        for use throughout the session. This information helps the server adapt
+        its behavior based on what the client supports.
+
+        Args:
+            request: The client's initialization request containing capabilities,
+                version, and implementation details.
+        """
+        self.client_state.capabilities = request.capabilities
+        self.client_state.info = request.client_info
+        self.client_state.protocol_version = request.protocol_version
 
     async def _handle_session_request(self, payload: dict[str, Any]) -> Result | Error:
         method = payload["method"]
@@ -132,6 +183,321 @@ class ServerSession(BaseSession):
         request_class, handler = registry[method]
         request = request_class.from_protocol(payload)
         return await handler(request)
+
+    # ================================
+    # Tools
+    # ================================
+
+    async def _handle_list_tools(
+        self, request: ListToolsRequest
+    ) -> ListToolsResult | Error:
+        """Handle a tools discovery request.
+
+        Enables clients to discover what capabilities this server offers.
+
+        Args:
+            request: The client's tool listing request.
+
+        Returns:
+            ListToolsResult: The server's catalog of available tools.
+            Error: If the server does not support the tools capability.
+        """
+        if self.server_config.capabilities.tools is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support tools capability",
+            )
+        return await self.tools.handle_list(request)
+
+    async def _handle_call_tool(
+        self, request: CallToolRequest
+    ) -> CallToolResult | Error:
+        """Execute a tool call request.
+
+        Tool execution failures become domain errors (CallToolResult with
+        is_error=True) that the LLM can see and potentially recover from.
+        System errors like unknown tools or missing capabilities return
+        protocol errors.
+
+        Args:
+            request: Tool call request with name and arguments.
+
+        Returns:
+            CallToolResult: Tool output, even if execution failed.
+            Error: If tools capability not supported or tool unknown.
+        """
+        if self.server_config.capabilities.tools is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support tools capability",
+            )
+        try:
+            return await self.tools.handle_call(request)
+        except KeyError:
+            return Error(code=METHOD_NOT_FOUND, message=f"Unknown tool: {request.name}")
+
+    # ================================
+    # Prompts
+    # ================================
+
+    async def _handle_list_prompts(
+        self, request: ListPromptsRequest
+    ) -> ListPromptsResult | Error:
+        """List available prompts.
+
+        Args:
+            request: List prompts request with optional pagination.
+
+        Returns:
+            ListPromptsResult: List of available prompts.
+            Error: If prompts capability not supported.
+        """
+        if self.server_config.capabilities.prompts is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support prompts capability",
+            )
+        return await self.prompts.handle_list_prompts(request)
+
+    async def _handle_get_prompt(
+        self, request: GetPromptRequest
+    ) -> GetPromptResult | Error:
+        """Retrieve a specific prompt with the given arguments.
+
+        The manager handles prompt execution and raises exceptions for unknown
+        prompts or handler failures. We convert these to appropriate protocol
+        errors.
+
+        Args:
+            request: Get prompt request with name and arguments.
+
+        Returns:
+            GetPromptResult: Prompt messages and metadata.
+            Error: If prompts capability not supported, prompt unknown, or handler
+                fails.
+        """
+        if self.server_config.capabilities.prompts is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support prompts capability",
+            )
+        try:
+            return await self.prompts.handle_get_prompt(request)
+        except KeyError as e:
+            return Error(code=METHOD_NOT_FOUND, message=str(e))
+        except Exception:
+            return Error(
+                code=INTERNAL_ERROR,
+                message="Error in prompt handler",
+            )
+
+    # ================================
+    # Resources
+    # ================================
+
+    async def _handle_list_resources(
+        self, request: ListResourcesRequest
+    ) -> ListResourcesResult | Error:
+        """List available resources.
+
+        Args:
+            request: List resources request with optional pagination.
+
+        Returns:
+            ListResourcesResult: List of available resources.
+            Error: If resources capability not supported.
+        """
+        if self.server_config.capabilities.resources is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support resources capability",
+            )
+        return await self.resources.handle_list_resources(request)
+
+    async def _handle_list_resource_templates(
+        self, request: ListResourceTemplatesRequest
+    ) -> ListResourceTemplatesResult | Error:
+        """List available resource templates.
+
+        Args:
+            request: List templates request with optional pagination.
+
+        Returns:
+            ListResourceTemplatesResult: List of available resource templates.
+            Error: If resources capability not supported.
+        """
+        if self.server_config.capabilities.resources is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support resources capability",
+            )
+        return await self.resources.handle_list_templates(request)
+
+    async def _handle_read_resource(
+        self, request: ReadResourceRequest
+    ) -> ReadResourceResult | Error:
+        """Read a specific resource by URI.
+
+        The manager handles both static resources and template pattern matching.
+        It raises exceptions for unknown resources or handler failures that we
+        convert to appropriate protocol errors.
+
+        Args:
+            request: Read resource request with URI.
+
+        Returns:
+            ReadResourceResult: Resource content from the handler.
+            Error: If resources capability not supported, resource unknown, or
+                handler fails.
+        """
+        if self.server_config.capabilities.resources is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support resources capability",
+            )
+        try:
+            return await self.resources.handle_read(request)
+        except KeyError as e:
+            return Error(code=METHOD_NOT_FOUND, message=str(e))
+        except Exception:
+            return Error(
+                code=INTERNAL_ERROR,
+                message="Error reading resource",
+            )
+
+    async def _handle_subscribe(self, request: SubscribeRequest) -> EmptyResult | Error:
+        """Subscribe to resource change notifications.
+
+        Requires both resources capability and subscribe sub-capability to be enabled.
+        The manager validates resource existence and handles callback failures
+        internally.
+
+        Args:
+            request: Subscribe request with resource URI.
+
+        Returns:
+            EmptyResult: Subscription successful.
+            Error: If subscription capability not supported or resource unknown.
+        """
+        if not (
+            self.server_config.capabilities.resources
+            and self.server_config.capabilities.resources.subscribe
+        ):
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support resource subscription",
+            )
+
+        try:
+            return await self.resources.handle_subscribe(request)
+        except KeyError as e:
+            return Error(code=METHOD_NOT_FOUND, message=str(e))
+
+    async def _handle_unsubscribe(
+        self, request: UnsubscribeRequest
+    ) -> EmptyResult | Error:
+        """Unsubscribe from resource change notifications.
+
+        Requires both resources capability and subscribe sub-capability to be enabled.
+        The manager validates subscription existence and handles callback failures
+        internally.
+
+        Args:
+            request: Unsubscribe request with resource URI.
+
+        Returns:
+            EmptyResult: Unsubscription successful.
+            Error: If subscription capability not supported or not subscribed to
+                resource.
+        """
+        if not (
+            self.server_config.capabilities.resources
+            and self.server_config.capabilities.resources.subscribe
+        ):
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support resource subscription",
+            )
+        try:
+            return await self.resources.handle_unsubscribe(request)
+        except KeyError as e:
+            return Error(code=METHOD_NOT_FOUND, message=str(e))
+
+    # ================================
+    # Completions
+    # ================================
+
+    async def _handle_complete(
+        self, request: CompleteRequest
+    ) -> CompleteResult | Error:
+        """Generate completions for prompts or resource templates.
+
+        The manager validates that a completion handler is configured and delegates
+        to it for generation. Handler exceptions become internal errors.
+
+        Args:
+            request: Complete request with reference and arguments.
+
+        Returns:
+            CompleteResult: Generated completion from the handler.
+            Error: If completions capability not supported, handler not configured,
+                or generation fails.
+        """
+        if self.server_config.capabilities.completions is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support completion capability",
+            )
+
+        try:
+            return await self.completions.handle_complete(request)
+        except CompletionNotConfiguredError:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="No completion handler registered.",
+            )
+        except Exception:
+            return Error(
+                code=INTERNAL_ERROR,
+                message="Error generating completions.",
+            )
+
+    # ================================
+    # Logging
+    # ================================
+
+    async def _handle_set_level(self, request: SetLevelRequest) -> EmptyResult | Error:
+        """Set the MCP protocol logging level.
+
+        The manager handles level setting and callback notifications internally.
+        Callback failures don't cause protocol errors since the level is successfully
+        set.
+
+        Args:
+            request: Set level request with the new logging level.
+
+        Returns:
+            EmptyResult: Level set successfully.
+            Error: If logging capability not supported.
+        """
+        if self.server_config.capabilities.logging is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support logging capability",
+            )
+
+        return await self.logging.handle_set_level(request)
+
+    # ================================
+    # Ping
+    # ================================
+
+    async def _handle_ping(self, request: PingRequest) -> EmptyResult | Error:
+        return EmptyResult()
+
+    # ================================
+    # Request registry
+    # ================================
 
     def _get_request_registry(self) -> dict[str, RequestRegistryEntry]:
         return {
@@ -152,204 +518,6 @@ class ServerSession(BaseSession):
             "completion/complete": (CompleteRequest, self._handle_complete),
             "logging/setLevel": (SetLevelRequest, self._handle_set_level),
         }
-
-    async def _handle_ping(self, request: PingRequest) -> EmptyResult | Error:
-        return EmptyResult()
-
-    async def _handle_initialize(
-        self, request: InitializeRequest
-    ) -> InitializeResult | Error:
-        self.client_state.capabilities = request.capabilities
-        return InitializeResult(
-            capabilities=self.server_config.capabilities,
-            server_info=self.server_config.info,
-            protocol_version=self.server_config.protocol_version,
-            instructions=self.server_config.instructions,
-        )
-
-    async def _handle_list_tools(
-        self, request: ListToolsRequest
-    ) -> ListToolsResult | Error:
-        if self.server_config.capabilities.tools is None:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message="Server does not support tools capability",
-            )
-        return await self.tools.handle_list(request)
-
-    async def _handle_call_tool(
-        self, request: CallToolRequest
-    ) -> CallToolResult | Error:
-        """Handle a tool call request.
-
-        The tool manager will handle tool execution failures and return a
-        CallToolResult with is_error=True. Tool execution failures are domain
-        errors and should be returned to the LLM for the host to self-correct. If
-        the manager does not know about the tool, it will raise a KeyError. We
-        catch this and return a method not found error.
-
-        Returns:
-            CallToolResult: The result of the tool call. Note we return this even
-                if tool execution fails. This is a domain error and should be
-                returned to the LLM.
-            Error: If the server does not support tools capability or the tool is
-                unknown. These are truly exceptional and should be handled by the
-                session.
-        """
-        if self.server_config.capabilities.tools is None:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message="Server does not support tools capability",
-            )
-        try:
-            return await self.tools.handle_call(request)
-        except KeyError:
-            return Error(code=METHOD_NOT_FOUND, message=f"Unknown tool: {request.name}")
-
-    async def _handle_list_resources(
-        self, request: ListResourcesRequest
-    ) -> ListResourcesResult | Error:
-        if self.server_config.capabilities.resources is None:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message="Server does not support resources capability",
-            )
-        return await self.resources.handle_list_resources(request)
-
-    async def _handle_list_resource_templates(
-        self, request: ListResourceTemplatesRequest
-    ) -> ListResourceTemplatesResult | Error:
-        if self.server_config.capabilities.resources is None:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message="Server does not support resources capability",
-            )
-        return await self.resources.handle_list_templates(request)
-
-    async def _handle_read_resource(
-        self, request: ReadResourceRequest
-    ) -> ReadResourceResult | Error:
-        if self.server_config.capabilities.resources is None:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message="Server does not support resources capability",
-            )
-        try:
-            return await self.resources.handle_read(request)
-        except KeyError as e:
-            return Error(code=METHOD_NOT_FOUND, message=str(e))
-        except Exception:
-            return Error(
-                code=INTERNAL_ERROR,
-                message="Error in resource read handler",
-            )
-
-    async def _handle_subscribe(self, request: SubscribeRequest) -> EmptyResult | Error:
-        if not (
-            self.server_config.capabilities.resources
-            and self.server_config.capabilities.resources.subscribe
-        ):
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message="Server does not support resource subscription",
-            )
-
-        try:
-            return await self.resources.handle_subscribe(request)
-        except KeyError as e:
-            return Error(code=METHOD_NOT_FOUND, message=str(e))
-        except Exception:
-            return Error(
-                code=INTERNAL_ERROR,
-                message="Error in resource subscribe handler",
-            )
-
-    async def _handle_unsubscribe(
-        self, request: UnsubscribeRequest
-    ) -> EmptyResult | Error:
-        if not (
-            self.server_config.capabilities.resources
-            and self.server_config.capabilities.resources.subscribe
-        ):
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message="Server does not support resource subscription",
-            )
-
-        try:
-            return await self.resources.handle_unsubscribe(request)
-        except KeyError as e:
-            return Error(code=METHOD_NOT_FOUND, message=str(e))
-        except Exception:
-            return Error(
-                code=INTERNAL_ERROR,
-                message="Error in resource unsubscribe handler",
-            )
-
-    async def _handle_list_prompts(
-        self, request: ListPromptsRequest
-    ) -> ListPromptsResult | Error:
-        if self.server_config.capabilities.prompts is None:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message="Server does not support prompts capability",
-            )
-        return await self.prompts.handle_list_prompts(request)
-
-    async def _handle_get_prompt(
-        self, request: GetPromptRequest
-    ) -> GetPromptResult | Error:
-        if self.server_config.capabilities.prompts is None:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message="Server does not support prompts capability",
-            )
-        try:
-            return await self.prompts.handle_get_prompt(request)
-        except KeyError as e:
-            return Error(code=METHOD_NOT_FOUND, message=str(e))
-        except Exception:
-            return Error(
-                code=INTERNAL_ERROR,
-                message="Error in prompt handler",
-            )
-
-    async def _handle_complete(
-        self, request: CompleteRequest
-    ) -> CompleteResult | Error:
-        if self.server_config.capabilities.completions is None:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message="Server does not support completion capability",
-            )
-
-        try:
-            return await self.completions.handle_complete(request)
-        except CompletionNotConfiguredError:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message="No completion handler registered",
-            )
-        except Exception:
-            return Error(
-                code=INTERNAL_ERROR,
-                message="Error in completion handler",
-            )
-
-    async def _handle_set_level(self, request: SetLevelRequest) -> EmptyResult | Error:
-        if self.server_config.capabilities.logging is None:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message="Server does not support logging capability",
-            )
-
-        try:
-            return await self.logging.handle_set_level(request)
-        except Exception:
-            return Error(
-                code=INTERNAL_ERROR,
-                message="Error in log level change handler",
-            )
 
     # TODO: Test!
     async def _handle_session_notification(self, payload: dict[str, Any]) -> None:
@@ -391,7 +559,3 @@ class ServerSession(BaseSession):
         if isinstance(result, ListRootsResult):
             self.client_state.roots = result.roots
             await self.callbacks.notify_roots_changed(result.roots)
-
-    async def _handle_initialized(self, notification: InitializedNotification) -> None:
-        self.client_state.handshake_complete = True
-        await self.callbacks.notify_initialized()

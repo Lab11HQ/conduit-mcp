@@ -26,7 +26,7 @@ class TestServerCallbackManager:
             (
                 "initialized",
                 "on_initialized",
-                "notify_initialized",
+                "call_initialized",
                 None,
             ),  # No data passed
             (
@@ -66,7 +66,7 @@ class TestServerCallbackManager:
                 ProgressNotification(progress_token="123", progress=75),
             ),
             ("roots_changed", "notify_roots_changed", [Root(uri="file:///test")]),
-            ("initialized", "notify_initialized", None),
+            ("initialized", "call_initialized", None),
             (
                 "cancelled",
                 "notify_cancelled",
