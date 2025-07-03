@@ -116,7 +116,7 @@ class ServerSession(BaseSession):
         self.callbacks = CallbackManager()
 
     # ================================
-    # Initialization Domain
+    # Initialization
     # ================================
     @property
     def initialized(self) -> bool:
@@ -169,6 +169,58 @@ class ServerSession(BaseSession):
         request = request_class.from_protocol(payload)
         return await handler(request)
 
+    # ================================
+    # Tools
+    # ================================
+
+    async def _handle_list_tools(
+        self, request: ListToolsRequest
+    ) -> ListToolsResult | Error:
+        """Handle a tools discovery request.
+
+        Enables clients to discover what capabilities this server offers.
+
+        Args:
+            request: The client's tool listing request.
+
+        Returns:
+            ListToolsResult: The server's catalog of available tools.
+            Error: If the server does not support the tools capability.
+        """
+        if self.server_config.capabilities.tools is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support tools capability",
+            )
+        return await self.tools.handle_list(request)
+
+    async def _handle_call_tool(
+        self, request: CallToolRequest
+    ) -> CallToolResult | Error:
+        """Execute a tool call request.
+
+        Tool execution failures become domain errors (CallToolResult with
+        is_error=True) that the LLM can see and potentially recover from.
+        System errors like unknown tools or missing capabilities return
+        protocol errors.
+
+        Args:
+            request: Tool call request with name and arguments.
+
+        Returns:
+            CallToolResult: Tool output, even if execution failed.
+            Error: If tools capability not supported or tool unknown.
+        """
+        if self.server_config.capabilities.tools is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support tools capability",
+            )
+        try:
+            return await self.tools.handle_call(request)
+        except KeyError:
+            return Error(code=METHOD_NOT_FOUND, message=f"Unknown tool: {request.name}")
+
     def _get_request_registry(self) -> dict[str, RequestRegistryEntry]:
         return {
             "ping": (PingRequest, self._handle_ping),
@@ -206,45 +258,6 @@ class ServerSession(BaseSession):
         self.client_state.capabilities = request.capabilities
         self.client_state.info = request.client_info
         self.client_state.protocol_version = request.protocol_version
-
-    async def _handle_list_tools(
-        self, request: ListToolsRequest
-    ) -> ListToolsResult | Error:
-        if self.server_config.capabilities.tools is None:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message="Server does not support tools capability",
-            )
-        return await self.tools.handle_list(request)
-
-    async def _handle_call_tool(
-        self, request: CallToolRequest
-    ) -> CallToolResult | Error:
-        """Handle a tool call request.
-
-        The tool manager will handle tool execution failures and return a
-        CallToolResult with is_error=True. Tool execution failures are domain
-        errors and should be returned to the LLM for the host to self-correct. If
-        the manager does not know about the tool, it will raise a KeyError. We
-        catch this and return a method not found error.
-
-        Returns:
-            CallToolResult: The result of the tool call. Note we return this even
-                if tool execution fails. This is a domain error and should be
-                returned to the LLM.
-            Error: If the server does not support tools capability or the tool is
-                unknown. These are truly exceptional and should be handled by the
-                session.
-        """
-        if self.server_config.capabilities.tools is None:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message="Server does not support tools capability",
-            )
-        try:
-            return await self.tools.handle_call(request)
-        except KeyError:
-            return Error(code=METHOD_NOT_FOUND, message=f"Unknown tool: {request.name}")
 
     async def _handle_list_resources(
         self, request: ListResourcesRequest
