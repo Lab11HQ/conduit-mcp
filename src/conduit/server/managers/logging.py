@@ -13,11 +13,18 @@ class LoggingManager:
 
     def __init__(self):
         self.current_level: LoggingLevel | None = None
-        self.on_level_change: Callable[[LoggingLevel], Awaitable[None]] | None = None
+        self._on_level_change: Callable[[LoggingLevel], Awaitable[None]] | None = None
 
-    def set_handler(self, handler: Callable[[LoggingLevel], Awaitable[None]]) -> None:
-        """Set callback for log level changes."""
-        self.on_level_change = handler
+    def on_level_change(
+        self, callback: Callable[[LoggingLevel], Awaitable[None]]
+    ) -> None:
+        """Set callback for log level changes.
+
+        Args:
+            callback: Async function called when the client requests a log level
+            change. Receives the new LoggingLevel as an argument.
+        """
+        self._on_level_change = callback
 
     async def handle_set_level(self, request: SetLevelRequest) -> EmptyResult:
         """Set the MCP protocol logging level.
@@ -33,9 +40,9 @@ class LoggingManager:
             EmptyResult: Level set successfully.
         """
         self.current_level = request.level
-        if self.on_level_change:
+        if self._on_level_change:
             try:
-                await self.on_level_change(request.level)
+                await self._on_level_change(request.level)
             except Exception as e:
                 print(f"Error in log level change callback: {e}")
         return EmptyResult()

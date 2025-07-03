@@ -54,7 +54,7 @@ class TestSetLevel(ServerSessionTest):
 
         # Set up a failing callback
         failing_callback = AsyncMock(side_effect=ValueError("Callback failed"))
-        self.session.logging.on_level_change = failing_callback
+        self.session.logging.on_level_change(failing_callback)
 
         request = SetLevelRequest(level="info")
 
