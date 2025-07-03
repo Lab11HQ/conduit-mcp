@@ -158,6 +158,21 @@ class ServerSession(BaseSession):
         self._received_initialized = True
         await self.callbacks.call_initialized()
 
+    def _store_client_state(self, request: InitializeRequest) -> None:
+        """Store client information from initialization request.
+
+        Captures the client's capabilities, version, and implementation details
+        for use throughout the session. This information helps the server adapt
+        its behavior based on what the client supports.
+
+        Args:
+            request: The client's initialization request containing capabilities,
+                version, and implementation details.
+        """
+        self.client_state.capabilities = request.capabilities
+        self.client_state.info = request.client_info
+        self.client_state.protocol_version = request.protocol_version
+
     async def _handle_session_request(self, payload: dict[str, Any]) -> Result | Error:
         method = payload["method"]
 
@@ -298,21 +313,6 @@ class ServerSession(BaseSession):
 
     async def _handle_ping(self, request: PingRequest) -> EmptyResult | Error:
         return EmptyResult()
-
-    def _store_client_state(self, request: InitializeRequest) -> None:
-        """Store client information from initialization request.
-
-        Captures the client's capabilities, version, and implementation details
-        for use throughout the session. This information helps the server adapt
-        its behavior based on what the client supports.
-
-        Args:
-            request: The client's initialization request containing capabilities,
-                version, and implementation details.
-        """
-        self.client_state.capabilities = request.capabilities
-        self.client_state.info = request.client_info
-        self.client_state.protocol_version = request.protocol_version
 
     async def _handle_list_resources(
         self, request: ListResourcesRequest
