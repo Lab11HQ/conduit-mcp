@@ -2,7 +2,14 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from conduit.protocol.base import METHOD_NOT_FOUND, Error
 from conduit.protocol.common import CancelledNotification, ProgressNotification
+from conduit.protocol.roots import (
+    ListRootsRequest,
+    ListRootsResult,
+    Root,
+    RootsListChangedNotification,
+)
 from conduit.shared.exceptions import UnknownNotificationError
 
 from .conftest import ServerSessionTest
@@ -76,3 +83,63 @@ class TestProgressNotificationHandling(ServerSessionTest):
         self.session.callbacks.call_progress.assert_awaited_once_with(
             progress_notification
         )
+
+
+class TestRootsListChangedHandling(ServerSessionTest):
+    async def test_updates_state_and_calls_callback_on_successful_refresh(self):
+        # Arrange
+        roots = [Root(uri="file:///test")]
+        roots_notification = RootsListChangedNotification(roots=roots)
+
+        result = ListRootsResult(roots=roots)
+        self.session.send_request = AsyncMock(return_value=result)
+        self.session.callbacks.call_roots_changed = AsyncMock()
+
+        # Act
+        await self.session._handle_roots_list_changed(roots_notification)
+
+        # Assert
+        self.session.send_request.assert_awaited_once()
+        sent_request = self.session.send_request.call_args[0][0]
+        assert isinstance(sent_request, ListRootsRequest)
+
+        self.session.callbacks.call_roots_changed.assert_awaited_once_with(roots)
+
+        assert self.session.client_state.roots == roots
+
+    async def test_ignores_server_error_response_silently(self):
+        # Arrange
+        roots_notification = RootsListChangedNotification(
+            roots=[Root(uri="file:///test")]
+        )
+        error_result = Error(code=METHOD_NOT_FOUND, message="Roots not supported")
+        self.session.send_request = AsyncMock(return_value=error_result)
+        self.session.callbacks.call_roots_changed = AsyncMock()
+        initial_roots = self.session.client_state.roots
+
+        # Act
+        await self.session._handle_roots_list_changed(roots_notification)
+
+        # Assert
+        self.session.send_request.assert_awaited_once()
+        assert self.session.client_state.roots == initial_roots
+        self.session.callbacks.call_roots_changed.assert_not_called()
+
+    async def test_ignores_request_failure_silently(self):
+        # Arrange
+        roots_notification = RootsListChangedNotification(
+            roots=[Root(uri="file:///test")]
+        )
+        self.session.send_request = AsyncMock(
+            side_effect=ConnectionError("Network failure")
+        )
+        self.session.callbacks.call_roots_changed = AsyncMock()
+        initial_roots = self.session.client_state.roots
+
+        # Act
+        await self.session._handle_roots_list_changed(roots_notification)
+
+        # Assert
+        self.session.send_request.assert_awaited_once()
+        assert self.session.client_state.roots == initial_roots
+        self.session.callbacks.call_roots_changed.assert_not_called()

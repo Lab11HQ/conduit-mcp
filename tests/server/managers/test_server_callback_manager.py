@@ -20,7 +20,7 @@ class TestServerCallbackManager:
             (
                 "roots_changed",
                 "on_roots_changed",
-                "notify_roots_changed",
+                "call_roots_changed",
                 [Root(uri="file:///test")],
             ),
             (
@@ -65,7 +65,7 @@ class TestServerCallbackManager:
                 "call_progress",
                 ProgressNotification(progress_token="123", progress=75),
             ),
-            ("roots_changed", "notify_roots_changed", [Root(uri="file:///test")]),
+            ("roots_changed", "call_roots_changed", [Root(uri="file:///test")]),
             ("initialized", "call_initialized", None),
             (
                 "cancelled",

@@ -61,8 +61,30 @@ class CallbackManager:
     def on_roots_changed(
         self, callback: Callable[[list[Root]], Awaitable[None]]
     ) -> None:
-        """Register callback for when client roots change."""
+        """Register your callback for when client roots change.
+
+        Your callback receives the complete list of roots that the client
+        has access to.
+
+        Args:
+            callback: Your async function called with the new list of roots.
+        """
         self._roots_changed = callback
+
+    async def call_roots_changed(self, roots: list[Root]) -> None:
+        """Invoke your registered roots changed callback with the roots.
+
+        Calls your roots changed callback if you've registered one. Logs any
+        errors that occur.
+
+        Args:
+            roots: Current roots list to pass through to your callback.
+        """
+        if self._roots_changed:
+            try:
+                await self._roots_changed(roots)
+            except Exception as e:
+                print(f"Roots changed callback failed: {e}")
 
     def on_cancelled(
         self, callback: Callable[[CancelledNotification], Awaitable[None]]
@@ -92,9 +114,3 @@ class CallbackManager:
                 await self._cancelled(notification)
             except Exception as e:
                 print(f"Cancelled callback failed: {e}")
-
-    # Internal notification methods
-
-    async def notify_roots_changed(self, roots: list[Root]) -> None:
-        if self._roots_changed:
-            await self._roots_changed(roots)

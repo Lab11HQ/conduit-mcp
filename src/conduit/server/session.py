@@ -562,7 +562,7 @@ class ServerSession(BaseSession):
             await self.callbacks.call_cancelled(notification)
 
     async def _handle_progress(self, notification: ProgressNotification) -> None:
-        """Handle server progress notifications.
+        """Handle client progress notifications.
 
         Delegates progress updates to the callback manager.
 
@@ -574,7 +574,18 @@ class ServerSession(BaseSession):
     async def _handle_roots_list_changed(
         self, notification: RootsListChangedNotification
     ) -> None:
-        result = await self.send_request(ListRootsRequest())
-        if isinstance(result, ListRootsResult):
-            self.client_state.roots = result.roots
-            await self.callbacks.notify_roots_changed(result.roots)
+        """Handle client roots list changed notifications.
+
+        Fetches the updated roots list from the server, updates local client
+        state, and calls the registered callback with the new roots.
+
+        Args:
+            notification: Notification that roots have changed (content ignored).
+        """
+        try:
+            result = await self.send_request(ListRootsRequest())
+            if isinstance(result, ListRootsResult):
+                self.client_state.roots = result.roots
+                await self.callbacks.call_roots_changed(result.roots)
+        except Exception:
+            pass
