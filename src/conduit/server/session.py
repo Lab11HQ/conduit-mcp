@@ -562,7 +562,14 @@ class ServerSession(BaseSession):
             await self.callbacks.call_cancelled(notification)
 
     async def _handle_progress(self, notification: ProgressNotification) -> None:
-        await self.callbacks.notify_progress(notification)
+        """Handle server progress notifications.
+
+        Delegates progress updates to the callback manager.
+
+        Args:
+            notification: Progress notification from server with progress token.
+        """
+        await self.callbacks.call_progress(notification)
 
     async def _handle_roots_list_changed(
         self, notification: RootsListChangedNotification

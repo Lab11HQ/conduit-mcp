@@ -14,7 +14,7 @@ class TestServerCallbackManager:
             (
                 "progress",
                 "on_progress",
-                "notify_progress",
+                "call_progress",
                 ProgressNotification(progress_token="123", progress=75),
             ),
             (
@@ -62,7 +62,7 @@ class TestServerCallbackManager:
         [
             (
                 "progress",
-                "notify_progress",
+                "call_progress",
                 ProgressNotification(progress_token="123", progress=75),
             ),
             ("roots_changed", "notify_roots_changed", [Root(uri="file:///test")]),

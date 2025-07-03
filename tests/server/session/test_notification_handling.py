@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from conduit.protocol.common import CancelledNotification
+from conduit.protocol.common import CancelledNotification, ProgressNotification
 from conduit.shared.exceptions import UnknownNotificationError
 
 from .conftest import ServerSessionTest
@@ -58,3 +58,21 @@ class TestCancellationNotificationHandling(ServerSessionTest):
         # Assert
         # No task should be cancelled and no callback should be called
         self.session.callbacks.call_cancelled.assert_not_called()
+
+
+class TestProgressNotificationHandling(ServerSessionTest):
+    async def test_delegates_progress_notification_to_callback_manager(self):
+        # Arrange
+        progress_notification = ProgressNotification(
+            progress_token="test-123", progress=50.0, total=100.0
+        )
+
+        self.session.callbacks.call_progress = AsyncMock()
+
+        # Act
+        await self.session._handle_progress(progress_notification)
+
+        # Assert
+        self.session.callbacks.call_progress.assert_awaited_once_with(
+            progress_notification
+        )
