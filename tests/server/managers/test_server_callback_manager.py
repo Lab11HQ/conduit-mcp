@@ -32,7 +32,7 @@ class TestServerCallbackManager:
             (
                 "cancelled",
                 "on_cancelled",
-                "notify_cancelled",
+                "call_cancelled",
                 CancelledNotification(request_id="456", reason="timeout"),
             ),
         ],
@@ -69,7 +69,7 @@ class TestServerCallbackManager:
             ("initialized", "call_initialized", None),
             (
                 "cancelled",
-                "notify_cancelled",
+                "call_cancelled",
                 CancelledNotification(request_id="456", reason="timeout"),
             ),
         ],

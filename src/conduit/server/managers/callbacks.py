@@ -42,8 +42,31 @@ class CallbackManager:
     def on_cancelled(
         self, callback: Callable[[CancelledNotification], Awaitable[None]]
     ) -> None:
-        """Register callback for client cancellation requests."""
+        """Register your callback for when server cancels a request.
+
+        Your callback receives the complete notification with
+        cancellation details - which request was cancelled and why.
+
+        Args:
+            callback: Your async function called with each CancelledNotification.
+                Gets request_id and reason (optional) fields.
+        """
         self._cancelled = callback
+
+    async def call_cancelled(self, notification: CancelledNotification) -> None:
+        """Invoke your registered cancelled callback with the notification.
+
+        Calls your cancelled callback if you've registered one. Logs any errors
+        that occur.
+
+        Args:
+            notification: Cancellation notification to pass through to your callback.
+        """
+        if self._cancelled:
+            try:
+                await self._cancelled(notification)
+            except Exception as e:
+                print(f"Cancelled callback failed: {e}")
 
     # Internal notification methods
     async def notify_progress(self, notification: ProgressNotification) -> None:
@@ -53,7 +76,3 @@ class CallbackManager:
     async def notify_roots_changed(self, roots: list[Root]) -> None:
         if self._roots_changed:
             await self._roots_changed(roots)
-
-    async def notify_cancelled(self, notification: CancelledNotification) -> None:
-        if self._cancelled:
-            await self._cancelled(notification)
