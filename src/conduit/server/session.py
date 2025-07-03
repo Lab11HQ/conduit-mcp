@@ -115,9 +115,48 @@ class ServerSession(BaseSession):
         self.completions = CompletionManager()
         self.callbacks = CallbackManager()
 
+    # ================================
+    # Initialization Domain
+    # ================================
     @property
     def initialized(self) -> bool:
         return self._received_initialized
+
+    async def _handle_initialize(
+        self, request: InitializeRequest
+    ) -> InitializeResult | Error:
+        """Handle client initialization request.
+
+        Stores client capabilities and info for the session, then responds with
+        server capabilities to continue the initialization handshake.
+
+        Args:
+            request: The client's initialization request containing capabilities,
+                version, and implementation details.
+
+        Returns:
+            InitializeResult: The server's response containing its capabilities,
+                version, and instructions for the client.
+        """
+        self._store_client_state(request)
+        return InitializeResult(
+            capabilities=self.server_config.capabilities,
+            server_info=self.server_config.info,
+            protocol_version=self.server_config.protocol_version,
+            instructions=self.server_config.instructions,
+        )
+
+    async def _handle_initialized(self, notification: InitializedNotification) -> None:
+        """Complete the initialization handshake.
+
+        Marks the server as fully initialized and notifies any registered callbacks.
+        After this point, the session is ready for normal operation.
+
+        Args:
+            notification: Confirmation from the client that initialization completed.
+        """
+        self._received_initialized = True
+        await self.callbacks.call_initialized()
 
     async def _handle_session_request(self, payload: dict[str, Any]) -> Result | Error:
         method = payload["method"]
@@ -152,30 +191,6 @@ class ServerSession(BaseSession):
 
     async def _handle_ping(self, request: PingRequest) -> EmptyResult | Error:
         return EmptyResult()
-
-    async def _handle_initialize(
-        self, request: InitializeRequest
-    ) -> InitializeResult | Error:
-        """Handle client initialization request.
-
-        Stores client capabilities and info for the session, then responds with
-        server capabilities to continue the initialization handshake.
-
-        Args:
-            request: The client's initialization request containing capabilities,
-                version, and implementation details.
-
-        Returns:
-            InitializeResult: The server's response containing its capabilities,
-                version, and instructions for the client.
-        """
-        self._store_client_state(request)
-        return InitializeResult(
-            capabilities=self.server_config.capabilities,
-            server_info=self.server_config.info,
-            protocol_version=self.server_config.protocol_version,
-            instructions=self.server_config.instructions,
-        )
 
     def _store_client_state(self, request: InitializeRequest) -> None:
         """Store client information from initialization request.
@@ -416,15 +431,3 @@ class ServerSession(BaseSession):
         if isinstance(result, ListRootsResult):
             self.client_state.roots = result.roots
             await self.callbacks.notify_roots_changed(result.roots)
-
-    async def _handle_initialized(self, notification: InitializedNotification) -> None:
-        """Complete the initialization handshake.
-
-        Marks the server as fully initialized and notifies any registered callbacks.
-        After this point, the session is ready for normal operation.
-
-        Args:
-            notification: Confirmation from the client that initialization completed.
-        """
-        self._received_initialized = True
-        await self.callbacks.notify_initialized()
