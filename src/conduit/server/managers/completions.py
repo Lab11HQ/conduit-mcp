@@ -22,7 +22,22 @@ class CompletionManager:
         self.handler = handler
 
     async def handle_complete(self, request: CompleteRequest) -> CompleteResult:
-        """Handle completion request."""
+        """Generate completions using the configured handler.
+
+        Delegates to the registered completion handler for actual generation.
+        The handler should process the request reference and arguments to
+        produce appropriate completions.
+
+        Args:
+            request: Complete request with reference and arguments.
+
+        Returns:
+            CompleteResult: Generated completion from the handler.
+
+        Raises:
+            CompletionNotConfiguredError: If no completion handler is set.
+            Exception: Any exception from the completion handler.
+        """
         if self.handler is None:
             raise CompletionNotConfiguredError("No completion handler registered")
         return await self.handler(request)

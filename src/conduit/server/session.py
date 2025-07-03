@@ -423,6 +423,45 @@ class ServerSession(BaseSession):
         except KeyError as e:
             return Error(code=METHOD_NOT_FOUND, message=str(e))
 
+    # ================================
+    # Completions
+    # ================================
+
+    async def _handle_complete(
+        self, request: CompleteRequest
+    ) -> CompleteResult | Error:
+        """Generate completions for prompts or resource templates.
+
+        The manager validates that a completion handler is configured and delegates
+        to it for generation. Handler exceptions become internal errors.
+
+        Args:
+            request: Complete request with reference and arguments.
+
+        Returns:
+            CompleteResult: Generated completion from the handler.
+            Error: If completions capability not supported, handler not configured,
+                or generation fails.
+        """
+        if self.server_config.capabilities.completions is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support completion capability",
+            )
+
+        try:
+            return await self.completions.handle_complete(request)
+        except CompletionNotConfiguredError:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="No completion handler registered.",
+            )
+        except Exception:
+            return Error(
+                code=INTERNAL_ERROR,
+                message="Error generating completions.",
+            )
+
     def _get_request_registry(self) -> dict[str, RequestRegistryEntry]:
         return {
             "ping": (PingRequest, self._handle_ping),
@@ -445,28 +484,6 @@ class ServerSession(BaseSession):
 
     async def _handle_ping(self, request: PingRequest) -> EmptyResult | Error:
         return EmptyResult()
-
-    async def _handle_complete(
-        self, request: CompleteRequest
-    ) -> CompleteResult | Error:
-        if self.server_config.capabilities.completions is None:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message="Server does not support completion capability",
-            )
-
-        try:
-            return await self.completions.handle_complete(request)
-        except CompletionNotConfiguredError:
-            return Error(
-                code=METHOD_NOT_FOUND,
-                message="No completion handler registered",
-            )
-        except Exception:
-            return Error(
-                code=INTERNAL_ERROR,
-                message="Error in completion handler",
-            )
 
     async def _handle_set_level(self, request: SetLevelRequest) -> EmptyResult | Error:
         if self.server_config.capabilities.logging is None:
