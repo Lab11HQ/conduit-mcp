@@ -20,10 +20,10 @@
 
 ## Checklist
 
-- [ ] All new and old tests pass
-- [ ] Code follows our style guidelines
-- [ ] Documentation updated if needed
-- [ ] Breaking changes documented in commit messages
+- [] All new and old tests pass
+- [] Code follows our style guidelines
+- [] Documentation updated if needed
+- [] Breaking changes documented in commit messages
 
 ---
 
