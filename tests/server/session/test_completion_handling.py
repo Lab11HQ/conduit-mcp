@@ -17,7 +17,7 @@ class TestComplete(ServerSessionTest):
     async def test_returns_result_from_manager_when_capability_enabled(self):
         """Test successful completion when completions capability is enabled."""
         # Arrange
-        self.config.capabilities.completions = {}  # Enable completions
+        self.config.capabilities.completions = True  # Enable completions
 
         completion = Completion(
             values=["python", "pytest"],
@@ -49,7 +49,7 @@ class TestComplete(ServerSessionTest):
     async def test_rejects_complete_when_capability_not_set(self):
         """Test error when completions capability is not configured."""
         # Arrange
-        self.config.capabilities.completions = None  # No completions capability
+        self.config.capabilities.completions = False  # No completions capability
         request = CompleteRequest(
             ref=PromptReference(name="test_prompt"),
             argument=CompletionArgument(name="language", value="py"),
@@ -66,7 +66,7 @@ class TestComplete(ServerSessionTest):
     async def test_returns_method_not_found_when_handler_not_configured(self):
         """Test error when manager raises CompletionNotConfiguredError."""
         # Arrange
-        self.config.capabilities.completions = {}  # Enable capability
+        self.config.capabilities.completions = True  # Enable capability
 
         # Mock the manager to raise CompletionNotConfiguredError
         self.session.completions.handle_complete = AsyncMock(
@@ -92,7 +92,7 @@ class TestComplete(ServerSessionTest):
     async def test_returns_internal_error_when_manager_raises_exception(self):
         """Test error when manager raises unexpected exception."""
         # Arrange
-        self.config.capabilities.completions = {}  # Enable capability
+        self.config.capabilities.completions = True  # Enable capability
 
         # Mock the manager to raise generic exception
         self.session.completions.handle_complete = AsyncMock(
