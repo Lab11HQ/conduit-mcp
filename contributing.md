@@ -36,9 +36,30 @@ You're ready to contribute!
    # or fix/bug-description, docs/improvement, etc.
    ```
 
-2. **Make your changes**
+2. **Make your changes:**
+   ```python
+   # In src/conduit/shared/utils.py
+   def filter_truthy_values(data: dict[str, Any]) -> dict[str, Any]:
+      """Remove keys with falsy values from a dictionary."""
+      return {k: v for k, v in data.items() if v}
+   ```
 
-3. **Push and create a PR:**
+3. **Write tests:**
+   ```python
+   # In tests/shared/test_utils.py
+   class TestUtils:
+      def test_filter_truthy_values(self):
+         # Arrange
+         messy_data = {"name": "Alice", "age": 0, "email": "", "active": True}
+         
+         # Act
+         clean_data = filter_truthy_values(messy_data)
+         
+         # Assert
+         assert clean_data == {"name": "Alice", "active": True}
+   ```
+
+4. **Push and create a PR:**
    ```bash
    git push -u origin feat/your-feature-name
    ```
@@ -48,17 +69,19 @@ You're ready to contribute!
 The `.gitmessage` template guides you toward structured commits:
 
 ```text
-feat: add defensive parsing to response handling
+feat: add filter_truthy_values utility function
 
 What changed and why:
 
-Enhanced _parse_response() to handle malformed server responses gracefully instead
-of letting validation errors pass silently.
+Added filter_truthy_values() to shared/utils.py to clean dictionaries
+by removing keys with falsy values. Useful for sanitizing API responses
+and config data.
 
 Impact:
 
-Makes the SDK robust against misbehaving servers while maintaining the typed
-request/response contract.
+Provides a reusable utility for common data cleaning tasks across the
+codebase. Follows our typing and testing standards with comprehensive
+test coverage.
 ```
 
 **Why structured commits?**
@@ -92,8 +115,6 @@ uv run pytest
 # Run specific tests
 uv run pytest tests/client/session/
 ```
-
-We aim for comprehensive test coverage, especially for the public API surface.
 
 ## Questions?
 
