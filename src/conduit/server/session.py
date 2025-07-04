@@ -1,11 +1,11 @@
 from dataclasses import dataclass
-from typing import Any
 
 from conduit.protocol.base import (
     INTERNAL_ERROR,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION,
     Error,
+    Notification,
     Request,
     Result,
 )
@@ -55,7 +55,6 @@ from conduit.protocol.tools import (
     ListToolsRequest,
     ListToolsResult,
 )
-from conduit.protocol.unions import NOTIFICATION_CLASSES
 from conduit.server.managers.callbacks import CallbackManager
 from conduit.server.managers.completions import (
     CompletionManager,
@@ -65,7 +64,6 @@ from conduit.server.managers.logging import LoggingManager
 from conduit.server.managers.prompts import PromptManager
 from conduit.server.managers.resources import ResourceManager
 from conduit.server.managers.tools import ToolManager
-from conduit.shared.exceptions import UnknownNotificationError
 from conduit.shared.session import BaseSession
 from conduit.transport.base import Transport
 
@@ -528,20 +526,31 @@ class ServerSession(BaseSession):
     async def _handle_ping(self, request: PingRequest) -> EmptyResult:
         return EmptyResult()
 
-    # TODO: Test!
-    async def _handle_session_notification(self, payload: dict[str, Any]) -> None:
-        method = payload["method"]
-        notification_class = NOTIFICATION_CLASSES.get(method)
+    # ================================
+    # Notification handlers
+    # ================================
 
-        if notification_class is None:
-            raise UnknownNotificationError(method)
+    async def _handle_session_notification(self, notification: Notification) -> None:
+        """Handle incoming notifications from the client.
 
-        notification = notification_class.from_protocol(payload)
+        Routes the notification to the registered handler. Unlike requests,
+        notifications are fire-and-forget - no response is sent back to the client.
+        The notification has already been deserialized by the base session.
 
+        Args:
+            notification: Typed Notification object from the base session.
+
+        Note:
+            Only notifications with registered handlers are processed. Unknown
+            notification types are ignored, but missing handlers are silently ignored.
+        """
+        method = notification.method
         handlers = self._get_notification_handlers()
+
         if method in handlers:
             handler = handlers[method]
             await handler(notification)
+        # Silently ignore notifications without handlers
 
     def _get_notification_handlers(self):
         return {

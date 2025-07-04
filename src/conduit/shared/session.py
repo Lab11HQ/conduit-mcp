@@ -22,7 +22,7 @@ from conduit.protocol.jsonrpc import (
     JSONRPCRequest,
     JSONRPCResponse,
 )
-from conduit.protocol.unions import REQUEST_CLASSES
+from conduit.protocol.unions import NOTIFICATION_CLASSES, REQUEST_CLASSES
 from conduit.shared.exceptions import UnknownRequestError
 from conduit.transport.base import Transport
 
@@ -257,9 +257,37 @@ class BaseSession(ABC):
                     },
                 )
 
+    def _parse_notification(self, payload: dict[str, Any]) -> Notification | None:
+        """Parse a JSON-RPC notification payload into a typed Notification object.
+
+        Uses the NOTIFICATION_CLASSES registry to look up the appropriate notification
+        class and deserialize the payload. Returns None for unknown notification types
+        since notifications are fire-and-forget.
+
+        Args:
+            payload: Raw JSON-RPC notification payload.
+
+        Returns:
+            Typed Notification object on success, None for unknown types or parse
+            failures.
+        """
+        method = payload["method"]
+        notification_class = NOTIFICATION_CLASSES.get(method)
+
+        if notification_class is None:
+            print(f"Unknown notification method: {method}")
+            return None
+
+        try:
+            return notification_class.from_protocol(payload)
+        except Exception as e:
+            print(f"Failed to deserialize {method} notification: {e}")
+            return None
+
     async def _handle_notification(self, payload: dict[str, Any]) -> None:
         """Process peer notifications, delegating to subclass implementations.
 
+        Parses the notification payload and delegates to session-specific handlers.
         Handler exceptions are logged since notifications don't require responses.
 
         Args:
@@ -268,16 +296,21 @@ class BaseSession(ABC):
         Note:
             Runs as background task - exceptions won't be caught by the message loop.
         """
-        try:
-            await self._handle_session_notification(payload)
-        except Exception as e:
-            method = payload.get("method", "unknown")
-            print(f"Error handling notification {method}: {e}")
+        # Parse the notification
+        notification = self._parse_notification(payload)
 
-    async def _handle_session_notification(self, payload: dict[str, Any]) -> None:
+        if notification is None:
+            # Parsing failed or unknown notification - already logged
+            return
+
+        try:
+            await self._handle_session_notification(notification)
+        except Exception as e:
+            print(f"Error handling notification {notification.method}: {e}")
+
+    async def _handle_session_notification(self, notification: Notification) -> None:
         """Handle session-specific notifications. Override in subclasses."""
-        method = payload.get("method", "unknown")
-        print(f"Unknown notification method: {method}")
+        print(f"Unhandled notification method: {notification.method}")
 
     def _parse_request(self, payload: dict[str, Any]) -> Request | Error:
         """Parse a JSON-RPC request payload into a typed Request object or Error.

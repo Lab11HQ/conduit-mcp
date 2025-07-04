@@ -1,7 +1,5 @@
 from unittest.mock import AsyncMock, Mock
 
-import pytest
-
 from conduit.protocol.base import METHOD_NOT_FOUND, Error, Request
 from conduit.protocol.common import (
     CancelledNotification,
@@ -34,22 +32,26 @@ from conduit.protocol.tools import (
     Tool,
     ToolListChangedNotification,
 )
-from conduit.shared.exceptions import UnknownNotificationError
 from tests.client.session.conftest import ClientSessionTest
 
 
 class TestNotificationRouting(ClientSessionTest):
-    async def test_raises_error_for_unknown_notification_method(self):
-        # Arrange
-        unknown_notification = {
-            "jsonrpc": "2.0",
-            "method": "notifications/unknown",
-            "params": {},
-        }
+    async def test_ignores_unknown_notification_method(self):
+        """Test that unknown notification methods are silently ignored."""
 
-        # Act & Assert
-        with pytest.raises(UnknownNotificationError, match="notifications/unknown"):
-            await self.session._handle_session_notification(unknown_notification)
+        # Arrange - create a mock notification for unknown method
+        class UnknownNotification:
+            def __init__(self):
+                self.method = "notifications/unknown"
+
+        unknown_notification = UnknownNotification()
+
+        # Act - this should not raise an exception
+        await self.session._handle_session_notification(unknown_notification)
+
+        # Assert - no exception was raised (test passes if we get here)
+        # Unknown notifications are silently ignored
+        assert True
 
 
 class TestCancellationNotificationHandling(ClientSessionTest):

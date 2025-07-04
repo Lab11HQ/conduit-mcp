@@ -14,7 +14,6 @@ Key components:
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any
 
 from conduit.client.managers.callbacks import CallbackManager
 from conduit.client.managers.elicitation import (
@@ -28,6 +27,7 @@ from conduit.protocol.base import (
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION,
     Error,
+    Notification,
     Request,
     Result,
 )
@@ -73,8 +73,6 @@ from conduit.protocol.tools import (
     Tool,
     ToolListChangedNotification,
 )
-from conduit.protocol.unions import NOTIFICATION_CLASSES
-from conduit.shared.exceptions import UnknownNotificationError
 from conduit.shared.session import BaseSession
 from conduit.transport.base import Transport
 
@@ -383,36 +381,31 @@ class ClientSession(BaseSession):
     # Notification handlers
     # ================================
 
-    async def _handle_session_notification(self, payload: dict[str, Any]) -> None:
+    async def _handle_session_notification(self, notification: Notification) -> None:
         """Handle incoming notifications from the server.
 
-        Parses the notification payload into the appropriate protocol object and
-        routes it to the registered handler. Unlike requests, notifications are
-        fire-and-forget - no response is sent back to the server.
+        Routes the notification to the registered handler. Unlike requests,
+        notifications are fire-and-forget - no response is sent back to the
+        server. The notification has already been deserialized by the base
+        session.
 
         Notifications include server state changes (tools/resources/prompts changed),
         progress updates, cancellation notices, and logging messages.
 
         Args:
-            payload: Raw JSON-RPC notification payload.
-
-        Raises:
-            UnknownNotificationError: If the notification type isn't recognized.
+            notification: Typed Notification object from the base session.
 
         Note:
             Only notifications with registered handlers are processed. Unknown
-            notification types are rejected, but missing handlers are silently ignored.
+            notification types are ignored, but missing handlers are silently ignored.
         """
-        method = payload["method"]
-        notification_class = NOTIFICATION_CLASSES.get(method)
-        if notification_class is None:
-            raise UnknownNotificationError(method)
-        notification = notification_class.from_protocol(payload)
-
+        method = notification.method
         handlers = self._get_notification_handlers()
+
         if method in handlers:
             handler = handlers[method]
             await handler(notification)
+        # Silently ignore notifications without handlers
 
     def _get_notification_handlers(self):
         return {
