@@ -232,11 +232,9 @@ class ClientSession(BaseSession):
     # ================================
 
     async def _handle_session_request(self, request: Request) -> Result | Error:
-        """Handle client-specific requests by routing to appropriate handlers.
+        """Routes incoming requests to the appropriate handler.
 
-        Looks up the request method in the handler registry and delegates to the
-        registered handler function. The request has already been deserialized
-        by the base session.
+        Returns an error is there is no handler for the request type.
 
         Args:
             request: Typed Request object from the base session.
@@ -270,6 +268,13 @@ class ClientSession(BaseSession):
             "sampling/createMessage": self._handle_sampling,
             "elicitation/create": self._handle_elicitation,
         }
+
+    # ================================
+    # Ping
+    # ================================
+
+    async def _handle_ping(self, request: PingRequest) -> EmptyResult:
+        return EmptyResult()
 
     # ================================
     # Roots
@@ -366,31 +371,11 @@ class ClientSession(BaseSession):
             return Error(code=INTERNAL_ERROR, message="Error in elicitation handler")
 
     # ================================
-    # Ping
-    # ================================
-
-    async def _handle_ping(self, request: PingRequest) -> EmptyResult:
-        """Handle server request for ping.
-
-        Returns:
-            PingResult with pong.
-        """
-        return EmptyResult()
-
-    # ================================
     # Notification handlers
     # ================================
 
     async def _handle_session_notification(self, notification: Notification) -> None:
-        """Handle incoming notifications from the server.
-
-        Routes the notification to the registered handler. Unlike requests,
-        notifications are fire-and-forget - no response is sent back to the
-        server. The notification has already been deserialized by the base
-        session.
-
-        Notifications include server state changes (tools/resources/prompts changed),
-        progress updates, cancellation notices, and logging messages.
+        """Route incoming notifications to the appropriate handler.
 
         Args:
             notification: Typed Notification object from the base session.

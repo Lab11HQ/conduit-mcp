@@ -168,10 +168,9 @@ class ServerSession(BaseSession):
     # ================================
 
     async def _handle_session_request(self, request: Request) -> Result | Error:
-        """Route requests to the appropriate handler. Returns result or error.
+        """Route incoming requests to the appropriate handler.
 
-        Looks up the request method in the handler registry and delegates to the
-        registered handler function.
+        Returns an error if there is no handler for the request type.
 
         Args:
             request: Typed Request object from the base session.
@@ -214,6 +213,13 @@ class ServerSession(BaseSession):
             "completion/complete": self._handle_complete,
             "logging/setLevel": self._handle_set_level,
         }
+
+    # ================================
+    # Ping
+    # ================================
+
+    async def _handle_ping(self, request: PingRequest) -> EmptyResult:
+        return EmptyResult()
 
     # ================================
     # Tools
@@ -520,22 +526,11 @@ class ServerSession(BaseSession):
         return await self.logging.handle_set_level(request)
 
     # ================================
-    # Ping
-    # ================================
-
-    async def _handle_ping(self, request: PingRequest) -> EmptyResult:
-        return EmptyResult()
-
-    # ================================
     # Notification handlers
     # ================================
 
     async def _handle_session_notification(self, notification: Notification) -> None:
-        """Handle incoming notifications from the client.
-
-        Routes the notification to the registered handler. Unlike requests,
-        notifications are fire-and-forget - no response is sent back to the client.
-        The notification has already been deserialized by the base session.
+        """Route incoming notifications to the appropriate handler.
 
         Args:
             notification: Typed Notification object from the base session.

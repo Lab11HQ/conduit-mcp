@@ -23,7 +23,6 @@ from conduit.protocol.jsonrpc import (
     JSONRPCResponse,
 )
 from conduit.protocol.unions import NOTIFICATION_CLASSES, REQUEST_CLASSES
-from conduit.shared.exceptions import UnknownRequestError
 from conduit.transport.base import Transport
 
 
@@ -260,9 +259,8 @@ class BaseSession(ABC):
     def _parse_notification(self, payload: dict[str, Any]) -> Notification | None:
         """Parse a JSON-RPC notification payload into a typed Notification object.
 
-        Uses the NOTIFICATION_CLASSES registry to look up the appropriate notification
-        class and deserialize the payload. Returns None for unknown notification types
-        since notifications are fire-and-forget.
+        Returns None for unknown notification types since notifications are
+        fire-and-forget.
 
         Args:
             payload: Raw JSON-RPC notification payload.
@@ -310,14 +308,12 @@ class BaseSession(ABC):
 
     async def _handle_session_notification(self, notification: Notification) -> None:
         """Handle session-specific notifications. Override in subclasses."""
-        print(f"Unhandled notification method: {notification.method}")
+        pass
 
     def _parse_request(self, payload: dict[str, Any]) -> Request | Error:
         """Parse a JSON-RPC request payload into a typed Request object or Error.
 
-        Uses the REQUEST_CLASSES registry to look up the appropriate request class
-        and deserialize the payload. Returns an Error object for any parsing failures
-        instead of raising exceptions.
+        Returns an Error object for any parsing failures instead of raising exceptions.
 
         Args:
             payload: Raw JSON-RPC request payload.
@@ -363,14 +359,11 @@ class BaseSession(ABC):
         message_id = payload["id"]
 
         try:
-            # Parse the request - returns Request or Error
             request_or_error = self._parse_request(payload)
 
             if isinstance(request_or_error, Error):
-                # Parsing failed - send the error directly
                 response = JSONRPCError.from_error(request_or_error, message_id)
             else:
-                # Parsing succeeded - handle the request
                 result_or_error = await self._handle_session_request(request_or_error)
 
                 if isinstance(result_or_error, Result):
@@ -394,7 +387,7 @@ class BaseSession(ABC):
 
     async def _handle_session_request(self, request: Request) -> Result | Error:
         """Handle session-specific requests (non-ping)."""
-        raise UnknownRequestError(request.method)
+        pass
 
     async def send_request(
         self,
