@@ -13,9 +13,8 @@ Key components:
 """
 
 import asyncio
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, TypeVar
+from typing import Any
 
 from conduit.client.managers.callbacks import CallbackManager
 from conduit.client.managers.elicitation import (
@@ -29,7 +28,6 @@ from conduit.protocol.base import (
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION,
     Error,
-    Notification,
     Request,
     Result,
 )
@@ -76,16 +74,9 @@ from conduit.protocol.tools import (
     ToolListChangedNotification,
 )
 from conduit.protocol.unions import NOTIFICATION_CLASSES
-from conduit.shared.exceptions import UnknownNotificationError, UnknownRequestError
+from conduit.shared.exceptions import UnknownNotificationError
 from conduit.shared.session import BaseSession
 from conduit.transport.base import Transport
-
-TRequest = TypeVar("TRequest", bound=Request)
-TResult = TypeVar("TResult", bound=Result)
-RequestHandler = Callable[[TRequest], Awaitable[TResult | Error]]
-RequestRegistryEntry = tuple[type[TRequest], RequestHandler[TRequest, TResult]]
-TNotification = TypeVar("TNotification", bound=Notification)
-NotificationHandler = Callable[[TNotification], Awaitable[None]]
 
 
 class InvalidProtocolVersionError(Exception):
@@ -239,6 +230,50 @@ class ClientSession(BaseSession):
         self.server_state.info = result.server_info
 
     # ================================
+    # Request routing
+    # ================================
+
+    async def _handle_session_request(self, request: Request) -> Result | Error:
+        """Handle client-specific requests by routing to appropriate handlers.
+
+        Looks up the request method in the handler registry and delegates to the
+        registered handler function. The request has already been deserialized
+        by the base session.
+
+        Args:
+            request: Typed Request object from the base session.
+
+        Returns:
+            Result from the handler, or Error if handler returns one.
+
+        Note:
+            Handlers are responsible for capability checking and returning
+            appropriate Error objects rather than raising exceptions.
+        """
+        method = request.method
+
+        handlers = self._get_request_handlers()
+        if method not in handlers:
+            return Error(
+                code=METHOD_NOT_FOUND, message=f"Method not supported: {method}"
+            )
+
+        handler = handlers[method]
+        return await handler(request)
+
+    def _get_request_handlers(self):
+        """Get the request handlers for the client session.
+
+        Maps request methods to their corresponding handler functions.
+        """
+        return {
+            "ping": self._handle_ping,
+            "roots/list": self._handle_list_roots,
+            "sampling/createMessage": self._handle_sampling,
+            "elicitation/create": self._handle_elicitation,
+        }
+
+    # ================================
     # Roots
     # ================================
 
@@ -336,60 +371,13 @@ class ClientSession(BaseSession):
     # Ping
     # ================================
 
-    async def _handle_ping(self, request: PingRequest) -> EmptyResult | Error:
+    async def _handle_ping(self, request: PingRequest) -> EmptyResult:
         """Handle server request for ping.
 
         Returns:
             PingResult with pong.
         """
         return EmptyResult()
-
-    # ================================
-    # Request routing
-    # ================================
-
-    async def _handle_session_request(self, payload: dict[str, Any]) -> Result | Error:
-        """Handle client-specific requests by routing to appropriate handlers.
-
-        Looks up the request method in the handler registry, parses the request
-        payload into the appropriate protocol object, and delegates to the
-        registered handler function.
-
-        Args:
-            payload: Raw JSON-RPC request payload.
-
-        Returns:
-            Result from the handler, or Error if handler returns one.
-
-        Raises:
-            UnknownRequestError: If the request method is not in the registry.
-
-        Note:
-            Handlers are responsible for capability checking and returning
-            appropriate Error objects rather than raising exceptions.
-        """
-        method = payload["method"]
-
-        registry = self._get_request_registry()
-        if method not in registry:
-            raise UnknownRequestError(method)
-
-        request_class, handler = registry[method]
-        request = request_class.from_protocol(payload)
-        return await handler(request)
-
-    def _get_request_registry(self) -> dict[str, RequestRegistryEntry]:
-        """Get the request registry for the client session.
-
-        The request registry is a dictionary that maps request methods to their
-        corresponding request class and handler function.
-        """
-        return {
-            "ping": (PingRequest, self._handle_ping),
-            "roots/list": (ListRootsRequest, self._handle_list_roots),
-            "sampling/createMessage": (CreateMessageRequest, self._handle_sampling),
-            "elicitation/create": (ElicitRequest, self._handle_elicitation),
-        }
 
     # ================================
     # Notification handlers
@@ -426,7 +414,7 @@ class ClientSession(BaseSession):
             handler = handlers[method]
             await handler(notification)
 
-    def _get_notification_handlers(self) -> dict[str, NotificationHandler]:
+    def _get_notification_handlers(self):
         return {
             "notifications/cancelled": self._handle_cancelled,
             "notifications/progress": self._handle_progress,

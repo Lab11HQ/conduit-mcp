@@ -7,6 +7,8 @@ from typing import Any
 
 from conduit.protocol.base import (
     INTERNAL_ERROR,
+    INVALID_PARAMS,
+    METHOD_NOT_FOUND,
     Error,
     Notification,
     Request,
@@ -20,6 +22,7 @@ from conduit.protocol.jsonrpc import (
     JSONRPCRequest,
     JSONRPCResponse,
 )
+from conduit.protocol.unions import REQUEST_CLASSES
 from conduit.shared.exceptions import UnknownRequestError
 from conduit.transport.base import Transport
 
@@ -276,11 +279,44 @@ class BaseSession(ABC):
         method = payload.get("method", "unknown")
         print(f"Unknown notification method: {method}")
 
+    def _parse_request(self, payload: dict[str, Any]) -> Request | Error:
+        """Parse a JSON-RPC request payload into a typed Request object or Error.
+
+        Uses the REQUEST_CLASSES registry to look up the appropriate request class
+        and deserialize the payload. Returns an Error object for any parsing failures
+        instead of raising exceptions.
+
+        Args:
+            payload: Raw JSON-RPC request payload.
+
+        Returns:
+            Typed Request object on success, or Error for parsing failures.
+        """
+        method = payload["method"]
+        request_class = REQUEST_CLASSES.get(method)
+
+        if request_class is None:
+            return Error(code=METHOD_NOT_FOUND, message=f"Unknown method: {method}")
+
+        try:
+            return request_class.from_protocol(payload)
+        except Exception as e:
+            return Error(
+                code=INVALID_PARAMS,
+                message=f"Failed to deserialize {method} request: {str(e)}",
+                data={
+                    "id": payload.get("id", "unknown"),
+                    "method": method,
+                    "params": payload.get("params", {}),
+                },
+            )
+
     async def _handle_request(self, payload: dict[str, Any]) -> None:
         """Process peer requests and send back responses.
 
-        Delegates business logic to subclass implementations while providing defensive
-        exception handling. Every request gets a response, even when handlers crash.
+        Parses the request payload, delegates business logic to subclass
+        implementations, and provides defensive exception handling. Every request
+        gets a response, even when handlers crash.
 
         Args:
             payload: Raw JSON-RPC request payload.
@@ -294,12 +330,20 @@ class BaseSession(ABC):
         message_id = payload["id"]
 
         try:
-            result_or_error = await self._handle_session_request(payload)
+            # Parse the request - returns Request or Error
+            request_or_error = self._parse_request(payload)
 
-            if isinstance(result_or_error, Result):
-                response = JSONRPCResponse.from_result(result_or_error, message_id)
+            if isinstance(request_or_error, Error):
+                # Parsing failed - send the error directly
+                response = JSONRPCError.from_error(request_or_error, message_id)
             else:
-                response = JSONRPCError.from_error(result_or_error, message_id)
+                # Parsing succeeded - handle the request
+                result_or_error = await self._handle_session_request(request_or_error)
+
+                if isinstance(result_or_error, Result):
+                    response = JSONRPCResponse.from_result(result_or_error, message_id)
+                else:
+                    response = JSONRPCError.from_error(result_or_error, message_id)
 
         except asyncio.CancelledError:
             error = Error(
@@ -315,10 +359,9 @@ class BaseSession(ABC):
 
         await self.transport.send(response.to_wire())
 
-    async def _handle_session_request(self, payload: dict[str, Any]) -> Result | Error:
+    async def _handle_session_request(self, request: Request) -> Result | Error:
         """Handle session-specific requests (non-ping)."""
-        method = payload.get("method", "unknown")
-        raise UnknownRequestError(method)
+        raise UnknownRequestError(request.method)
 
     async def send_request(
         self,

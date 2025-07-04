@@ -1,12 +1,11 @@
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, TypeVar
+from typing import Any
 
 from conduit.protocol.base import (
     INTERNAL_ERROR,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION,
     Error,
-    Notification,
     Request,
     Result,
 )
@@ -66,16 +65,9 @@ from conduit.server.managers.logging import LoggingManager
 from conduit.server.managers.prompts import PromptManager
 from conduit.server.managers.resources import ResourceManager
 from conduit.server.managers.tools import ToolManager
-from conduit.shared.exceptions import UnknownNotificationError, UnknownRequestError
+from conduit.shared.exceptions import UnknownNotificationError
 from conduit.shared.session import BaseSession
 from conduit.transport.base import Transport
-
-TRequest = TypeVar("TRequest", bound=Request)
-TResult = TypeVar("TResult", bound=Result)
-RequestHandler = Callable[[TRequest], Awaitable[TResult | Error]]
-RequestRegistryEntry = tuple[type[TRequest], RequestHandler[TRequest, TResult]]
-TNotification = TypeVar("TNotification", bound=Notification)
-NotificationHandler = Callable[[TNotification], Awaitable[None]]
 
 
 @dataclass
@@ -173,16 +165,57 @@ class ServerSession(BaseSession):
         self.client_state.info = request.client_info
         self.client_state.protocol_version = request.protocol_version
 
-    async def _handle_session_request(self, payload: dict[str, Any]) -> Result | Error:
-        method = payload["method"]
+    # ================================
+    # Request routing
+    # ================================
 
-        registry = self._get_request_registry()
-        if method not in registry:
-            raise UnknownRequestError(method)
+    async def _handle_session_request(self, request: Request) -> Result | Error:
+        """Route requests to the appropriate handler. Returns result or error.
 
-        request_class, handler = registry[method]
-        request = request_class.from_protocol(payload)
+        Looks up the request method in the handler registry and delegates to the
+        registered handler function.
+
+        Args:
+            request: Typed Request object from the base session.
+
+        Returns:
+            Result from the handler, or Error if handler returns one.
+
+        Note:
+            Handlers are responsible for capability checking and returning
+            appropriate Error objects rather than raising exceptions.
+        """
+        method = request.method
+
+        handlers = self._get_request_handlers()
+        if method not in handlers:
+            return Error(
+                code=METHOD_NOT_FOUND, message=f"Method not supported: {method}"
+            )
+
+        handler = handlers[method]
         return await handler(request)
+
+    def _get_request_handlers(self):
+        """Get the request handlers for the server session.
+
+        Maps request methods to their corresponding handler functions.
+        """
+        return {
+            "ping": self._handle_ping,
+            "initialize": self._handle_initialize,
+            "tools/list": self._handle_list_tools,
+            "tools/call": self._handle_call_tool,
+            "prompts/list": self._handle_list_prompts,
+            "prompts/get": self._handle_get_prompt,
+            "resources/list": self._handle_list_resources,
+            "resources/templates/list": self._handle_list_resource_templates,
+            "resources/read": self._handle_read_resource,
+            "resources/subscribe": self._handle_subscribe,
+            "resources/unsubscribe": self._handle_unsubscribe,
+            "completion/complete": self._handle_complete,
+            "logging/setLevel": self._handle_set_level,
+        }
 
     # ================================
     # Tools
@@ -492,32 +525,8 @@ class ServerSession(BaseSession):
     # Ping
     # ================================
 
-    async def _handle_ping(self, request: PingRequest) -> EmptyResult | Error:
+    async def _handle_ping(self, request: PingRequest) -> EmptyResult:
         return EmptyResult()
-
-    # ================================
-    # Request registry
-    # ================================
-
-    def _get_request_registry(self) -> dict[str, RequestRegistryEntry]:
-        return {
-            "ping": (PingRequest, self._handle_ping),
-            "initialize": (InitializeRequest, self._handle_initialize),
-            "tools/list": (ListToolsRequest, self._handle_list_tools),
-            "tools/call": (CallToolRequest, self._handle_call_tool),
-            "prompts/list": (ListPromptsRequest, self._handle_list_prompts),
-            "prompts/get": (GetPromptRequest, self._handle_get_prompt),
-            "resources/list": (ListResourcesRequest, self._handle_list_resources),
-            "resources/templates/list": (
-                ListResourceTemplatesRequest,
-                self._handle_list_resource_templates,
-            ),
-            "resources/read": (ReadResourceRequest, self._handle_read_resource),
-            "resources/subscribe": (SubscribeRequest, self._handle_subscribe),
-            "resources/unsubscribe": (UnsubscribeRequest, self._handle_unsubscribe),
-            "completion/complete": (CompleteRequest, self._handle_complete),
-            "logging/setLevel": (SetLevelRequest, self._handle_set_level),
-        }
 
     # TODO: Test!
     async def _handle_session_notification(self, payload: dict[str, Any]) -> None:
@@ -534,7 +543,7 @@ class ServerSession(BaseSession):
             handler = handlers[method]
             await handler(notification)
 
-    def _get_notification_handlers(self) -> dict[str, NotificationHandler]:
+    def _get_notification_handlers(self):
         return {
             "notifications/cancelled": self._handle_cancelled,
             "notifications/progress": self._handle_progress,
