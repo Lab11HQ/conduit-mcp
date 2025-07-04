@@ -37,7 +37,11 @@ from conduit.protocol.resources import (
     SubscribeRequest,
     UnsubscribeRequest,
 )
-from conduit.protocol.roots import ListRootsResult, RootsListChangedNotification
+from conduit.protocol.roots import (
+    ListRootsRequest,
+    ListRootsResult,
+    RootsListChangedNotification,
+)
 from conduit.protocol.sampling import CreateMessageRequest, CreateMessageResult
 from conduit.protocol.tools import (
     CallToolRequest,
@@ -49,19 +53,19 @@ from conduit.protocol.tools import (
 
 # ----------- Client Requests -------------
 ClientRequest = (
-    PingRequest
-    | InitializeRequest
-    | CompleteRequest
-    | SetLevelRequest
-    | GetPromptRequest
-    | ListPromptsRequest
+    InitializeRequest
+    | PingRequest
+    | ListToolsRequest
+    | CallToolRequest
     | ListResourcesRequest
     | ListResourceTemplatesRequest
     | ReadResourceRequest
     | SubscribeRequest
     | UnsubscribeRequest
-    | CallToolRequest
-    | ListToolsRequest
+    | ListPromptsRequest
+    | GetPromptRequest
+    | CompleteRequest
+    | SetLevelRequest
 )
 
 # ----------- Client Notifications -------------
@@ -76,7 +80,7 @@ ClientNotification = (
 ClientResult = EmptyResult | CreateMessageResult | ListRootsResult | ElicitResult
 
 # ----------- Server Requests -------------
-ServerRequest = PingRequest | CreateMessageRequest | ListToolsRequest | ElicitRequest
+ServerRequest = PingRequest | ListRootsRequest | CreateMessageRequest | ElicitRequest
 
 # ----------- Server Notifications -------------
 ServerNotification = (
@@ -140,4 +144,34 @@ SERVER_SENT_NOTIFICATION_CLASSES = {
 NOTIFICATION_CLASSES = {
     **CLIENT_SENT_NOTIFICATION_CLASSES,
     **SERVER_SENT_NOTIFICATION_CLASSES,
+}
+
+# ------------ Request registry -------------
+
+CLIENT_SENT_REQUEST_CLASSES = {
+    "initialize": InitializeRequest,
+    "ping": PingRequest,
+    "tools/list": ListToolsRequest,
+    "tools/call": CallToolRequest,
+    "resources/list": ListResourcesRequest,
+    "resources/templates/list": ListResourceTemplatesRequest,
+    "resources/read": ReadResourceRequest,
+    "resources/subscribe": SubscribeRequest,
+    "resources/unsubscribe": UnsubscribeRequest,
+    "prompts/list": ListPromptsRequest,
+    "prompts/get": GetPromptRequest,
+    "completion/complete": CompleteRequest,
+    "logging/setLevel": SetLevelRequest,
+}
+
+SERVER_SENT_REQUEST_CLASSES = {
+    "ping": PingRequest,
+    "roots/list": ListRootsRequest,
+    "sampling/createMessage": CreateMessageRequest,
+    "elicitation/create": ElicitRequest,
+}
+
+REQUEST_CLASSES = {
+    **CLIENT_SENT_REQUEST_CLASSES,
+    **SERVER_SENT_REQUEST_CLASSES,
 }

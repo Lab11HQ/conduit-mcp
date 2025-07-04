@@ -1,39 +1,35 @@
-import pytest
-
-from conduit.protocol.common import EmptyResult
-from conduit.shared.exceptions import UnknownRequestError
+from conduit.protocol.base import METHOD_NOT_FOUND, Error
+from conduit.protocol.common import EmptyResult, PingRequest
 from tests.client.session.conftest import ClientSessionTest
 
 
 class TestRequestRouting(ClientSessionTest):
     """Test request routing and unknown method handling."""
 
-    async def test_raises_error_for_unknown_request_method(self):
-        """Test that unknown request methods raise UnknownRequestError."""
-        # Arrange
-        unknown_request = {
-            "jsonrpc": "2.0",
-            "id": "test-123",
-            "method": "unknown/method",
-            "params": {},
-        }
+    async def test_returns_error_for_unknown_request_method(self):
+        """Test that unknown request methods return METHOD_NOT_FOUND error."""
 
-        # Act & Assert
-        with pytest.raises(UnknownRequestError, match="unknown/method"):
-            await self.session._handle_session_request(unknown_request)
+        # Arrange - create a mock request for unknown method
+        class UnknownRequest:
+            method = "unknown/method"
+
+        unknown_request = UnknownRequest()
+
+        # Act
+        result = await self.session._handle_session_request(unknown_request)
+
+        # Assert
+        assert isinstance(result, Error)
+        assert result.code == METHOD_NOT_FOUND
+        assert "Method not supported: unknown/method" in result.message
 
     async def test_returns_empty_result_for_ping_request(self):
         """Test that ping requests return EmptyResult."""
         # Arrange
-        request_payload = {
-            "jsonrpc": "2.0",
-            "id": "test-123",
-            "method": "ping",
-            "params": {},
-        }
+        ping_request = PingRequest()
 
         # Act
-        result = await self.session._handle_session_request(request_payload)
+        result = await self.session._handle_session_request(ping_request)
 
         # Assert
         assert isinstance(result, EmptyResult)
