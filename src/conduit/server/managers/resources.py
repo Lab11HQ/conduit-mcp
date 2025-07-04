@@ -19,24 +19,28 @@ from conduit.protocol.resources import (
 class ResourceManager:
     def __init__(self):
         # Static resources
-        self.registered: dict[str, Resource] = {}
+        self.registered_resources: dict[str, Resource] = {}
         self.handlers: dict[
             str, Callable[[ReadResourceRequest], Awaitable[ReadResourceResult]]
         ] = {}
 
         # Templates (dynamic resources with URI patterns)
-        self.templates: dict[str, ResourceTemplate] = {}
+        self.registered_templates: dict[str, ResourceTemplate] = {}
         self.template_handlers: dict[
             str, Callable[[ReadResourceRequest], Awaitable[ReadResourceResult]]
         ] = {}
 
         # Subscriptions and callbacks
         self.subscriptions: set[str] = set()
-        self.on_subscribe: Callable[[str], Awaitable[None]] | None = None
-        self.on_unsubscribe: Callable[[str], Awaitable[None]] | None = None
+        self._on_subscribe: Callable[[str], Awaitable[None]] | None = None
+        self._on_unsubscribe: Callable[[str], Awaitable[None]] | None = None
 
-    def register_resource(self, resource: Resource, handler: Callable) -> None:
-        """Register a static resource with its handler function.
+    def register(
+        self,
+        resource_or_template: Resource | ResourceTemplate,
+        handler: Callable[[ReadResourceRequest], Awaitable[ReadResourceResult]],
+    ) -> None:
+        """Register a resource or template with its handler function.
 
         Your handler should return ReadResourceResult with the resource content.
         Handler exceptions become INTERNAL_ERROR responses, so consider handling
@@ -44,29 +48,37 @@ class ResourceManager:
         content or error messages in the resource text.
 
         Args:
-            resource: Resource definition with URI, description, etc.
+            resource_or_template: Resource definition (static) or ResourceTemplate
+                (dynamic with URI patterns) to register.
             handler: Async function that processes read requests. Should return
                 ReadResourceResult with resource contents.
         """
-        self.registered[resource.uri] = resource
-        self.handlers[resource.uri] = handler
+        if isinstance(resource_or_template, Resource):
+            self.registered_resources[resource_or_template.uri] = resource_or_template
+            self.handlers[resource_or_template.uri] = handler
+        elif isinstance(resource_or_template, ResourceTemplate):
+            self.registered_templates[resource_or_template.uri_template] = (
+                resource_or_template
+            )
+            self.template_handlers[resource_or_template.uri_template] = handler
 
-    def register_template(self, template: ResourceTemplate, handler: Callable) -> None:
-        """Register a resource template with its handler function.
-
-        Your handler receives requests with expanded URIs (e.g.,
-        'file:///logs/2024-01-15.log' from template 'file:///logs/{date}.log').
-        Handler exceptions become INTERNAL_ERROR responses, so consider handling
-        expected failures gracefully within your handler.
+    def on_subscribe(self, callback: Callable[[str], Awaitable[None]]) -> None:
+        """Register callback for resource subscription events.
 
         Args:
-            template: Resource template with URI pattern, description, etc.
-            handler: Async function that processes read requests for matching URIs
-                generated from the template. Should return ReadResourceResult with
-                resource contents.
+            callback: Async function called when a client subscribes to a resource.
+                Receives the resource URI as an argument.
         """
-        self.templates[template.uri_template] = template
-        self.template_handlers[template.uri_template] = handler
+        self._on_subscribe = callback
+
+    def on_unsubscribe(self, callback: Callable[[str], Awaitable[None]]) -> None:
+        """Register callback for resource unsubscription events.
+
+        Args:
+            callback: Async function called when a client unsubscribes from a resource.
+                Receives the resource URI as an argument.
+        """
+        self._on_unsubscribe = callback
 
     async def handle_list_resources(
         self, request: ListResourcesRequest
@@ -82,7 +94,7 @@ class ResourceManager:
         Returns:
             ListResourcesResult: All registered static resources.
         """
-        return ListResourcesResult(resources=list(self.registered.values()))
+        return ListResourcesResult(resources=list(self.registered_resources.values()))
 
     async def handle_read(self, request: ReadResourceRequest) -> ReadResourceResult:
         """Read a resource by URI, checking static resources then templates.
@@ -135,7 +147,7 @@ class ResourceManager:
             ListResourceTemplatesResult: All registered resource templates.
         """
         return ListResourceTemplatesResult(
-            resource_templates=list(self.templates.values())
+            resource_templates=list(self.registered_templates.values())
         )
 
     async def handle_subscribe(self, request: SubscribeRequest) -> EmptyResult:
@@ -156,18 +168,18 @@ class ResourceManager:
             KeyError: If the URI matches no static resource or template pattern.
         """
         uri = request.uri
-        if uri not in self.registered:
+        if uri not in self.registered_resources:
             template_found = any(
                 self._matches_template(uri=uri, template=template)
-                for template in self.templates.keys()
+                for template in self.registered_templates.keys()
             )
             if not template_found:
                 raise KeyError(f"Cannot subscribe to unknown resource: {uri}")
 
         self.subscriptions.add(uri)
-        if self.on_subscribe:
+        if self._on_subscribe:
             try:
-                await self.on_subscribe(uri)
+                await self._on_subscribe(uri)
             except Exception as e:
                 print(f"Error in on_subscribe callback: {uri}: {e}")
 
@@ -197,9 +209,9 @@ class ResourceManager:
 
         # Remove subscription and call callback
         self.subscriptions.remove(uri)  # Can use remove() now since we validated
-        if self.on_unsubscribe:
+        if self._on_unsubscribe:
             try:
-                await self.on_unsubscribe(uri)
+                await self._on_unsubscribe(uri)
             except Exception as e:
                 print(f"Error in on_unsubscribe callback: {uri}: {e}")
 

@@ -24,7 +24,7 @@ class TestLoggingManager:
         # Arrange
         manager = LoggingManager()
         callback = AsyncMock()
-        manager.set_handler(callback)
+        manager.on_level_change(callback)
         request = SetLevelRequest(level="warning")
 
         # Act

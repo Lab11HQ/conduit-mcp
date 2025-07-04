@@ -27,11 +27,11 @@ class TestResourceManager:
         handler = AsyncMock()
 
         # Act
-        manager.register_resource(resource, handler)
+        manager.register(resource, handler)
 
         # Assert
-        assert "file://test.txt" in manager.registered
-        assert manager.registered["file://test.txt"] is resource
+        assert "file://test.txt" in manager.registered_resources
+        assert manager.registered_resources["file://test.txt"] is resource
         assert "file://test.txt" in manager.handlers
         assert manager.handlers["file://test.txt"] is handler
 
@@ -44,11 +44,11 @@ class TestResourceManager:
         handler = AsyncMock()
 
         # Act
-        manager.register_template(template, handler)
+        manager.register(template, handler)
 
         # Assert
-        assert "file://logs/{date}.log" in manager.templates
-        assert manager.templates["file://logs/{date}.log"] is template
+        assert "file://logs/{date}.log" in manager.registered_templates
+        assert manager.registered_templates["file://logs/{date}.log"] is template
         assert "file://logs/{date}.log" in manager.template_handlers
         assert manager.template_handlers["file://logs/{date}.log"] is handler
 
@@ -57,7 +57,7 @@ class TestResourceManager:
         manager = ResourceManager()
         resource = Resource(uri="file://test.txt", name="Test File")
         handler = AsyncMock()
-        manager.register_resource(resource, handler)
+        manager.register(resource, handler)
         request = ListResourcesRequest()
 
         # Act
@@ -73,7 +73,7 @@ class TestResourceManager:
             uri_template="file://logs/{date}.log", name="Log Files"
         )
         handler = AsyncMock()
-        manager.register_template(template, handler)
+        manager.register(template, handler)
         request = ListResourceTemplatesRequest()
 
         # Act
@@ -90,7 +90,7 @@ class TestResourceManager:
             contents=[TextResourceContents(uri="file://test.txt", text="file content")]
         )
         handler = AsyncMock(return_value=expected_result)
-        manager.register_resource(resource, handler)
+        manager.register(resource, handler)
         request = ReadResourceRequest(uri="file://test.txt")
 
         # Act
@@ -114,7 +114,7 @@ class TestResourceManager:
         manager = ResourceManager()
         resource = Resource(uri="file://test.txt", name="Test File")
         handler = AsyncMock()
-        manager.register_resource(resource, handler)
+        manager.register(resource, handler)
         request = SubscribeRequest(uri="file://test.txt")
 
         # Act
@@ -130,8 +130,8 @@ class TestResourceManager:
         resource = Resource(uri="file://test.txt", name="Test File")
         handler = AsyncMock()
         callback = AsyncMock()
-        manager.register_resource(resource, handler)
-        manager.on_subscribe = callback
+        manager.register(resource, handler)
+        manager._on_subscribe = callback
         request = SubscribeRequest(uri="file://test.txt")
 
         # Act
@@ -156,7 +156,7 @@ class TestResourceManager:
         manager = ResourceManager()
         resource = Resource(uri="file://test.txt", name="Test File")
         handler = AsyncMock()
-        manager.register_resource(resource, handler)
+        manager.register(resource, handler)
         manager.subscriptions.add("file://test.txt")
         request = UnsubscribeRequest(uri="file://test.txt")
 
@@ -172,7 +172,7 @@ class TestResourceManager:
         manager = ResourceManager()
         callback = AsyncMock()
         manager.subscriptions.add("file://test.txt")
-        manager.on_unsubscribe = callback
+        manager._on_unsubscribe = callback
         request = UnsubscribeRequest(uri="file://test.txt")
 
         # Act
@@ -208,7 +208,7 @@ class TestResourceManager:
             ]
         )
         handler = AsyncMock(return_value=expected_result)
-        manager.register_template(template, handler)
+        manager.register(template, handler)
         request = ReadResourceRequest(uri="file://logs/2024-01-15.log")
 
         # Act
@@ -226,8 +226,8 @@ class TestResourceManager:
         )
         handler = AsyncMock()
         callback = AsyncMock()
-        manager.register_template(template, handler)
-        manager.on_subscribe = callback
+        manager.register(template, handler)
+        manager._on_subscribe = callback
         request = SubscribeRequest(uri="file://logs/2024-01-15.log")
 
         # Act
