@@ -96,12 +96,12 @@ class ServerCapabilities(ProtocolModel):
     Experimental or non-standard capabilities.
     """
 
-    logging: dict[str, Any] | None = None
+    logging: bool = False
     """
     Logging capability configuration.
     """
 
-    completions: dict[str, Any] | None = None
+    completions: bool = False
     """
     Completion capabilities.
     """
@@ -234,3 +234,54 @@ class InitializeResult(Result):
     """
     Optional setup or usage instructions for the client.
     """
+
+    @classmethod
+    def from_protocol(cls, data: dict[str, Any]) -> Self:
+        """Convert from protocol-level representation.
+
+        We simplify the logging and completions capabilities from the spec's
+        `dict | None` format to clean booleans. Since these capabilities have
+        no configuration options, this makes capability checking more intuitive:
+        `if capabilities.logging` instead of `if capabilities.logging is not None`.
+
+        Wire format: {"capabilities": {"logging": {}, "completions": {}}}
+        Python API:  {"capabilities": {"logging": True, "completions": True}}
+        """
+        # Create a mutable copy to transform capabilities
+        transformed_data = copy.deepcopy(data)
+
+        # Convert capabilities from dict to boolean if present
+        result_data = transformed_data.get("result", {})
+        capabilities = result_data.get("capabilities", {})
+
+        if "logging" in capabilities:
+            transformed_data["result"]["capabilities"]["logging"] = True
+
+        if "completions" in capabilities:
+            transformed_data["result"]["capabilities"]["completions"] = True
+
+        return super().from_protocol(transformed_data)
+
+    def to_protocol(self) -> dict[str, Any]:
+        """Convert to protocol-level representation.
+
+        Translates our boolean capability flags back to the spec's format:
+        True becomes {"logging": {}}, False omits the field entirely.
+        This maintains wire compatibility while keeping the Python API clean.
+        """
+        # Get the base result data
+        result = super().to_protocol()
+
+        # Handle logging capability
+        if self.capabilities.logging:
+            result["capabilities"]["logging"] = {}
+        else:
+            result["capabilities"].pop("logging", None)
+
+        # Handle completions capability
+        if self.capabilities.completions:
+            result["capabilities"]["completions"] = {}
+        else:
+            result["capabilities"].pop("completions", None)
+
+        return result

@@ -9,6 +9,7 @@ from conduit.protocol.initialization import (
     InitializedNotification,
     InitializeRequest,
     InitializeResult,
+    ResourcesCapability,
     RootsCapability,
     ServerCapabilities,
 )
@@ -199,3 +200,39 @@ class TestInitialization:
 
         assert "sampling" not in serialized["params"]["capabilities"]
         assert serialized["params"]["capabilities"]["roots"]["listChanged"]
+
+    def test_initialize_result_serializes_bool_capabilities_as_dict(self):
+        # Arrange
+        result = InitializeResult(
+            protocol_version=PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(logging=True, completions=True),
+            server_info=Implementation(name="test_server", version="1.0"),
+        )
+        # Act
+        serialized = result.to_protocol()
+        jsonrpc_response = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": serialized,
+        }
+        # Assert
+        assert jsonrpc_response["result"]["capabilities"]["logging"] == {}
+        assert jsonrpc_response["result"]["capabilities"]["completions"] == {}
+
+    def test_initialize_result_deserializes_bool_capabilities_from_dict(self):
+        # Arrange
+        jsonrpc_response = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "protocolVersion": PROTOCOL_VERSION,
+                "capabilities": {"logging": {}, "completions": {}, "resources": {}},
+                "serverInfo": {"name": "test_server", "version": "1.0"},
+            },
+        }
+        # Act
+        result = InitializeResult.from_protocol(jsonrpc_response)
+        # Assert
+        assert result.capabilities.logging
+        assert result.capabilities.completions
+        assert isinstance(result.capabilities.resources, ResourcesCapability)

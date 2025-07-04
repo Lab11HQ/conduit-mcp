@@ -443,7 +443,7 @@ class ServerSession(BaseSession):
             Error: If completions capability not supported, handler not configured,
                 or generation fails.
         """
-        if self.server_config.capabilities.completions is None:
+        if not self.server_config.capabilities.completions:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Server does not support completion capability",
@@ -480,7 +480,7 @@ class ServerSession(BaseSession):
             EmptyResult: Level set successfully.
             Error: If logging capability not supported.
         """
-        if self.server_config.capabilities.logging is None:
+        if not self.server_config.capabilities.logging:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Server does not support logging capability",

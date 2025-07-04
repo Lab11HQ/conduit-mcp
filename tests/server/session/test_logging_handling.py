@@ -11,7 +11,7 @@ class TestSetLevel(ServerSessionTest):
     async def test_sets_level_when_capability_enabled(self):
         """Test successful log level setting when logging capability is enabled."""
         # Arrange
-        self.config.capabilities.logging = {}  # Enable logging
+        self.config.capabilities.logging = True
 
         # Mock the manager to return success
         self.session.logging.handle_set_level = AsyncMock(return_value=EmptyResult())
@@ -30,7 +30,7 @@ class TestSetLevel(ServerSessionTest):
     async def test_rejects_set_level_when_capability_not_set(self):
         """Test error when logging capability is not configured."""
         # Arrange
-        self.config.capabilities.logging = None  # No logging capability
+        self.config.capabilities.logging = False
         request = SetLevelRequest(level="debug")
 
         # Act
@@ -49,7 +49,7 @@ class TestSetLevel(ServerSessionTest):
         succeeds.
         """
         # Arrange
-        self.config.capabilities.logging = {}  # Enable capability
+        self.config.capabilities.logging = True
         assert self.session.logging.current_level is None
 
         # Set up a failing callback

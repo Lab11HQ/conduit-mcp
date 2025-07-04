@@ -77,7 +77,7 @@ class TestJSONRPCSerializing:
 
     def test_serializes_response_with_params(self):
         result = InitializeResult(
-            capabilities=ServerCapabilities(completions={}),
+            capabilities=ServerCapabilities(completions=True),
             server_info=Implementation(name="test server", version="1"),
             instructions="Use me well",
         )
