@@ -120,14 +120,14 @@ JSONRPCMessage = (
 
 # ------------ Notification registry -------------
 
-CLIENT_SENT_NOTIFICATION_REGISTRY = {
+CLIENT_SENT_NOTIFICATION_CLASSES = {
     "notifications/initialized": InitializedNotification,
     "notifications/cancelled": CancelledNotification,
     "notifications/progress": ProgressNotification,
     "notifications/roots/list_changed": RootsListChangedNotification,
 }
 
-SERVER_SENT_NOTIFICATION_REGISTRY = {
+SERVER_SENT_NOTIFICATION_CLASSES = {
     "notifications/cancelled": CancelledNotification,
     "notifications/message": LoggingMessageNotification,
     "notifications/progress": ProgressNotification,
@@ -137,7 +137,7 @@ SERVER_SENT_NOTIFICATION_REGISTRY = {
     "notifications/prompts/list_changed": PromptListChangedNotification,
 }
 
-NOTIFICATION_REGISTRY = {
-    **CLIENT_SENT_NOTIFICATION_REGISTRY,
-    **SERVER_SENT_NOTIFICATION_REGISTRY,
+NOTIFICATION_CLASSES = {
+    **CLIENT_SENT_NOTIFICATION_CLASSES,
+    **SERVER_SENT_NOTIFICATION_CLASSES,
 }

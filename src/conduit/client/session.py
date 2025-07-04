@@ -75,7 +75,7 @@ from conduit.protocol.tools import (
     Tool,
     ToolListChangedNotification,
 )
-from conduit.protocol.unions import NOTIFICATION_REGISTRY
+from conduit.protocol.unions import NOTIFICATION_CLASSES
 from conduit.shared.exceptions import UnknownNotificationError, UnknownRequestError
 from conduit.shared.session import BaseSession
 from conduit.transport.base import Transport
@@ -400,17 +400,17 @@ class ClientSession(BaseSession):
             notification types are rejected, but missing handlers are silently ignored.
         """
         method = payload["method"]
-        notification_class = NOTIFICATION_REGISTRY.get(method)
+        notification_class = NOTIFICATION_CLASSES.get(method)
         if notification_class is None:
             raise UnknownNotificationError(method)
         notification = notification_class.from_protocol(payload)
 
-        registry = self._get_notification_registry()
-        if method in registry:
-            handler = registry[method]
+        handlers = self._get_notification_handlers()
+        if method in handlers:
+            handler = handlers[method]
             await handler(notification)
 
-    def _get_notification_registry(self) -> dict[str, NotificationHandler]:
+    def _get_notification_handlers(self) -> dict[str, NotificationHandler]:
         return {
             "notifications/cancelled": self._handle_cancelled,
             "notifications/progress": self._handle_progress,
