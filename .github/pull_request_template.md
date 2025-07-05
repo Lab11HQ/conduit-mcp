@@ -1,6 +1,7 @@
 ## What changed?
 
 <!-- Brief summary of the changes -->
+<!-- Include "Closes #123" or "Fixes #456" to auto-close related issues -->
 
 ## Why?
 
