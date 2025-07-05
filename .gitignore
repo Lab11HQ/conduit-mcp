@@ -14,3 +14,6 @@ pyright-output.txt
 
 # Cursor
 .cursor/
+
+# notes
+notes/
