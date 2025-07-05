@@ -212,7 +212,6 @@ class BaseSession(ABC):
         else:
             print(f"Unmatched response for request ID {message_id}")
 
-    # TODO: TEST THIS
     def _parse_response(
         self, payload: dict[str, Any], original_request: Request
     ) -> Result | Error:

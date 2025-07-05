@@ -1,7 +1,8 @@
 import asyncio
 
-from conduit.protocol.base import Error
+from conduit.protocol.base import INTERNAL_ERROR, Error
 from conduit.protocol.common import EmptyResult, PingRequest
+from conduit.protocol.tools import ListToolsRequest
 
 from .conftest import BaseSessionTest
 
@@ -77,3 +78,107 @@ class TestResponseHandling(BaseSessionTest):
         # Assert
         assert "cleanup-test" not in self.session._pending_requests
         assert future.done()
+
+
+class TestParseResponse(BaseSessionTest):
+    async def test_parses_result_response_into_result_object(self):
+        """Successfully parses result response for PingRequest into EmptyResult."""
+        # Arrange
+        request = PingRequest()
+        response_payload = {"jsonrpc": "2.0", "id": "test-123", "result": {}}
+
+        # Act
+        result = self.session._parse_response(response_payload, request)
+
+        # Assert
+        assert isinstance(result, EmptyResult)
+        assert not isinstance(result, Error)
+
+    async def test_parses_error_response_into_error_object(self):
+        """Successfully parses error response for ListToolsRequest into Error object."""
+        # Arrange
+        request = ListToolsRequest()
+        response_payload = {
+            "jsonrpc": "2.0",
+            "id": "test-123",
+            "error": {
+                "code": -32601,
+                "message": "Method not found",
+                "data": {"additional": "info"},
+            },
+        }
+
+        # Act
+        result = self.session._parse_response(response_payload, request)
+
+        # Assert
+        assert isinstance(result, Error)
+        assert result.code == -32601
+        assert result.message == "Method not found"
+        assert result.data == {"additional": "info"}
+
+    async def test_returns_error_when_result_parsing_fails(self):
+        """Returns Error when result parsing fails for ListToolsRequest."""
+        # Arrange
+        request = ListToolsRequest()
+        response_payload = {
+            "jsonrpc": "2.0",
+            "id": "test-123",
+            "result": {
+                "tools": "invalid_format"  # Should be a list, not a string
+            },
+        }
+
+        # Act
+        result = self.session._parse_response(response_payload, request)
+
+        # Assert
+        assert isinstance(result, Error)
+        assert result.code == INTERNAL_ERROR
+        assert "Failed to parse ListToolsResult response" in result.message
+        assert result.data["expected_type"] == "ListToolsResult"
+        assert result.data["full_response"] == response_payload
+        assert "parse_error" in result.data
+        assert "error_type" in result.data
+
+    async def test_returns_error_when_error_parsing_fails(self):
+        """Returns Error when error parsing fails for ListToolsRequest."""
+        # Arrange
+        request = ListToolsRequest()
+        response_payload = {
+            "jsonrpc": "2.0",
+            "id": "test-123",
+            "error": "invalid_error_format",  # Should be an object, not a string
+        }
+
+        # Act
+        result = self.session._parse_response(response_payload, request)
+
+        # Assert
+        assert isinstance(result, Error)
+        assert result.code == INTERNAL_ERROR
+        assert result.message == "Failed to parse response"
+        assert result.data["full_response"] == response_payload
+        assert "parse_error" in result.data
+        assert "error_type" in result.data
+
+    async def test_returns_error_when_response_has_neither_result_nor_error(self):
+        """Returns Error when response has neither result nor error field."""
+        # Arrange
+        request = ListToolsRequest()
+        response_payload = {
+            "jsonrpc": "2.0",
+            "id": "test-123",
+            # Missing both "result" and "error"
+        }
+
+        # Act
+        result = self.session._parse_response(response_payload, request)
+
+        # Assert
+        assert isinstance(result, Error)
+        assert result.code == INTERNAL_ERROR
+        assert result.message == "Failed to parse response"
+        assert result.data["full_response"] == response_payload
+        assert "parse_error" in result.data
+        assert "error_type" in result.data
