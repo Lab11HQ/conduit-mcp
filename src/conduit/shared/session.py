@@ -32,6 +32,14 @@ class BaseSession(ABC):
     Provides common functionality for message handling, transport management,
     and JSON-RPC protocol processing that's shared between client and server
     sessions.
+
+    NOTE: Can add transport = transport | None and then have
+    transport = transport or build_transport()
+    and
+    owns_transport = transport is None
+
+    This would allow us to have a session that doesn't own the transport.
+    If I created it, I own it. If I borrow it, I don't own it.
     """
 
     def __init__(self, transport: Transport):
