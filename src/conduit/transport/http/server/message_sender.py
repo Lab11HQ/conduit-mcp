@@ -5,7 +5,7 @@ from typing import Any
 from conduit.transport.http.server.connection_manager import ConnectionManager
 
 
-class ServerMessageSender:
+class MessageSender:
     """Handles outbound messages from server to specific clients.
 
     Manages the server's side of HTTP communication:
