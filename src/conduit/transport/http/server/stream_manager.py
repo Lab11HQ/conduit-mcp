@@ -5,7 +5,7 @@ from typing import Any
 from conduit.transport.http.server.connection_manager import ConnectionManager
 
 
-class ServerStreamManager:
+class StreamManager:
     """Manages outbound SSE streams TO multiple clients.
 
     Handles server → client message delivery via SSE streams:

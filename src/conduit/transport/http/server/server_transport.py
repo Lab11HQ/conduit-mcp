@@ -1,4 +1,5 @@
 import asyncio
+import time
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -7,17 +8,17 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
 
-from conduit.transport.base import Transport, TransportMessage
 from conduit.transport.http.server.connection_manager import ConnectionManager
-from conduit.transport.http.server.message_sender import ServerMessageSender
-from conduit.transport.http.server.stream_manager import ServerStreamManager
+from conduit.transport.http.server.message_sender import MessageSender
+from conduit.transport.http.server.stream_manager import StreamManager
+from conduit.transport.server import ClientMessage, ServerTransport
 
 
-class HTTPServerTransport(Transport):
-    """HTTP server transport implementing the Transport interface.
+class HTTPTransport(ServerTransport):
+    """HTTP server transport implementing the ServerTransport protocol.
 
-    Coordinates multiple client connections through a unified transport interface.
-    Handles HTTP endpoints, session management, and message routing.
+    Handles multiple client connections with explicit client targeting.
+    Provides clean 1:many communication interface.
     """
 
     def __init__(self, host: str = "localhost", port: int = 8000):
@@ -26,17 +27,68 @@ class HTTPServerTransport(Transport):
 
         # Component coordination
         self._connection_manager = ConnectionManager()
-        self._message_sender = ServerMessageSender(self._connection_manager)
-        self._stream_manager = ServerStreamManager(self._connection_manager)
+        self._message_sender = MessageSender(self._connection_manager)
+        self._stream_manager = StreamManager(self._connection_manager)
 
-        # Unified message queue (from ALL clients)
-        self._message_queue: asyncio.Queue[TransportMessage] = asyncio.Queue()
+        # Client message queue (from ALL clients with context)
+        self._message_queue: asyncio.Queue[ClientMessage] = asyncio.Queue()
 
         # Starlette app
         self._app = self._create_app()
         self._server_task: asyncio.Task | None = None
         self._closed = False
 
+    # ServerTransport protocol implementation
+    async def send_to_client(self, client_id: str, message: dict[str, Any]) -> None:
+        """Send message to specific client."""
+        await self._message_sender.send_to_client(client_id, message)
+
+    async def broadcast(
+        self, message: dict[str, Any], exclude: set[str] | None = None
+    ) -> None:
+        """Send message to all connected clients."""
+        active_clients = self._connection_manager.get_active_sessions()
+
+        for client_id in active_clients:
+            if exclude and client_id in exclude:
+                continue
+            try:
+                await self._message_sender.send_to_client(client_id, message)
+            except ValueError:
+                # Client disconnected during broadcast - skip
+                continue
+
+    def client_messages(self) -> AsyncIterator[ClientMessage]:
+        """Stream of messages from all clients with client context."""
+        return self._client_message_iterator()
+
+    def active_clients(self) -> set[str]:
+        """Get currently connected client IDs."""
+        return self._connection_manager.get_active_sessions()
+
+    async def disconnect_client(self, client_id: str) -> None:
+        """Disconnect specific client."""
+        if self._connection_manager.terminate_session(client_id):
+            await self._stream_manager.cleanup_client(client_id)
+
+    @property
+    def is_open(self) -> bool:
+        """True if server is open and accepting connections."""
+        return not self._closed
+
+    async def close(self) -> None:
+        """Close server and disconnect all clients."""
+        self._closed = True
+
+        # Stop HTTP server
+        if self._server_task:
+            self._server_task.cancel()
+
+        # Clean up components
+        await self._stream_manager.close()  # NOT IMPLEMENTED
+        await self._message_sender.close()  # NOT IMPLEMENTED
+
+    # HTTP endpoint handlers (unchanged)
     def _create_app(self) -> Starlette:
         """Create the Starlette application with MCP endpoints."""
         routes = [
@@ -44,7 +96,6 @@ class HTTPServerTransport(Transport):
             Route("/mcp", self._handle_get, methods=["GET"]),
             Route("/mcp", self._handle_delete, methods=["DELETE"]),
         ]
-
         return Starlette(routes=routes)
 
     async def _handle_post(self, request: Request) -> Response:
@@ -76,7 +127,8 @@ class HTTPServerTransport(Transport):
             return Response(status_code=202)  # Accepted
 
         elif self._is_request(message_data):
-            return await self._handle_request(session_id, message_data)
+            response = await self._handle_request(session_id, message_data)
+            return response
 
         else:
             return JSONResponse({"error": "Invalid message type"}, status_code=400)
@@ -137,49 +189,58 @@ class HTTPServerTransport(Transport):
 
         return JSONResponse(initialize_result, headers={"Mcp-Session-Id": session_id})
 
-    # Transport interface implementation
-    async def send(self, message: dict[str, Any]) -> None:
-        """Send message to a client.
+    # Message handling methods (NEW - these were missing!)
+    async def _handle_notification(
+        self, client_id: str, message_data: dict[str, Any]
+    ) -> None:
+        """Handle notification from client - add to message queue."""
+        client_message = ClientMessage(
+            client_id=client_id,
+            payload=message_data,
+            timestamp=time.time(),
+            metadata={"type": "notification"},
+        )
+        await self._message_queue.put(client_message)
 
-        NOTE: This is tricky for server - which client?
-        We might need to modify this interface or handle it differently.
-        """
-        # TODO: How do we determine target client?
-        # Option 1: Message contains client context
-        # Option 2: Different interface for server
-        # Option 3: Broadcast to all clients
+    async def _handle_response(
+        self, client_id: str, message_data: dict[str, Any]
+    ) -> None:
+        """Handle response from client - add to message queue."""
+        client_message = ClientMessage(
+            client_id=client_id,
+            payload=message_data,
+            timestamp=time.time(),
+            metadata={"type": "response"},
+        )
+        await self._message_queue.put(client_message)
 
-        raise NotImplementedError("Server send() needs client targeting")
+    async def _handle_request(
+        self, client_id: str, message_data: dict[str, Any]
+    ) -> JSONResponse:
+        """Handle request from client - add to message queue and return response."""
+        client_message = ClientMessage(
+            client_id=client_id,
+            payload=message_data,
+            timestamp=time.time(),
+            metadata={"type": "request"},
+        )
+        await self._message_queue.put(client_message)
 
-    def messages(self) -> AsyncIterator[TransportMessage]:
-        """Unified stream of messages from ALL clients."""
-        return self._message_queue_iterator()
+        # For requests, we need to return a response immediately
+        # The session layer will handle the actual request processing
+        return JSONResponse(
+            {"jsonrpc": "2.0", "id": message_data.get("id"), "result": {}}
+        )
 
-    async def _message_queue_iterator(self) -> AsyncIterator[TransportMessage]:
-        """Async iterator over messages from all clients."""
+    # Message queue iterator
+    async def _client_message_iterator(self) -> AsyncIterator[ClientMessage]:
+        """Async iterator over client messages."""
         while not self._closed:
             try:
                 message = await asyncio.wait_for(self._message_queue.get(), timeout=1.0)
                 yield message
             except asyncio.TimeoutError:
                 continue
-
-    @property
-    def is_open(self) -> bool:
-        """True if the transport is open and accepting connections."""
-        return not self._closed
-
-    async def close(self) -> None:
-        """Close the transport and all client connections."""
-        self._closed = True
-
-        # Stop HTTP server
-        if self._server_task:
-            self._server_task.cancel()
-
-        # Clean up components
-        await self._stream_manager.close()
-        await self._message_sender.close()
 
     # Helper methods
     def _is_initialize_request(self, message: dict[str, Any]) -> bool:
