@@ -3,6 +3,7 @@ from typing import Any
 import httpx
 from httpx_sse import aconnect_sse
 
+from conduit.protocol.base import PROTOCOL_VERSION
 from conduit.transport.http.client_stream_manager import ClientStreamManager
 
 
@@ -133,4 +134,5 @@ class ClientMessageSender:
         return {
             "Accept": "application/json, text/event-stream",
             "Content-Type": "application/json",
+            "MCP-Protocol-Version": PROTOCOL_VERSION,
         }
