@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Any
 
-from conduit.protocol.base import METHOD_NOT_FOUND, Error
+from conduit.protocol.base import INTERNAL_ERROR, METHOD_NOT_FOUND, Error
 from conduit.protocol.initialization import (
     PROTOCOL_VERSION,
     ClientCapabilities,
@@ -12,6 +12,7 @@ from conduit.protocol.initialization import (
     ServerCapabilities,
 )
 from conduit.protocol.jsonrpc import JSONRPCError, JSONRPCResponse
+from conduit.protocol.resources import ListResourcesRequest
 from conduit.protocol.roots import Root
 from conduit.protocol.tools import ListToolsRequest
 from conduit.server.managers import (
@@ -19,9 +20,9 @@ from conduit.server.managers import (
     CompletionManager,
     LoggingManager,
     PromptManager,
-    ResourceManager,
 )
-from conduit.server.managers.tools_v2 import ToolManager as ToolManagerV2
+from conduit.server.managers.resources_v2 import ResourceManager
+from conduit.server.managers.tools_v2 import ToolManager
 from conduit.server.processor import MessageProcessor
 from conduit.transport.server import ServerTransport
 
@@ -62,7 +63,7 @@ class ServerSession:
         self.initialized_clients: set[str] = set()
 
         # Domain managers (these will need client-aware updates)
-        self.tools = ToolManagerV2()
+        self.tools = ToolManager()
         self.resources = ResourceManager()
         self.prompts = PromptManager()
         self.logging = LoggingManager()
@@ -190,10 +191,33 @@ class ServerSession:
         pass
 
     async def _handle_list_resources(
-        self, client_id: str, payload: dict[str, Any]
+        self, client_id: str, request: ListResourcesRequest
     ) -> None:
         """Handle resources/list request from specific client."""
-        pass
+        try:
+            # Check server capabilities
+            if self.server_config.capabilities.resources is None:
+                error = Error(
+                    code=METHOD_NOT_FOUND,
+                    message="Server does not support resources capability",
+                )
+                response = JSONRPCError.from_error(error, request.id)
+            else:
+                # Delegate to client-aware resource manager
+                result = await self.resources.handle_list_resources(client_id, request)
+                response = JSONRPCResponse.from_result(result, request.id)
+
+            # Send response back to the specific client
+            await self.transport.send_to_client(client_id, response.to_wire())
+
+        except Exception as e:
+            # Handle unexpected errors
+            error = Error(
+                code=INTERNAL_ERROR,
+                message=f"Error handling resources/list: {str(e)}",
+            )
+            response = JSONRPCError.from_error(error, request.id)
+            await self.transport.send_to_client(client_id, response.to_wire())
 
     async def _handle_list_resource_templates(
         self, client_id: str, payload: dict[str, Any]
