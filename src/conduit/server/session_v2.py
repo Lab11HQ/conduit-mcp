@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import Any
 
+from conduit.protocol.base import METHOD_NOT_FOUND, Error
 from conduit.protocol.initialization import (
     PROTOCOL_VERSION,
     ClientCapabilities,
@@ -10,15 +11,17 @@ from conduit.protocol.initialization import (
     InitializeRequest,
     ServerCapabilities,
 )
+from conduit.protocol.jsonrpc import JSONRPCError, JSONRPCResponse
 from conduit.protocol.roots import Root
+from conduit.protocol.tools import ListToolsRequest
 from conduit.server.managers import (
     CallbackManager,
     CompletionManager,
     LoggingManager,
     PromptManager,
     ResourceManager,
-    ToolManager,
 )
+from conduit.server.managers.tools_v2 import ToolManager as ToolManagerV2
 from conduit.server.processor import MessageProcessor
 from conduit.transport.server import ServerTransport
 
@@ -59,7 +62,7 @@ class ServerSession:
         self.initialized_clients: set[str] = set()
 
         # Domain managers (these will need client-aware updates)
-        self.tools = ToolManager()
+        self.tools = ToolManagerV2()
         self.resources = ResourceManager()
         self.prompts = PromptManager()
         self.logging = LoggingManager()
@@ -155,10 +158,21 @@ class ServerSession:
         # TODO: Parse request, store client state, mark as initialized, send response
         pass
 
-    async def _handle_list_tools(self, client_id: str, payload: dict[str, Any]) -> None:
-        """Handle tools/list request from specific client."""
-        # TODO: Parse request, get tools from manager, send response
-        pass
+    async def _handle_list_tools(
+        self, client_id: str, request: ListToolsRequest
+    ) -> None:
+        """Handle typed tools/list request - much cleaner!"""
+        if self.server_config.capabilities.tools is None:
+            error = Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support tools capability",
+            )
+            response = JSONRPCError.from_error(error, request.id)
+        else:
+            result = await self.tools.handle_list(client_id, request)
+            response = JSONRPCResponse.from_result(result, request.id)
+
+        await self.transport.send_to_client(client_id, response.to_wire())
 
     async def _handle_call_tool(self, client_id: str, payload: dict[str, Any]) -> None:
         """Handle tools/call request from specific client."""
