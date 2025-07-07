@@ -4,8 +4,8 @@ from typing import Any
 import httpx
 
 from conduit.transport.base import Transport, TransportMessage
-from conduit.transport.http.client_message_sender import ClientMessageSender
-from conduit.transport.http.client_stream_manager import ClientStreamManager
+from conduit.transport.http.client.client_message_sender import ClientMessageSender
+from conduit.transport.http.client.client_stream_manager import ClientStreamManager
 
 
 class HTTPClientTransport(Transport):

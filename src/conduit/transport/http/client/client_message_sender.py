@@ -4,7 +4,7 @@ import httpx
 from httpx_sse import aconnect_sse
 
 from conduit.protocol.base import PROTOCOL_VERSION
-from conduit.transport.http.client_stream_manager import ClientStreamManager
+from conduit.transport.http.client.client_stream_manager import ClientStreamManager
 
 
 class ClientMessageSender:
