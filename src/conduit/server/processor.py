@@ -1,25 +1,34 @@
 """Message processing mechanics for server sessions.
 
-Handles the message loop, routing, and task management while keeping
+Handles the message loop, routing, and parsing while keeping
 the session focused on protocol logic rather than message processing.
 """
 
 import asyncio
 from typing import Any, Awaitable, Callable
 
+from conduit.protocol.base import (
+    INTERNAL_ERROR,
+    INVALID_PARAMS,
+    METHOD_NOT_FOUND,
+    Error,
+    Notification,
+    Request,
+)
+from conduit.protocol.jsonrpc import JSONRPCError
+from conduit.protocol.unions import NOTIFICATION_CLASSES, REQUEST_CLASSES
 from conduit.transport.server import ClientMessage, ServerTransport
 
-# Handler signature - takes client_id and raw payload, returns nothing
-# The handler is responsible for parsing and sending responses via transport
-MessageHandler = Callable[[str, dict[str, Any]], Awaitable[None]]
+# Handler signature - takes client_id and typed request/notification
+MessageHandler = Callable[[str, Request | Notification], Awaitable[None]]
 
 
 class MessageProcessor:
     """Handles message processing mechanics for server sessions.
 
-    Owns the message loop, manages background tasks, and routes messages
-    to registered handlers with client context. Keeps the session focused
-    on protocol logic rather than message processing mechanics.
+    Owns the message loop, manages background tasks, parses raw payloads
+    into typed objects, and routes them to registered handlers with client
+    context. Keeps the session focused on protocol logic.
     """
 
     def __init__(self, transport: ServerTransport):
@@ -40,8 +49,7 @@ class MessageProcessor:
 
         Args:
             method: JSON-RPC method name (e.g., "tools/list")
-            handler: Async function that takes (client_id, payload) and handles the
-                message.
+            handler: Async function that takes (client_id, typed_request) and handles it
         """
         self._handlers[method] = handler
 
@@ -126,10 +134,10 @@ class MessageProcessor:
             print(f"Unknown message type from {client_id}: {payload}")
 
     async def _handle_request(self, client_id: str, payload: dict[str, Any]) -> None:
-        """Handle JSON-RPC request with client context.
+        """Parse and route typed request to handler.
 
-        Looks up the handler for the method and runs it as a background task
-        so it can't block other message processing.
+        Parses raw JSON-RPC payload into typed Request object and routes to
+        the appropriate handler. Parsing errors are sent back to the client.
 
         Args:
             client_id: ID of the client that sent the request
@@ -138,25 +146,48 @@ class MessageProcessor:
         method = payload["method"]
         request_id = payload["id"]
 
-        if handler := self._handlers.get(method):
-            # Run as background task to avoid blocking message loop
-            task_key = f"{client_id}_{request_id}"
-            task = asyncio.create_task(
-                handler(client_id, payload),
-                name=f"handle_{method}_{client_id}_{request_id}",
+        try:
+            # Parse raw payload into typed request
+            request_or_error = self._parse_request(payload)
+
+            if isinstance(request_or_error, Error):
+                # Send parsing error back to client
+                response = JSONRPCError.from_error(request_or_error, request_id)
+                await self.transport.send_to_client(client_id, response.to_wire())
+                return
+
+            # Route to handler with typed request
+            if handler := self._handlers.get(method):
+                # Run as background task to avoid blocking message loop
+                task_key = f"{client_id}_{request_id}"
+                task = asyncio.create_task(
+                    handler(client_id, request_or_error),
+                    name=f"handle_{method}_{client_id}_{request_id}",
+                )
+                self._in_flight_requests[task_key] = task
+                task.add_done_callback(
+                    lambda t, key=task_key: self._in_flight_requests.pop(key, None)
+                )
+            else:
+                # Send METHOD_NOT_FOUND error
+                error = Error(
+                    code=METHOD_NOT_FOUND, message=f"Unknown method: {method}"
+                )
+                response = JSONRPCError.from_error(error, request_id)
+                await self.transport.send_to_client(client_id, response.to_wire())
+
+        except Exception as e:
+            # Handle unexpected parsing errors
+            error = Error(
+                code=INTERNAL_ERROR, message=f"Error processing request: {str(e)}"
             )
-            self._in_flight_requests[task_key] = task
-            task.add_done_callback(
-                lambda t, key=task_key: self._in_flight_requests.pop(key, None)
-            )
-        else:
-            # TODO: Send METHOD_NOT_FOUND error back to client
-            print(f"Unknown method '{method}' from {client_id}")
+            response = JSONRPCError.from_error(error, request_id)
+            await self.transport.send_to_client(client_id, response.to_wire())
 
     async def _handle_notification(
         self, client_id: str, payload: dict[str, Any]
     ) -> None:
-        """Handle JSON-RPC notification with client context.
+        """Parse and route typed notification to handler.
 
         Args:
             client_id: ID of the client that sent the notification
@@ -164,13 +195,26 @@ class MessageProcessor:
         """
         method = payload["method"]
 
-        if handler := self._handlers.get(method):
-            # Run as background task (notifications don't need responses)
-            asyncio.create_task(
-                handler(client_id, payload), name=f"handle_{method}_{client_id}"
-            )
-        else:
-            print(f"Unknown notification '{method}' from {client_id}")
+        try:
+            # Parse raw payload into typed notification
+            notification = self._parse_notification(payload)
+
+            if notification is None:
+                # Parsing failed - already logged
+                return
+
+            # Route to handler with typed notification
+            if handler := self._handlers.get(method):
+                # Run as background task (notifications don't need responses)
+                asyncio.create_task(
+                    handler(client_id, notification),
+                    name=f"handle_{method}_{client_id}",
+                )
+            else:
+                print(f"Unknown notification '{method}' from {client_id}")
+
+        except Exception as e:
+            print(f"Error processing notification '{method}' from {client_id}: {e}")
 
     async def _handle_response(self, client_id: str, payload: dict[str, Any]) -> None:
         """Handle JSON-RPC response to a server->client request.
@@ -184,6 +228,62 @@ class MessageProcessor:
         """
         # TODO: Implement response correlation for server->client requests
         print(f"Received response from {client_id}: {payload}")
+
+    def _parse_request(self, payload: dict[str, Any]) -> Request | Error:
+        """Parse a JSON-RPC request payload into a typed Request object or Error.
+
+        Returns an Error object for any parsing failures instead of raising exceptions.
+
+        Args:
+            payload: Raw JSON-RPC request payload
+
+        Returns:
+            Typed Request object on success, or Error for parsing failures
+        """
+        method = payload["method"]
+        request_class = REQUEST_CLASSES.get(method)
+
+        if request_class is None:
+            return Error(code=METHOD_NOT_FOUND, message=f"Unknown method: {method}")
+
+        try:
+            return request_class.from_protocol(payload)
+        except Exception as e:
+            return Error(
+                code=INVALID_PARAMS,
+                message=f"Failed to deserialize {method} request: {str(e)}",
+                data={
+                    "id": payload.get("id", "unknown"),
+                    "method": method,
+                    "params": payload.get("params", {}),
+                },
+            )
+
+    def _parse_notification(self, payload: dict[str, Any]) -> Notification | None:
+        """Parse a JSON-RPC notification payload into a typed Notification object.
+
+        Returns None for unknown notification types since notifications are
+        fire-and-forget.
+
+        Args:
+            payload: Raw JSON-RPC notification payload
+
+        Returns:
+            Typed Notification object on success, None for unknown types or parse
+            failures
+        """
+        method = payload["method"]
+        notification_class = NOTIFICATION_CLASSES.get(method)
+
+        if notification_class is None:
+            print(f"Unknown notification method: {method}")
+            return None
+
+        try:
+            return notification_class.from_protocol(payload)
+        except Exception as e:
+            print(f"Failed to deserialize {method} notification: {e}")
+            return None
 
     def _is_valid_request(self, payload: dict[str, Any]) -> bool:
         """Check if payload is a valid JSON-RPC request."""
