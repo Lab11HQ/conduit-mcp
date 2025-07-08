@@ -12,7 +12,6 @@ from conduit.protocol.common import (
 from conduit.protocol.completions import CompleteRequest, CompleteResult
 from conduit.protocol.initialization import (
     PROTOCOL_VERSION,
-    ClientCapabilities,
     Implementation,
     InitializedNotification,
     InitializeRequest,
@@ -39,7 +38,6 @@ from conduit.protocol.resources import (
 from conduit.protocol.roots import (
     ListRootsRequest,
     ListRootsResult,
-    Root,
     RootsListChangedNotification,
 )
 from conduit.protocol.tools import (
@@ -48,6 +46,7 @@ from conduit.protocol.tools import (
     ListToolsRequest,
     ListToolsResult,
 )
+from conduit.server.client_manager import ClientManager
 from conduit.server.coordinator import MessageCoordinator
 from conduit.server.managers.callbacks_v2 import CallbackManager
 from conduit.server.managers.completions_v2 import (
@@ -69,22 +68,12 @@ class ServerConfig:
     protocol_version: str = PROTOCOL_VERSION
 
 
-@dataclass
-class ClientState:
-    capabilities: ClientCapabilities | None = None
-    info: Implementation | None = None
-    protocol_version: str | None = None
-
-    # Domain state
-    roots: list[Root] | None = None
-
-
 class ServerSession:
     """Multi-client aware MCP server session.
 
     Handles protocol logic for multiple clients simultaneously, with each
     client maintaining its own state and initialization status. Uses a
-    MessageProcessor to handle message loop mechanics while focusing on
+    MessageCoordinator to handle message loop mechanics while focusing on
     protocol implementation.
     """
 
@@ -92,20 +81,19 @@ class ServerSession:
         self.transport = transport
         self.server_config = config
 
-        # Multi-client state management
-        self.clients: dict[str, ClientState] = {}
-        self.initialized_clients: set[str] = set()
+        # Client state management
+        self.client_manager = ClientManager()
 
         # Domain managers (these will need client-aware updates)
         self.tools = ToolManager()
-        self.resources = ResourceManager()
+        self.resources = ResourceManager(self.client_manager)
         self.prompts = PromptManager()
-        self.logging = LoggingManager()
+        self.logging = LoggingManager(self.client_manager)
         self.completions = CompletionManager()
         self.callbacks = CallbackManager()
 
-        # Message processing
-        self._coordinator = MessageCoordinator(transport)
+        # Message processing with client manager
+        self._coordinator = MessageCoordinator(transport, self.client_manager)
         self._register_handlers()
 
     async def start(self) -> None:
@@ -115,15 +103,17 @@ class ServerSession:
     async def stop(self) -> None:
         """Stop the server session and clean up client connections."""
         await self._coordinator.stop()
-        self.clients.clear()
-        self.initialized_clients.clear()
+
+        # Clean up all client connections
+        self.client_manager.cleanup_all_clients()
 
     # ================================
     # Initialization
     # ================================
     def is_client_initialized(self, client_id: str) -> bool:
         """Check if a specific client is initialized."""
-        return client_id in self.initialized_clients
+        context = self.client_manager.get_client(client_id)
+        return context is not None and context.initialized
 
     async def _handle_initialize(
         self, client_id: str, request: InitializeRequest
@@ -133,8 +123,15 @@ class ServerSession:
         Stores client capabilities and info for the session, then responds with
         server capabilities to continue the initialization handshake.
         """
+        # Get or create client context
+        context = self.client_manager.get_client(client_id)
+        if not context:
+            context = self.client_manager.register_client(client_id)
+
         # Store client state (capabilities, info, protocol version)
-        self._store_client_state(client_id, request)
+        context.capabilities = request.capabilities
+        context.info = request.client_info
+        context.protocol_version = request.protocol_version
 
         # TODO: Add protocol version check
 
@@ -154,29 +151,13 @@ class ServerSession:
         Marks the client as fully initialized and notifies any registered callbacks.
         After this point, the client is ready for normal operation.
         """
-        # Mark this specific client as initialized
-        self.initialized_clients.add(client_id)
+        # Get client context and mark as initialized
+        context = self.client_manager.get_client(client_id)
+        if context:
+            context.initialized = True
 
         # Call callback with client context
         await self.callbacks.call_initialized(client_id, notification)
-
-    def _ensure_client_exists(self, client_id: str) -> None:
-        """Ensure client state exists for the given client ID."""
-        if client_id not in self.clients:
-            self.clients[client_id] = ClientState()
-
-    def _store_client_state(self, client_id: str, request: InitializeRequest) -> None:
-        """Store client information from initialization request.
-
-        Args:
-            client_id: The client's unique identifier
-            request: The client's initialization request containing capabilities
-        """
-        self._ensure_client_exists(client_id)
-        client_state = self.clients[client_id]
-        client_state.capabilities = request.capabilities
-        client_state.info = request.client_info
-        client_state.protocol_version = request.protocol_version
 
     # ================================
     # Ping
@@ -411,8 +392,9 @@ class ServerSession:
 
             if isinstance(result, ListRootsResult):
                 # Update client state
-                self._ensure_client_exists(client_id)
-                self.clients[client_id].roots = result.roots
+                context = self.client_manager.get_client(client_id)
+                if context:
+                    context.roots = result.roots
 
                 # Call registered callback with client context
                 await self.callbacks.call_roots_changed(client_id, result.roots)
