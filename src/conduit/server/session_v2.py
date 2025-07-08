@@ -100,15 +100,6 @@ class ServerSession:
         self._processor = MessageProcessor(transport)
         self._register_handlers()
 
-    @property
-    def initialized(self) -> bool:
-        """True if at least one client is initialized."""
-        return len(self.initialized_clients) > 0
-
-    def is_client_initialized(self, client_id: str) -> bool:
-        """Check if a specific client is initialized."""
-        return client_id in self.initialized_clients
-
     async def start(self) -> None:
         """Start the server session and message processing."""
         await self._processor.start()
@@ -119,52 +110,24 @@ class ServerSession:
         self.clients.clear()
         self.initialized_clients.clear()
 
-    def _register_handlers(self) -> None:
-        """Register all protocol handlers with the message processor."""
-        # Request handlers
-        self._processor.register_request_handler("ping", self._handle_ping)
-        self._processor.register_request_handler("initialize", self._handle_initialize)
-        self._processor.register_request_handler("tools/list", self._handle_list_tools)
-        self._processor.register_request_handler("tools/call", self._handle_call_tool)
-        self._processor.register_request_handler(
-            "prompts/list", self._handle_list_prompts
-        )
-        self._processor.register_request_handler("prompts/get", self._handle_get_prompt)
-        self._processor.register_request_handler(
-            "resources/list", self._handle_list_resources
-        )
-        self._processor.register_request_handler(
-            "resources/templates/list", self._handle_list_resource_templates
-        )
-        self._processor.register_request_handler(
-            "resources/read", self._handle_read_resource
-        )
-        self._processor.register_request_handler(
-            "resources/subscribe", self._handle_subscribe
-        )
-        self._processor.register_request_handler(
-            "resources/unsubscribe", self._handle_unsubscribe
-        )
-        self._processor.register_request_handler(
-            "completion/complete", self._handle_complete
-        )
-        self._processor.register_request_handler(
-            "logging/setLevel", self._handle_set_level
-        )
+    # ================================
+    # Initialization
+    # ================================
+    @property
+    def initialized(self) -> bool:
+        """True if at least one client is initialized."""
+        return len(self.initialized_clients) > 0
 
-        # Notification handlers
-        self._processor.register_notification_handler(
-            "notifications/cancelled", self._handle_cancelled
-        )
-        self._processor.register_notification_handler(
-            "notifications/progress", self._handle_progress
-        )
-        self._processor.register_notification_handler(
-            "notifications/roots/list_changed", self._handle_roots_list_changed
-        )
-        self._processor.register_notification_handler(
-            "notifications/initialized", self._handle_initialized
-        )
+    def is_client_initialized(self, client_id: str) -> bool:
+        """Check if a specific client is initialized."""
+        return client_id in self.initialized_clients
+
+    async def _handle_initialize(
+        self, client_id: str, request: InitializeRequest
+    ) -> InitializeResult | Error:
+        """Handle initialize request from specific client."""
+        # TODO: Store client state, mark as initialized, return result
+        pass
 
     def _ensure_client_exists(self, client_id: str) -> None:
         """Ensure client state exists for the given client ID."""
@@ -184,19 +147,17 @@ class ServerSession:
         client_state.info = request.client_info
         client_state.protocol_version = request.protocol_version
 
-    # Protocol handlers - all now take client_id as first parameter
-    # These will need to be implemented with client-aware logic
+    # ================================
+    # Ping
+    # ================================
 
     async def _handle_ping(self, client_id: str, request: PingRequest) -> EmptyResult:
         """Handle ping request from specific client."""
         return EmptyResult()
 
-    async def _handle_initialize(
-        self, client_id: str, request: InitializeRequest
-    ) -> InitializeResult | Error:
-        """Handle initialize request from specific client."""
-        # TODO: Parse request, store client state, mark as initialized, send response
-        pass
+    # ================================
+    # Tools
+    # ================================
 
     async def _handle_list_tools(
         self, client_id: str, request: ListToolsRequest
@@ -214,8 +175,15 @@ class ServerSession:
         self, client_id: str, request: CallToolRequest
     ) -> CallToolResult | Error:
         """Handle tools/call request from specific client."""
-        # TODO: Parse request, call tool via manager, send response
-        pass
+        if self.server_config.capabilities.tools is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support tools capability",
+            )
+        try:
+            return await self.tools.handle_call(client_id, request)
+        except KeyError:
+            return Error(code=METHOD_NOT_FOUND, message=f"Unknown tool: {request.name}")
 
     async def _handle_list_prompts(
         self, client_id: str, request: ListPromptsRequest
@@ -303,3 +271,50 @@ class ServerSession:
         """Handle initialized notification from specific client."""
         # TODO: Mark client as initialized
         pass
+
+    def _register_handlers(self) -> None:
+        """Register all protocol handlers with the message processor."""
+        # Request handlers
+        self._processor.register_request_handler("ping", self._handle_ping)
+        self._processor.register_request_handler("initialize", self._handle_initialize)
+        self._processor.register_request_handler("tools/list", self._handle_list_tools)
+        self._processor.register_request_handler("tools/call", self._handle_call_tool)
+        self._processor.register_request_handler(
+            "prompts/list", self._handle_list_prompts
+        )
+        self._processor.register_request_handler("prompts/get", self._handle_get_prompt)
+        self._processor.register_request_handler(
+            "resources/list", self._handle_list_resources
+        )
+        self._processor.register_request_handler(
+            "resources/templates/list", self._handle_list_resource_templates
+        )
+        self._processor.register_request_handler(
+            "resources/read", self._handle_read_resource
+        )
+        self._processor.register_request_handler(
+            "resources/subscribe", self._handle_subscribe
+        )
+        self._processor.register_request_handler(
+            "resources/unsubscribe", self._handle_unsubscribe
+        )
+        self._processor.register_request_handler(
+            "completion/complete", self._handle_complete
+        )
+        self._processor.register_request_handler(
+            "logging/setLevel", self._handle_set_level
+        )
+
+        # Notification handlers
+        self._processor.register_notification_handler(
+            "notifications/cancelled", self._handle_cancelled
+        )
+        self._processor.register_notification_handler(
+            "notifications/progress", self._handle_progress
+        )
+        self._processor.register_notification_handler(
+            "notifications/roots/list_changed", self._handle_roots_list_changed
+        )
+        self._processor.register_notification_handler(
+            "notifications/initialized", self._handle_initialized
+        )
