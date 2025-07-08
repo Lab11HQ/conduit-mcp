@@ -43,7 +43,11 @@ class MessageProcessor:
         self._request_handlers: dict[str, RequestHandler] = {}
         self._notification_handlers: dict[str, NotificationHandler] = {}
         self._message_loop_task: asyncio.Task[None] | None = None
-        self._in_flight_requests: dict[str, asyncio.Task[None]] = {}
+
+        # Client-specific request tracking.
+        # NOTE: May want to allow non string request ids in the future.
+        self._in_flight_requests: dict[str, dict[str, asyncio.Task[None]]] = {}
+        # Structure: {client_id: {request_id: task}}
 
     @property
     def running(self) -> bool:
@@ -179,16 +183,21 @@ class MessageProcessor:
             # Route to handler with typed request
             if handler := self._request_handlers.get(method):
                 # Run as background task to avoid blocking message loop
-                task_key = f"{client_id}_{request_id}"
                 task = asyncio.create_task(
                     self._execute_request_handler(
                         handler, client_id, request_or_error, request_id
                     ),
                     name=f"handle_{method}_{client_id}_{request_id}",
                 )
-                self._in_flight_requests[task_key] = task
+                # Ensure client dict exists
+                if client_id not in self._in_flight_requests:
+                    self._in_flight_requests[client_id] = {}
+                # Store by client and request
+                self._in_flight_requests[client_id][str(request_id)] = task
                 task.add_done_callback(
-                    lambda t, key=task_key: self._in_flight_requests.pop(key, None)
+                    lambda t: self._in_flight_requests[client_id].pop(
+                        str(request_id), None
+                    )
                 )
             else:
                 # Send METHOD_NOT_FOUND error
@@ -369,3 +378,28 @@ class MessageProcessor:
         for request_task in self._in_flight_requests.values():
             request_task.cancel()
         self._in_flight_requests.clear()
+
+    async def cancel_request(self, client_id: str, request_id: str | int) -> bool:
+        """Cancel a specific request for a specific client."""
+        if client_id not in self._in_flight_requests:
+            return False
+
+        request_id_str = str(request_id)
+        if request_id_str not in self._in_flight_requests[client_id]:
+            return False
+
+        task = self._in_flight_requests[client_id][request_id_str]
+        task.cancel()
+        return True
+
+    async def cancel_client_requests(self, client_id: str) -> int:
+        """Cancel all requests for a specific client. Returns count cancelled."""
+        if client_id not in self._in_flight_requests:
+            return 0
+
+        count = 0
+        for task in self._in_flight_requests[client_id].values():
+            task.cancel()
+            count += 1
+
+        return count

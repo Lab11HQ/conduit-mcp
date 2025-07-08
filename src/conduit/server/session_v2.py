@@ -43,7 +43,7 @@ from conduit.protocol.tools import (
     ListToolsRequest,
     ListToolsResult,
 )
-from conduit.server.managers.callbacks import CallbackManager
+from conduit.server.managers.callbacks_v2 import CallbackManager
 from conduit.server.managers.completions_v2 import (
     CompletionManager,
     CompletionNotConfiguredError,
@@ -130,6 +130,13 @@ class ServerSession:
     ) -> InitializeResult | Error:
         """Handle initialize request from specific client."""
         # TODO: Store client state, mark as initialized, return result
+        pass
+
+    async def _handle_initialized(
+        self, client_id: str, notification: InitializedNotification
+    ) -> None:
+        """Handle initialized notification from specific client."""
+        # TODO: Mark client as initialized
         pass
 
     def _ensure_client_exists(self, client_id: str) -> None:
@@ -343,13 +350,18 @@ class ServerSession:
             )
         return await self.logging.handle_set_level(client_id, request)
 
-    # Notification handlers
+    # ================================
+    # Notifications
+    # ================================
 
     async def _handle_cancelled(
         self, client_id: str, notification: CancelledNotification
     ) -> None:
         """Handle cancelled notification from specific client."""
-        pass
+        was_cancelled = await self._processor.cancel_request(
+            client_id, notification.request_id
+        )
+        await self.callbacks.call_cancelled(client_id, notification)
 
     async def _handle_progress(
         self, client_id: str, notification: ProgressNotification
@@ -361,13 +373,6 @@ class ServerSession:
         self, client_id: str, notification: RootsListChangedNotification
     ) -> None:
         """Handle roots/list_changed notification from specific client."""
-        pass
-
-    async def _handle_initialized(
-        self, client_id: str, notification: InitializedNotification
-    ) -> None:
-        """Handle initialized notification from specific client."""
-        # TODO: Mark client as initialized
         pass
 
     def _register_handlers(self) -> None:
