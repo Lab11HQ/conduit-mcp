@@ -36,7 +36,12 @@ from conduit.protocol.resources import (
     SubscribeRequest,
     UnsubscribeRequest,
 )
-from conduit.protocol.roots import Root, RootsListChangedNotification
+from conduit.protocol.roots import (
+    ListRootsRequest,
+    ListRootsResult,
+    Root,
+    RootsListChangedNotification,
+)
 from conduit.protocol.tools import (
     CallToolRequest,
     CallToolResult,
@@ -377,8 +382,29 @@ class ServerSession:
     async def _handle_roots_list_changed(
         self, client_id: str, notification: RootsListChangedNotification
     ) -> None:
-        """Handle roots/list_changed notification from specific client."""
-        pass
+        """Handle roots/list_changed notification from specific client.
+
+        When a client's roots change, we need to fetch the updated list,
+        update our client state, and notify any registered callbacks.
+        """
+        try:
+            # Send request to client to get updated roots
+            result = await self._coordinator.send_request_to_client(
+                client_id, ListRootsRequest()
+            )
+
+            if isinstance(result, ListRootsResult):
+                # Update client state
+                self._ensure_client_exists(client_id)
+                self.clients[client_id].roots = result.roots
+
+                # Call registered callback with client context
+                await self.callbacks.call_roots_changed(client_id, result.roots)
+            else:
+                print(f"Failed to get roots from {client_id}: {result}")
+
+        except Exception as e:
+            print(f"Error handling roots change for {client_id}: {e}")
 
     def _register_handlers(self) -> None:
         """Register all protocol handlers with the message processor."""

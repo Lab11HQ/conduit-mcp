@@ -12,7 +12,7 @@ class CallbackManager:
         self._progress: (
             Callable[[str, ProgressNotification], Awaitable[None]] | None
         ) = None
-        self._roots_changed: Callable[[list[Root]], Awaitable[None]] | None = None
+        self._roots_changed: Callable[[str, list[Root]], Awaitable[None]] | None = None
         self._cancelled: (
             Callable[[str, CancelledNotification], Awaitable[None]] | None
         ) = None
@@ -64,32 +64,34 @@ class CallbackManager:
                 print(f"Progress callback failed for {client_id}: {e}")
 
     def on_roots_changed(
-        self, callback: Callable[[list[Root]], Awaitable[None]]
+        self, callback: Callable[[str, list[Root]], Awaitable[None]]
     ) -> None:
-        """Register your callback for when client roots change.
+        """Register callback for when client roots change with client context.
 
-        Your callback receives the complete list of roots that the client
-        has access to.
+        Your callback receives the client ID and complete list of roots that
+        the client has access to.
 
         Args:
-            callback: Your async function called with the new list of roots.
+            callback: Your async function called with (client_id, roots) when
+                a client's roots list changes.
         """
         self._roots_changed = callback
 
-    async def call_roots_changed(self, roots: list[Root]) -> None:
-        """Invoke your registered roots changed callback with the roots.
+    async def call_roots_changed(self, client_id: str, roots: list[Root]) -> None:
+        """Invoke roots changed callback with client context.
 
         Calls your roots changed callback if you've registered one. Logs any
         errors that occur.
 
         Args:
+            client_id: ID of the client whose roots changed
             roots: Current roots list to pass through to your callback.
         """
         if self._roots_changed:
             try:
-                await self._roots_changed(roots)
+                await self._roots_changed(client_id, roots)
             except Exception as e:
-                print(f"Roots changed callback failed: {e}")
+                print(f"Roots changed callback failed for {client_id}: {e}")
 
     def on_cancelled(
         self, callback: Callable[[str, CancelledNotification], Awaitable[None]]
