@@ -2,6 +2,7 @@ from typing import Awaitable, Callable
 
 from conduit.protocol.common import EmptyResult
 from conduit.protocol.logging import LoggingLevel, SetLevelRequest
+from conduit.server.client_manager import ClientManager
 
 
 class LoggingManager:
@@ -11,8 +12,8 @@ class LoggingManager:
     This is separate from your application's general logging configuration.
     """
 
-    def __init__(self):
-        self.client_levels: dict[str, LoggingLevel] = {}
+    def __init__(self, client_manager: ClientManager):
+        self.client_manager = client_manager
         self._on_level_change: Callable[[str, LoggingLevel], Awaitable[None]] | None = (
             None
         )
@@ -27,7 +28,10 @@ class LoggingManager:
         self, client_id: str, request: SetLevelRequest
     ) -> EmptyResult:
         """Set the MCP protocol logging level for specific client."""
-        self.client_levels[client_id] = request.level
+        context = self.client_manager.get_client(client_id)
+        if context:
+            context.log_level = request.level
+
         if self._on_level_change:
             try:
                 await self._on_level_change(client_id, request.level)
@@ -37,7 +41,8 @@ class LoggingManager:
 
     def get_client_level(self, client_id: str) -> LoggingLevel | None:
         """Get the current logging level for a specific client."""
-        return self.client_levels.get(client_id)
+        context = self.client_manager.get_client(client_id)
+        return context.log_level if context else None
 
     def should_send_log(self, level: LoggingLevel) -> bool:
         """Check if a log message should be sent based on current log level."""
