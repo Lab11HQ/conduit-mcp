@@ -1,6 +1,7 @@
 from typing import Awaitable, Callable
 
 from conduit.protocol.common import CancelledNotification, ProgressNotification
+from conduit.protocol.initialization import InitializedNotification
 from conduit.protocol.roots import Root
 
 
@@ -8,7 +9,9 @@ class CallbackManager:
     """Manages event callbacks for client state changes."""
 
     def __init__(self):
-        self._initialized: Callable[[], Awaitable[None]] | None = None
+        self._initialized: (
+            Callable[[str, InitializedNotification], Awaitable[None]] | None
+        ) = None
         self._progress: (
             Callable[[str, ProgressNotification], Awaitable[None]] | None
         ) = None
@@ -17,17 +20,26 @@ class CallbackManager:
             Callable[[str, CancelledNotification], Awaitable[None]] | None
         ) = None
 
-    def on_initialized(self, callback: Callable[[], Awaitable[None]]) -> None:
-        """Register callback for when client completes initialization."""
+    def on_initialized(
+        self, callback: Callable[[str, InitializedNotification], Awaitable[None]]
+    ) -> None:
+        """Register callback for when a client completes initialization.
+
+        Args:
+            callback: Your async function called with (client_id, notification)
+                when each client finishes initialization.
+        """
         self._initialized = callback
 
-    async def call_initialized(self) -> None:
-        """Call your registered initialization callback."""
+    async def call_initialized(
+        self, client_id: str, notification: InitializedNotification
+    ) -> None:
+        """Invoke initialized callback with client context."""
         if self._initialized:
             try:
-                await self._initialized()
+                await self._initialized(client_id, notification)
             except Exception as e:
-                print(f"Initialization callback failed: {e}")
+                print(f"Initialized callback failed for {client_id}: {e}")
 
     def on_progress(
         self, callback: Callable[[str, ProgressNotification], Awaitable[None]]

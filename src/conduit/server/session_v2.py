@@ -121,11 +121,6 @@ class ServerSession:
     # ================================
     # Initialization
     # ================================
-    @property
-    def initialized(self) -> bool:
-        """True if at least one client is initialized."""
-        return len(self.initialized_clients) > 0
-
     def is_client_initialized(self, client_id: str) -> bool:
         """Check if a specific client is initialized."""
         return client_id in self.initialized_clients
@@ -133,16 +128,37 @@ class ServerSession:
     async def _handle_initialize(
         self, client_id: str, request: InitializeRequest
     ) -> InitializeResult | Error:
-        """Handle initialize request from specific client."""
-        # TODO: Store client state, mark as initialized, return result
-        pass
+        """Handle initialize request from specific client.
+
+        Stores client capabilities and info for the session, then responds with
+        server capabilities to continue the initialization handshake.
+        """
+        # Store client state (capabilities, info, protocol version)
+        self._store_client_state(client_id, request)
+
+        # TODO: Add protocol version check
+
+        # Return server capabilities for this client
+        return InitializeResult(
+            capabilities=self.server_config.capabilities,
+            server_info=self.server_config.info,
+            protocol_version=self.server_config.protocol_version,
+            instructions=self.server_config.instructions,
+        )
 
     async def _handle_initialized(
         self, client_id: str, notification: InitializedNotification
     ) -> None:
-        """Handle initialized notification from specific client."""
-        # TODO: Mark client as initialized
-        pass
+        """Complete the initialization handshake for specific client.
+
+        Marks the client as fully initialized and notifies any registered callbacks.
+        After this point, the client is ready for normal operation.
+        """
+        # Mark this specific client as initialized
+        self.initialized_clients.add(client_id)
+
+        # Call callback with client context
+        await self.callbacks.call_initialized(client_id, notification)
 
     def _ensure_client_exists(self, client_id: str) -> None:
         """Ensure client state exists for the given client ID."""
