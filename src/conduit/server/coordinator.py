@@ -26,6 +26,7 @@ from conduit.protocol.jsonrpc import (
 )
 from conduit.protocol.unions import NOTIFICATION_CLASSES, REQUEST_CLASSES
 from conduit.server.client_manager import ClientManager
+from conduit.shared.message_parser import MessageParser
 from conduit.transport.server import ClientMessage, ServerTransport
 
 # Type variables
@@ -49,6 +50,7 @@ class MessageCoordinator:
     def __init__(self, transport: ServerTransport, client_manager: ClientManager):
         self.transport = transport
         self.client_manager = client_manager
+        self.parser = MessageParser()  # Add this line
         self._request_handlers: dict[str, RequestHandler] = {}
         self._notification_handlers: dict[str, NotificationHandler] = {}
         self._message_loop_task: asyncio.Task[None] | None = None
