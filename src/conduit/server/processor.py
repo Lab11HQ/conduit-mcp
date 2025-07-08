@@ -30,12 +30,12 @@ RequestHandler = Callable[[str, TRequest], Awaitable[TResult | Error]]
 NotificationHandler = Callable[[str, TNotification], Awaitable[None]]
 
 
-class MessageProcessor:
-    """Handles message processing mechanics for server sessions.
+class MessageCoordinator:
+    """Coordinates all message flow for server sessions.
 
-    Owns the message loop, manages background tasks, parses raw payloads
-    into typed objects, and routes them to registered handlers with client
-    context. Keeps the session focused on protocol logic.
+    Handles bidirectional message coordination: routes inbound requests/notifications
+    from clients, sends outbound requests to clients, and manages response tracking.
+    Keeps the session focused on protocol logic.
     """
 
     def __init__(self, transport: ServerTransport):
@@ -48,6 +48,12 @@ class MessageProcessor:
         # NOTE: May want to allow non string request ids in the future.
         self._in_flight_requests: dict[str, dict[str, asyncio.Task[None]]] = {}
         # Structure: {client_id: {request_id: task}}
+
+        # NEW: Outbound request tracking (server → client)
+        self._pending_requests: dict[
+            str, dict[str, asyncio.Future[Result | Error]]
+        ] = {}
+        # Structure: {client_id: {request_id: future}}
 
     @property
     def running(self) -> bool:
