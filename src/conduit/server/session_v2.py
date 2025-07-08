@@ -219,6 +219,10 @@ class ServerSession:
                 message="Error in prompt handler",
             )
 
+    # ================================
+    # Resources
+    # ================================
+
     async def _handle_list_resources(
         self, client_id: str, request: ListResourcesRequest
     ) -> ListResourcesResult | Error:
@@ -235,25 +239,65 @@ class ServerSession:
         self, client_id: str, request: ListResourceTemplatesRequest
     ) -> ListResourceTemplatesResult | Error:
         """Handle resources/templates/list request from specific client."""
-        pass
+        if self.server_config.capabilities.resources is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support resources capability",
+            )
+        return await self.resources.handle_list_templates(client_id, request)
 
     async def _handle_read_resource(
         self, client_id: str, request: ReadResourceRequest
     ) -> ReadResourceResult | Error:
         """Handle resources/read request from specific client."""
-        pass
+        if self.server_config.capabilities.resources is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support resources capability",
+            )
+        try:
+            return await self.resources.handle_read(client_id, request)
+        except KeyError as e:
+            return Error(code=METHOD_NOT_FOUND, message=str(e))
+        except Exception:
+            return Error(
+                code=INTERNAL_ERROR,
+                message="Error reading resource",
+            )
 
     async def _handle_subscribe(
         self, client_id: str, request: SubscribeRequest
     ) -> EmptyResult | Error:
         """Handle resources/subscribe request from specific client."""
-        pass
+        if not (
+            self.server_config.capabilities.resources
+            and self.server_config.capabilities.resources.subscribe
+        ):
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support resource subscription",
+            )
+        try:
+            return await self.resources.handle_subscribe(client_id, request)
+        except KeyError as e:
+            return Error(code=METHOD_NOT_FOUND, message=str(e))
 
     async def _handle_unsubscribe(
         self, client_id: str, request: UnsubscribeRequest
     ) -> EmptyResult | Error:
         """Handle resources/unsubscribe request from specific client."""
-        pass
+        if not (
+            self.server_config.capabilities.resources
+            and self.server_config.capabilities.resources.subscribe
+        ):
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support resource subscription",
+            )
+        try:
+            return await self.resources.handle_unsubscribe(client_id, request)
+        except KeyError as e:
+            return Error(code=METHOD_NOT_FOUND, message=str(e))
 
     async def _handle_complete(
         self, client_id: str, request: CompleteRequest
