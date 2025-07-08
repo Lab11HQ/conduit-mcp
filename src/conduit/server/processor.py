@@ -5,7 +5,7 @@ the session focused on protocol logic rather than message processing.
 """
 
 import asyncio
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, TypeVar
 
 from conduit.protocol.base import (
     INTERNAL_ERROR,
@@ -14,13 +14,20 @@ from conduit.protocol.base import (
     Error,
     Notification,
     Request,
+    Result,
 )
-from conduit.protocol.jsonrpc import JSONRPCError
+from conduit.protocol.jsonrpc import JSONRPCError, JSONRPCResponse
 from conduit.protocol.unions import NOTIFICATION_CLASSES, REQUEST_CLASSES
 from conduit.transport.server import ClientMessage, ServerTransport
 
-# Handler signature - takes client_id and typed request/notification
-MessageHandler = Callable[[str, Request | Notification], Awaitable[None]]
+# Type variables
+TRequest = TypeVar("TRequest", bound=Request)
+TResult = TypeVar("TResult", bound=Result)
+TNotification = TypeVar("TNotification", bound=Notification)
+
+# Handler signatures - separate for requests vs notifications
+RequestHandler = Callable[[str, TRequest], Awaitable[TResult | Error]]
+NotificationHandler = Callable[[str, TNotification], Awaitable[None]]
 
 
 class MessageProcessor:
@@ -33,7 +40,8 @@ class MessageProcessor:
 
     def __init__(self, transport: ServerTransport):
         self.transport = transport
-        self._handlers: dict[str, MessageHandler] = {}
+        self._request_handlers: dict[str, RequestHandler] = {}
+        self._notification_handlers: dict[str, NotificationHandler] = {}
         self._message_loop_task: asyncio.Task[None] | None = None
         self._in_flight_requests: dict[str, asyncio.Task[None]] = {}
 
@@ -44,14 +52,26 @@ class MessageProcessor:
             self._message_loop_task is not None and not self._message_loop_task.done()
         )
 
-    def register_handler(self, method: str, handler: MessageHandler) -> None:
+    def register_request_handler(self, method: str, handler: RequestHandler) -> None:
         """Register a handler for a specific method.
 
         Args:
             method: JSON-RPC method name (e.g., "tools/list")
             handler: Async function that takes (client_id, typed_request) and handles it
         """
-        self._handlers[method] = handler
+        self._request_handlers[method] = handler
+
+    def register_notification_handler(
+        self, method: str, handler: NotificationHandler
+    ) -> None:
+        """Register a handler for a specific method.
+
+        Args:
+            method: JSON-RPC method name (e.g., "tools/list")
+            handler: Async function that takes (client_id, typed_notification) and
+                handles it
+        """
+        self._notification_handlers[method] = handler
 
     async def start(self) -> None:
         """Start the message processing loop.
@@ -157,11 +177,13 @@ class MessageProcessor:
                 return
 
             # Route to handler with typed request
-            if handler := self._handlers.get(method):
+            if handler := self._request_handlers.get(method):
                 # Run as background task to avoid blocking message loop
                 task_key = f"{client_id}_{request_id}"
                 task = asyncio.create_task(
-                    handler(client_id, request_or_error),
+                    self._execute_request_handler(
+                        handler, client_id, request_or_error, request_id
+                    ),
                     name=f"handle_{method}_{client_id}_{request_id}",
                 )
                 self._in_flight_requests[task_key] = task
@@ -181,6 +203,40 @@ class MessageProcessor:
             error = Error(
                 code=INTERNAL_ERROR, message=f"Error processing request: {str(e)}"
             )
+            response = JSONRPCError.from_error(error, request_id)
+            await self.transport.send_to_client(client_id, response.to_wire())
+
+    async def _execute_request_handler(
+        self,
+        handler: RequestHandler,
+        client_id: str,
+        request: Request,
+        request_id: str | int,
+    ) -> None:
+        """Execute a request handler and send the appropriate response.
+
+        Args:
+            handler: The request handler to execute
+            client_id: ID of the client that sent the request
+            request: The parsed request object
+            request_id: ID of the request for response correlation
+        """
+        try:
+            # Execute the handler
+            result_or_error = await handler(client_id, request)
+
+            # Format response based on handler result
+            if isinstance(result_or_error, Error):
+                response = JSONRPCError.from_error(result_or_error, request_id)
+            else:
+                response = JSONRPCResponse.from_result(result_or_error, request_id)
+
+            # Send response back to client
+            await self.transport.send_to_client(client_id, response.to_wire())
+
+        except Exception as e:
+            # Handle unexpected handler failures
+            error = Error(code=INTERNAL_ERROR, message=f"Handler error: {str(e)}")
             response = JSONRPCError.from_error(error, request_id)
             await self.transport.send_to_client(client_id, response.to_wire())
 
@@ -204,7 +260,7 @@ class MessageProcessor:
                 return
 
             # Route to handler with typed notification
-            if handler := self._handlers.get(method):
+            if handler := self._notification_handlers.get(method):
                 # Run as background task (notifications don't need responses)
                 asyncio.create_task(
                     handler(client_id, notification),
