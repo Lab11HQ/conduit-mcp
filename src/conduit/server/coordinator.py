@@ -5,6 +5,7 @@ the session focused on protocol logic rather than message processing.
 """
 
 import asyncio
+import uuid
 from typing import Any, Awaitable, Callable, TypeVar
 
 from conduit.protocol.base import (
@@ -16,7 +17,13 @@ from conduit.protocol.base import (
     Request,
     Result,
 )
-from conduit.protocol.jsonrpc import JSONRPCError, JSONRPCResponse
+from conduit.protocol.common import CancelledNotification
+from conduit.protocol.jsonrpc import (
+    JSONRPCError,
+    JSONRPCNotification,
+    JSONRPCRequest,
+    JSONRPCResponse,
+)
 from conduit.protocol.unions import NOTIFICATION_CLASSES, REQUEST_CLASSES
 from conduit.transport.server import ClientMessage, ServerTransport
 
@@ -122,8 +129,7 @@ class MessageCoordinator:
             self._message_loop_task = None
 
         # Cancel in-flight requests
-        for task in self._in_flight_requests.values():
-            task.cancel()
+        # TODO: Implement this
         self._in_flight_requests.clear()
 
     async def _message_loop(self) -> None:
@@ -288,17 +294,38 @@ class MessageCoordinator:
             print(f"Error processing notification '{method}' from {client_id}: {e}")
 
     async def _handle_response(self, client_id: str, payload: dict[str, Any]) -> None:
-        """Handle JSON-RPC response to a server->client request.
+        """Handle response from client to our outbound request."""
+        request_id = payload.get("id")
+        if not request_id:
+            print(f"Response from {client_id} missing request ID")
+            return
 
-        This would be for cases where the server sent a request to the client
-        (like sampling or elicitation) and the client is responding.
+        # Check if this is a response to our outbound request
+        if (
+            client_id in self._pending_requests
+            and str(request_id) in self._pending_requests[client_id]
+        ):
+            future = self._pending_requests[client_id].pop(str(request_id))
 
-        Args:
-            client_id: ID of the client that sent the response
-            payload: Raw JSON-RPC response payload
-        """
-        # TODO: Implement response correlation for server->client requests
-        print(f"Received response from {client_id}: {payload}")
+            if "error" in payload:
+                # Convert JSON-RPC error to Error object
+                error_data = payload["error"]
+                error = Error(
+                    code=error_data.get("code", INTERNAL_ERROR),
+                    message=error_data.get("message", "Unknown error"),
+                )
+                future.set_result(error)
+            else:
+                # Parse successful response
+                try:
+                    result = self._parse_response(payload)
+                    future.set_result(result)
+                except Exception as e:
+                    # Parsing failed - return internal error
+                    error = Error(
+                        code=INTERNAL_ERROR, message=f"Failed to parse response: {e}"
+                    )
+                    future.set_result(error)
 
     def _parse_request(self, payload: dict[str, Any]) -> Request | Error:
         """Parse a JSON-RPC request payload into a typed Request object or Error.
@@ -381,9 +408,8 @@ class MessageCoordinator:
     def _on_message_loop_done(self, task: asyncio.Task[None]) -> None:
         """Clean up when message loop exits."""
         # Cancel any remaining in-flight requests
-        for request_task in self._in_flight_requests.values():
-            request_task.cancel()
-        self._in_flight_requests.clear()
+        # TODO: Implement this
+        pass
 
     async def cancel_request(self, client_id: str, request_id: str | int) -> bool:
         """Cancel a specific request for a specific client."""
@@ -409,3 +435,90 @@ class MessageCoordinator:
             count += 1
 
         return count
+
+    async def send_request_to_client(
+        self, client_id: str, request: Request, timeout: float = 30.0
+    ) -> Result | Error:
+        """Send a request to a specific client and wait for response.
+
+        Generates a unique request ID, sends the request, and waits for the
+        client's response. Handles timeouts with automatic cancellation.
+
+        Args:
+            client_id: ID of the client to send the request to
+            request: The request object to send
+            timeout: Maximum time to wait for response in seconds
+
+        Returns:
+            Result | Error: The client's response or timeout error
+
+        Raises:
+            ConnectionError: If transport is closed
+            TimeoutError: If client doesn't respond within timeout
+        """
+        if not self.transport.is_open:
+            raise ConnectionError("Cannot send request: transport is closed")
+
+        # Generate request ID and create JSON-RPC wrapper
+        request_id = str(uuid.uuid4())
+        jsonrpc_request = JSONRPCRequest.from_request(request, request_id)
+
+        # Set up response tracking
+        if client_id not in self._pending_requests:
+            self._pending_requests[client_id] = {}
+
+        future: asyncio.Future[Result | Error] = asyncio.Future()
+        self._pending_requests[client_id][request_id] = future
+
+        try:
+            await self.transport.send_to_client(client_id, jsonrpc_request.to_wire())
+            result = await asyncio.wait_for(future, timeout)
+            return result
+        except asyncio.TimeoutError:
+            # Clean up pending request
+            self._pending_requests[client_id].pop(request_id, None)
+
+            # Send cancellation notification to client
+            try:
+                cancelled_notification = CancelledNotification(
+                    request_id=request_id,
+                    reason="Request timed out",
+                )
+                await self._send_cancellation_to_client(
+                    client_id, cancelled_notification
+                )
+            except Exception as e:
+                print(f"Error sending cancellation to {client_id}: {e}")
+
+            raise TimeoutError(f"Request {request_id} timed out after {timeout}s")
+
+    async def _send_cancellation_to_client(
+        self, client_id: str, notification: CancelledNotification
+    ) -> None:
+        """Send cancellation notification to a specific client."""
+        jsonrpc_notification = JSONRPCNotification.from_notification(notification)
+        await self.transport.send_to_client(client_id, jsonrpc_notification.to_wire())
+
+    def _parse_response(self, payload: dict[str, Any]) -> Result:
+        """Parse JSON-RPC response payload into typed Result object."""
+        # This would need to handle different response types
+        # For now, return a generic result - we'll need to enhance this
+        # based on the request type that was sent
+        return Result()  # Placeholder - needs proper implementation
+
+    def cleanup_client(self, client_id: str) -> None:
+        """Clean up all state for a disconnected client."""
+        # Cancel in-flight requests FROM this client
+        if client_id in self._in_flight_requests:
+            for task in self._in_flight_requests[client_id].values():
+                task.cancel()
+            del self._in_flight_requests[client_id]
+
+        # Cancel pending requests TO this client
+        if client_id in self._pending_requests:
+            for future in self._pending_requests[client_id].values():
+                if not future.done():
+                    future.set_exception(
+                        ConnectionError(f"Client {client_id} disconnected")
+                    )
+            del self._pending_requests[client_id]

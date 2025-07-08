@@ -9,7 +9,9 @@ class CallbackManager:
 
     def __init__(self):
         self._initialized: Callable[[], Awaitable[None]] | None = None
-        self._progress: Callable[[ProgressNotification], Awaitable[None]] | None = None
+        self._progress: (
+            Callable[[str, ProgressNotification], Awaitable[None]] | None
+        ) = None
         self._roots_changed: Callable[[list[Root]], Awaitable[None]] | None = None
         self._cancelled: (
             Callable[[str, CancelledNotification], Awaitable[None]] | None
@@ -28,35 +30,38 @@ class CallbackManager:
                 print(f"Initialization callback failed: {e}")
 
     def on_progress(
-        self, callback: Callable[[ProgressNotification], Awaitable[None]]
+        self, callback: Callable[[str, ProgressNotification], Awaitable[None]]
     ) -> None:
-        """Register your callback for when server sends progress updates.
+        """Register callback for progress notifications with client context.
 
-        Your callback receives the complete notification with all progress
-        details - current amount, total expected, status messages, and the
-        token identifying which operation is progressing.
+        Your callback receives the client ID and complete notification with all
+        progress details - current amount, total expected, status messages, and
+        the token identifying which operation is progressing.
 
         Args:
             callback: Your async function called with each ProgressNotification.
-                Gets progress_token, progress, total (optional), and message
-                (optional) fields.
+                Gets (client_id, notification) with progress_token, progress,
+                total (optional), and message (optional) fields.
         """
         self._progress = callback
 
-    async def call_progress(self, notification: ProgressNotification) -> None:
-        """Invoke your registered progress callback with the notification.
+    async def call_progress(
+        self, client_id: str, notification: ProgressNotification
+    ) -> None:
+        """Invoke progress callback with client context.
 
         Calls your progress callback if you've registered one. Logs any errors
         that occur.
 
         Args:
+            client_id: ID of the client sending the progress notification
             notification: Progress notification to pass through to your callback.
         """
         if self._progress:
             try:
-                await self._progress(notification)
+                await self._progress(client_id, notification)
             except Exception as e:
-                print(f"Progress callback failed: {e}")
+                print(f"Progress callback failed for {client_id}: {e}")
 
     def on_roots_changed(
         self, callback: Callable[[list[Root]], Awaitable[None]]

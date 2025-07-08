@@ -43,6 +43,7 @@ from conduit.protocol.tools import (
     ListToolsRequest,
     ListToolsResult,
 )
+from conduit.server.coordinator import MessageCoordinator
 from conduit.server.managers.callbacks_v2 import CallbackManager
 from conduit.server.managers.completions_v2 import (
     CompletionManager,
@@ -52,7 +53,6 @@ from conduit.server.managers.logging_v2 import LoggingManager
 from conduit.server.managers.prompts_v2 import PromptManager
 from conduit.server.managers.resources_v2 import ResourceManager
 from conduit.server.managers.tools_v2 import ToolManager
-from conduit.server.processor import MessageCoordinator
 from conduit.transport.server import ServerTransport
 
 
@@ -366,8 +366,13 @@ class ServerSession:
     async def _handle_progress(
         self, client_id: str, notification: ProgressNotification
     ) -> None:
-        """Handle progress notification from specific client."""
-        pass
+        """Handle progress notification from specific client.
+
+        Progress notifications inform the server about the status of long-running
+        operations. The server can use this information for logging, monitoring,
+        or relaying progress to other interested parties.
+        """
+        await self.callbacks.call_progress(client_id, notification)
 
     async def _handle_roots_list_changed(
         self, client_id: str, notification: RootsListChangedNotification
