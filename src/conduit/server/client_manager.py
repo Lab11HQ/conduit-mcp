@@ -68,3 +68,8 @@ class ClientManager:
 
         # Remove client entirely
         del self._clients[client_id]
+
+    def cleanup_all_clients(self) -> None:
+        """Clean up all client connections and state."""
+        for client_id in list(self._clients.keys()):
+            self.disconnect_client(client_id)
