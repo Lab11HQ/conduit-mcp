@@ -25,6 +25,7 @@ from conduit.protocol.jsonrpc import (
     JSONRPCResponse,
 )
 from conduit.protocol.unions import NOTIFICATION_CLASSES, REQUEST_CLASSES
+from conduit.server.client_manager import ClientManager
 from conduit.transport.server import ClientMessage, ServerTransport
 
 # Type variables
@@ -45,22 +46,15 @@ class MessageCoordinator:
     Keeps the session focused on protocol logic.
     """
 
-    def __init__(self, transport: ServerTransport):
+    def __init__(self, transport: ServerTransport, client_manager: ClientManager):
         self.transport = transport
+        self.client_manager = client_manager
         self._request_handlers: dict[str, RequestHandler] = {}
         self._notification_handlers: dict[str, NotificationHandler] = {}
         self._message_loop_task: asyncio.Task[None] | None = None
 
-        # Client-specific request tracking.
-        # NOTE: May want to allow non string request ids in the future.
-        self._in_flight_requests: dict[str, dict[str, asyncio.Task[None]]] = {}
-        # Structure: {client_id: {request_id: task}}
-
-        # NEW: Outbound request tracking (server → client)
-        self._pending_requests: dict[
-            str, dict[str, asyncio.Future[Result | Error]]
-        ] = {}
-        # Structure: {client_id: {request_id: future}}
+        # Client-specific request tracking moved to ClientManager
+        # Removed: self._in_flight_requests, self._pending_requests
 
     @property
     def running(self) -> bool:
@@ -130,7 +124,7 @@ class MessageCoordinator:
 
         # Cancel in-flight requests
         # TODO: Implement this
-        self._in_flight_requests.clear()
+        # self._in_flight_requests.clear() # This line is removed
 
     async def _message_loop(self) -> None:
         """Process incoming client messages until cancelled or transport fails.
@@ -194,6 +188,11 @@ class MessageCoordinator:
 
             # Route to handler with typed request
             if handler := self._request_handlers.get(method):
+                # Get or create client context
+                context = self.client_manager.get_client(client_id)
+                if not context:
+                    context = self.client_manager.register_client(client_id)
+
                 # Run as background task to avoid blocking message loop
                 task = asyncio.create_task(
                     self._execute_request_handler(
@@ -201,15 +200,13 @@ class MessageCoordinator:
                     ),
                     name=f"handle_{method}_{client_id}_{request_id}",
                 )
-                # Ensure client dict exists
-                if client_id not in self._in_flight_requests:
-                    self._in_flight_requests[client_id] = {}
-                # Store by client and request
-                self._in_flight_requests[client_id][str(request_id)] = task
+
+                # Store task in client context
+                context.in_flight_requests[request_id] = task
+
+                # Clean up when task completes
                 task.add_done_callback(
-                    lambda t: self._in_flight_requests[client_id].pop(
-                        str(request_id), None
-                    )
+                    lambda t: context.in_flight_requests.pop(request_id, None)
                 )
             else:
                 # Send METHOD_NOT_FOUND error
@@ -300,32 +297,20 @@ class MessageCoordinator:
             print(f"Response from {client_id} missing request ID")
             return
 
-        # Check if this is a response to our outbound request
-        if (
-            client_id in self._pending_requests
-            and str(request_id) in self._pending_requests[client_id]
-        ):
-            future = self._pending_requests[client_id].pop(str(request_id))
+        # Get context and work with it directly
+        context = self.client_manager.get_client(client_id)
+        if not context:
+            print(f"No client context for {client_id}")
+            return
 
-            if "error" in payload:
-                # Convert JSON-RPC error to Error object
-                error_data = payload["error"]
-                error = Error(
-                    code=error_data.get("code", INTERNAL_ERROR),
-                    message=error_data.get("message", "Unknown error"),
-                )
-                future.set_result(error)
-            else:
-                # Parse successful response
-                try:
-                    result = self._parse_response(payload)
-                    future.set_result(result)
-                except Exception as e:
-                    # Parsing failed - return internal error
-                    error = Error(
-                        code=INTERNAL_ERROR, message=f"Failed to parse response: {e}"
-                    )
-                    future.set_result(error)
+        request_future_tuple = context.pending_requests.pop(request_id, None)
+        if not request_future_tuple:
+            print(f"No pending request {request_id} for client {client_id}")
+            return
+
+        original_request, future = request_future_tuple
+        result_or_error = self._parse_response(payload, original_request)
+        future.set_result(result_or_error)
 
     def _parse_request(self, payload: dict[str, Any]) -> Request | Error:
         """Parse a JSON-RPC request payload into a typed Request object or Error.
@@ -413,27 +398,27 @@ class MessageCoordinator:
 
     async def cancel_request(self, client_id: str, request_id: str | int) -> bool:
         """Cancel a specific request for a specific client."""
-        if client_id not in self._in_flight_requests:
+        context = self.client_manager.get_client(client_id)
+        if not context:
             return False
 
-        request_id_str = str(request_id)
-        if request_id_str not in self._in_flight_requests[client_id]:
+        task = context.in_flight_requests.pop(request_id, None)
+        if not task:
             return False
 
-        task = self._in_flight_requests[client_id][request_id_str]
         task.cancel()
         return True
 
     async def cancel_client_requests(self, client_id: str) -> int:
         """Cancel all requests for a specific client. Returns count cancelled."""
-        if client_id not in self._in_flight_requests:
+        context = self.client_manager.get_client(client_id)
+        if not context:
             return 0
 
-        count = 0
-        for task in self._in_flight_requests[client_id].values():
+        count = len(context.in_flight_requests)
+        for task in context.in_flight_requests.values():
             task.cancel()
-            count += 1
-
+        context.in_flight_requests.clear()
         return count
 
     async def send_request_to_client(
@@ -459,16 +444,18 @@ class MessageCoordinator:
         if not self.transport.is_open:
             raise ConnectionError("Cannot send request: transport is closed")
 
+        # Get or create client context
+        context = self.client_manager.get_client(client_id)
+        if not context:
+            context = self.client_manager.register_client(client_id)
+
         # Generate request ID and create JSON-RPC wrapper
         request_id = str(uuid.uuid4())
         jsonrpc_request = JSONRPCRequest.from_request(request, request_id)
 
         # Set up response tracking
-        if client_id not in self._pending_requests:
-            self._pending_requests[client_id] = {}
-
         future: asyncio.Future[Result | Error] = asyncio.Future()
-        self._pending_requests[client_id][request_id] = future
+        context.pending_requests[request_id] = (request, future)
 
         try:
             await self.transport.send_to_client(client_id, jsonrpc_request.to_wire())
@@ -476,7 +463,7 @@ class MessageCoordinator:
             return result
         except asyncio.TimeoutError:
             # Clean up pending request
-            self._pending_requests[client_id].pop(request_id, None)
+            context.pending_requests.pop(request_id, None)
 
             # Send cancellation notification to client
             try:
@@ -499,26 +486,45 @@ class MessageCoordinator:
         jsonrpc_notification = JSONRPCNotification.from_notification(notification)
         await self.transport.send_to_client(client_id, jsonrpc_notification.to_wire())
 
-    def _parse_response(self, payload: dict[str, Any]) -> Result:
-        """Parse JSON-RPC response payload into typed Result object."""
-        # This would need to handle different response types
-        # For now, return a generic result - we'll need to enhance this
-        # based on the request type that was sent
-        return Result()  # Placeholder - needs proper implementation
+    def _parse_response(
+        self, payload: dict[str, Any], original_request: Request
+    ) -> Result | Error:
+        """Parse JSON-RPC response into typed Result or Error objects.
 
-    def cleanup_client(self, client_id: str) -> None:
-        """Clean up all state for a disconnected client."""
-        # Cancel in-flight requests FROM this client
-        if client_id in self._in_flight_requests:
-            for task in self._in_flight_requests[client_id].values():
-                task.cancel()
-            del self._in_flight_requests[client_id]
+        If we can't parse the response, we return an error.
 
-        # Cancel pending requests TO this client
-        if client_id in self._pending_requests:
-            for future in self._pending_requests[client_id].values():
-                if not future.done():
-                    future.set_exception(
-                        ConnectionError(f"Client {client_id} disconnected")
-                    )
-            del self._pending_requests[client_id]
+        Args:
+            payload: Raw JSON-RPC response from peer.
+            original_request: Request that triggered this response.
+
+        Returns:
+            Typed Result object for success, or Error object for failures.
+        """
+        if "result" in payload:
+            try:
+                result_type = original_request.expected_result_type()
+                return result_type.from_protocol(payload)
+            except Exception as e:
+                return Error(
+                    code=INTERNAL_ERROR,
+                    message=f"Failed to parse {result_type.__name__} response",
+                    data={
+                        "expected_type": result_type.__name__,
+                        "full_response": payload,
+                        "parse_error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                )
+        else:
+            try:
+                return Error.from_protocol(payload)
+            except Exception as e:
+                return Error(
+                    code=INTERNAL_ERROR,
+                    message="Failed to parse response",
+                    data={
+                        "full_response": payload,
+                        "parse_error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                )

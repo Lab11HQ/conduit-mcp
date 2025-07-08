@@ -1,7 +1,7 @@
 import asyncio
 from dataclasses import dataclass, field
 
-from conduit.protocol.base import Error, Result
+from conduit.protocol.base import Error, Request, Result
 from conduit.protocol.initialization import ClientCapabilities, Implementation
 from conduit.protocol.logging import LoggingLevel
 from conduit.protocol.roots import Root
@@ -25,10 +25,12 @@ class ClientContext:
     subscriptions: set[str] = field(default_factory=set)
 
     # Request tracking
-    in_flight_requests: dict[str, asyncio.Task[None]] = field(default_factory=dict)
-    pending_requests: dict[str, asyncio.Future[Result | Error]] = field(
+    in_flight_requests: dict[str | int, asyncio.Task[None]] = field(
         default_factory=dict
     )
+    pending_requests: dict[
+        str | int, tuple[Request, asyncio.Future[Result | Error]]
+    ] = field(default_factory=dict)
 
 
 class ClientManager:
@@ -48,10 +50,21 @@ class ClientManager:
         return self._clients.get(client_id)
 
     def disconnect_client(self, client_id: str) -> None:
-        """Clean up all client state."""
-        if client_id in self._clients:
-            # Cancel all in-flight requests
-            context = self._clients[client_id]
-            for task in context.in_flight_requests.values():
-                task.cancel()
-            del self._clients[client_id]
+        """Clean up all client state for a disconnected client."""
+        if client_id not in self._clients:
+            return
+
+        context = self._clients[client_id]
+
+        # Cancel in-flight requests FROM this client
+        for task in context.in_flight_requests.values():
+            task.cancel()
+        context.in_flight_requests.clear()
+
+        # Cancel pending requests TO this client
+        for _, future in context.pending_requests.values():
+            future.cancel()
+        context.pending_requests.clear()
+
+        # Remove client entirely
+        del self._clients[client_id]
