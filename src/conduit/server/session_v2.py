@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from conduit.protocol.base import METHOD_NOT_FOUND, Error
+from conduit.protocol.base import INTERNAL_ERROR, METHOD_NOT_FOUND, Error
 from conduit.protocol.common import (
     CancelledNotification,
     EmptyResult,
@@ -46,7 +46,7 @@ from conduit.protocol.tools import (
 from conduit.server.managers.callbacks import CallbackManager
 from conduit.server.managers.completions import CompletionManager
 from conduit.server.managers.logging import LoggingManager
-from conduit.server.managers.prompts import PromptManager
+from conduit.server.managers.prompts_v2 import PromptManager
 from conduit.server.managers.resources_v2 import ResourceManager
 from conduit.server.managers.tools_v2 import ToolManager
 from conduit.server.processor import MessageProcessor
@@ -185,17 +185,39 @@ class ServerSession:
         except KeyError:
             return Error(code=METHOD_NOT_FOUND, message=f"Unknown tool: {request.name}")
 
+    # ================================
+    # Prompts
+    # ================================
+
     async def _handle_list_prompts(
         self, client_id: str, request: ListPromptsRequest
     ) -> ListPromptsResult | Error:
         """Handle prompts/list request from specific client."""
-        pass
+        if self.server_config.capabilities.prompts is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support prompts capability",
+            )
+        return await self.prompts.handle_list_prompts(client_id, request)
 
     async def _handle_get_prompt(
         self, client_id: str, request: GetPromptRequest
     ) -> GetPromptResult | Error:
         """Handle prompts/get request from specific client."""
-        pass
+        if self.server_config.capabilities.prompts is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support prompts capability",
+            )
+        try:
+            return await self.prompts.handle_get_prompt(client_id, request)
+        except KeyError as e:
+            return Error(code=METHOD_NOT_FOUND, message=str(e))
+        except Exception:
+            return Error(
+                code=INTERNAL_ERROR,
+                message="Error in prompt handler",
+            )
 
     async def _handle_list_resources(
         self, client_id: str, request: ListResourcesRequest
