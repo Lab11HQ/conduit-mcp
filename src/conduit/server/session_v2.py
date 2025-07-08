@@ -48,7 +48,7 @@ from conduit.server.managers.completions_v2 import (
     CompletionManager,
     CompletionNotConfiguredError,
 )
-from conduit.server.managers.logging import LoggingManager
+from conduit.server.managers.logging_v2 import LoggingManager
 from conduit.server.managers.prompts_v2 import PromptManager
 from conduit.server.managers.resources_v2 import ResourceManager
 from conduit.server.managers.tools_v2 import ToolManager
@@ -310,7 +310,7 @@ class ServerSession:
         self, client_id: str, request: CompleteRequest
     ) -> CompleteResult | Error:
         """Handle completion/complete request from specific client."""
-        if self.server_config.capabilities.completions is None:
+        if not self.server_config.capabilities.completions:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Server does not support completions capability",
@@ -328,11 +328,20 @@ class ServerSession:
                 message="Error generating completions.",
             )
 
+    # ================================
+    # Logging
+    # ================================
+
     async def _handle_set_level(
         self, client_id: str, request: SetLevelRequest
     ) -> EmptyResult | Error:
         """Handle logging/setLevel request from specific client."""
-        pass
+        if not self.server_config.capabilities.logging:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support logging capability",
+            )
+        return await self.logging.handle_set_level(client_id, request)
 
     # Notification handlers
 
