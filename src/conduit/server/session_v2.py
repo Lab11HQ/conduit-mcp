@@ -44,7 +44,10 @@ from conduit.protocol.tools import (
     ListToolsResult,
 )
 from conduit.server.managers.callbacks import CallbackManager
-from conduit.server.managers.completions import CompletionManager
+from conduit.server.managers.completions_v2 import (
+    CompletionManager,
+    CompletionNotConfiguredError,
+)
 from conduit.server.managers.logging import LoggingManager
 from conduit.server.managers.prompts_v2 import PromptManager
 from conduit.server.managers.resources_v2 import ResourceManager
@@ -299,11 +302,31 @@ class ServerSession:
         except KeyError as e:
             return Error(code=METHOD_NOT_FOUND, message=str(e))
 
+    # ================================
+    # Completions
+    # ================================
+
     async def _handle_complete(
         self, client_id: str, request: CompleteRequest
     ) -> CompleteResult | Error:
         """Handle completion/complete request from specific client."""
-        pass
+        if self.server_config.capabilities.completions is None:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Server does not support completions capability",
+            )
+        try:
+            return await self.completions.handle_complete(client_id, request)
+        except CompletionNotConfiguredError:
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="No completion handler registered.",
+            )
+        except Exception:
+            return Error(
+                code=INTERNAL_ERROR,
+                message="Error generating completions.",
+            )
 
     async def _handle_set_level(
         self, client_id: str, request: SetLevelRequest
