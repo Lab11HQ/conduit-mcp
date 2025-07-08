@@ -86,7 +86,7 @@ class ServerSession:
 
         # Domain managers (these will need client-aware updates)
         self.tools = ToolManager()
-        self.resources = ResourceManager()
+        self.resources = ResourceManager(self.client_manager)
         self.prompts = PromptManager()
         self.logging = LoggingManager(self.client_manager)
         self.completions = CompletionManager()

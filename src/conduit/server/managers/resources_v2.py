@@ -16,6 +16,7 @@ from conduit.protocol.resources import (
     SubscribeRequest,
     UnsubscribeRequest,
 )
+from conduit.server.client_manager import ClientManager
 
 # Type aliases for client-aware handlers
 ClientAwareResourceHandler = Callable[
@@ -34,7 +35,9 @@ class ResourceManager:
     enabling targeted notifications when resources change.
     """
 
-    def __init__(self):
+    def __init__(self, client_manager: ClientManager):
+        self.client_manager = client_manager
+
         # Static resources (global)
         self.registered_resources: dict[str, Resource] = {}
         self.handlers: dict[str, ClientAwareResourceHandler] = {}
@@ -43,9 +46,8 @@ class ResourceManager:
         self.registered_templates: dict[str, ResourceTemplate] = {}
         self.template_handlers: dict[str, ClientAwareResourceHandler] = {}
 
-        # Client-specific subscriptions:
-        # {client_id: {resource_uri1, resource_uri2, ...}}
-        self.subscriptions: dict[str, set[str]] = {}
+        # Client subscriptions now stored in ClientContext.subscriptions
+        # Removed: self.subscriptions
 
         # Callbacks now receive client context
         self._on_subscribe: ClientAwareSubscriptionCallback | None = None
@@ -206,12 +208,10 @@ class ResourceManager:
             if not template_found:
                 raise KeyError(f"Cannot subscribe to unknown resource: {uri}")
 
-        # Ensure client has subscription set
-        if client_id not in self.subscriptions:
-            self.subscriptions[client_id] = set()
-
-        # Add subscription for this client
-        self.subscriptions[client_id].add(uri)
+        # Get client context (should exist from initialization)
+        context = self.client_manager.get_client(client_id)
+        if context:
+            context.subscriptions.add(uri)
 
         # Call callback with client context
         if self._on_subscribe:
@@ -242,19 +242,13 @@ class ResourceManager:
         """
         uri = request.uri
 
-        # Validate client is subscribed to this resource
-        if (
-            client_id not in self.subscriptions
-            or uri not in self.subscriptions[client_id]
-        ):
-            raise KeyError(f"Client {client_id} not subscribed to resource: {uri}")
+        # Get client context (should exist from initialization)
+        context = self.client_manager.get_client(client_id)
+        if not context or uri not in context.subscriptions:
+            raise KeyError(f"Client not subscribed to resource: {uri}")
 
         # Remove subscription for this client
-        self.subscriptions[client_id].remove(uri)
-
-        # Clean up empty subscription sets
-        if not self.subscriptions[client_id]:
-            del self.subscriptions[client_id]
+        context.subscriptions.remove(uri)
 
         # Call callback with client context
         if self._on_unsubscribe:
@@ -264,39 +258,6 @@ class ResourceManager:
                 print(f"Error in on_unsubscribe callback for {client_id}: {uri}: {e}")
 
         return EmptyResult()
-
-    def get_subscribers(self, resource_uri: str) -> set[str]:
-        """Get all client IDs subscribed to a specific resource.
-
-        Useful for broadcasting resource change notifications to all
-        subscribed clients.
-
-        Args:
-            resource_uri: URI of the resource to check
-
-        Returns:
-            Set of client IDs subscribed to this resource
-        """
-        subscribers = set()
-        for client_id, client_subscriptions in self.subscriptions.items():
-            if resource_uri in client_subscriptions:
-                subscribers.add(client_id)
-        return subscribers
-
-    def remove_client_subscriptions(self, client_id: str) -> set[str]:
-        """Remove all subscriptions for a client (e.g., when client disconnects).
-
-        Args:
-            client_id: ID of the client to clean up
-
-        Returns:
-            Set of resource URIs the client was subscribed to
-        """
-        if client_id in self.subscriptions:
-            subscribed_resources = self.subscriptions[client_id].copy()
-            del self.subscriptions[client_id]
-            return subscribed_resources
-        return set()
 
     def _matches_template(self, uri: str, template: str) -> bool:
         """Check if a URI matches a URI template pattern.
