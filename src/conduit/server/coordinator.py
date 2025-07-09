@@ -167,99 +167,79 @@ class MessageCoordinator:
     # ================================
 
     async def _handle_request(self, client_id: str, payload: dict[str, Any]) -> None:
-        """Parse and route typed request to handler.
-
-        Parses raw JSON-RPC payload into typed Request object and routes to
-        the appropriate handler. Parsing errors are sent back to the client.
-
-        Args:
-            client_id: ID of the client that sent the request
-            payload: Raw JSON-RPC request payload
-        """
-        method = payload["method"]
+        """Handle an incoming request from a client."""
         request_id = payload["id"]
 
-        try:
-            # Parse raw payload into typed request
-            request_or_error = self.parser.parse_request(payload)
+        request_or_error = self.parser.parse_request(payload)
 
-            if isinstance(request_or_error, Error):
-                # Send parsing error back to client
-                response = JSONRPCError.from_error(request_or_error, request_id)
-                await self.transport.send_to_client(client_id, response.to_wire())
-                return
+        if isinstance(request_or_error, Error):
+            await self._send_error(client_id, request_id, request_or_error)
+            return
 
-            # Route to handler with typed request
-            if handler := self._request_handlers.get(method):
-                # Get or create client context
-                context = self.client_manager.get_client(client_id)
-                if not context:
-                    context = self.client_manager.register_client(client_id)
+        await self._route_request(client_id, request_id, request_or_error)
 
-                # Run as background task to avoid blocking message loop
-                task = asyncio.create_task(
-                    self._execute_request_handler(
-                        handler, client_id, request_or_error, request_id
-                    ),
-                    name=f"handle_{method}_{client_id}_{request_id}",
-                )
-
-                # Store task in client context
-                context.in_flight_requests[request_id] = task
-
-                # Clean up when task completes
-                task.add_done_callback(
-                    lambda t: context.in_flight_requests.pop(request_id, None)
-                )
-            else:
-                # Send METHOD_NOT_FOUND error
-                error = Error(
-                    code=METHOD_NOT_FOUND, message=f"Unknown method: {method}"
-                )
-                response = JSONRPCError.from_error(error, request_id)
-                await self.transport.send_to_client(client_id, response.to_wire())
-
-        except Exception as e:
-            # Handle unexpected parsing errors
+    async def _route_request(
+        self,
+        client_id: str,
+        request_id: str | int,
+        request: Request,
+    ) -> None:
+        """Route request to appropriate handler and execute it."""
+        handler = self._request_handlers.get(request.method)
+        if not handler:
             error = Error(
-                code=INTERNAL_ERROR, message=f"Error processing request: {str(e)}"
+                code=METHOD_NOT_FOUND,
+                message=f"No handler for method: {request.method}",
             )
-            response = JSONRPCError.from_error(error, request_id)
-            await self.transport.send_to_client(client_id, response.to_wire())
+            await self._send_error(client_id, request_id, error)
+            return
 
-    async def _execute_request_handler(
+        if not self.client_manager.get_client(client_id):
+            self.client_manager.register_client(client_id)
+
+        task = asyncio.create_task(
+            self._execute_handler(handler, client_id, request_id, request),
+            name=f"handle_{request.method}_{client_id}_{request_id}",
+        )
+
+        self.client_manager.track_request_from_client(client_id, request_id, task)
+        task.add_done_callback(
+            lambda t: self.client_manager.remove_request_from_client(
+                client_id, request_id
+            )
+        )
+
+    async def _execute_handler(
         self,
         handler: RequestHandler,
         client_id: str,
-        request: Request,
         request_id: str | int,
+        request: Request,
     ) -> None:
-        """Execute a request handler and send the appropriate response.
-
-        Args:
-            handler: The request handler to execute
-            client_id: ID of the client that sent the request
-            request: The parsed request object
-            request_id: ID of the request for response correlation
-        """
+        """Execute handler and send response back to client."""
         try:
-            # Execute the handler
             result_or_error = await handler(client_id, request)
 
-            # Format response based on handler result
             if isinstance(result_or_error, Error):
                 response = JSONRPCError.from_error(result_or_error, request_id)
             else:
                 response = JSONRPCResponse.from_result(result_or_error, request_id)
 
-            # Send response back to client
             await self.transport.send_to_client(client_id, response.to_wire())
+        except Exception:
+            error = Error(
+                code=INTERNAL_ERROR,
+                message="Problem handling request",
+                data={"request": request},
+            )
+            await self._send_error(client_id, request_id, error)
 
-        except Exception as e:
-            # Handle unexpected handler failures
-            error = Error(code=INTERNAL_ERROR, message=f"Handler error: {str(e)}")
-            response = JSONRPCError.from_error(error, request_id)
-            await self.transport.send_to_client(client_id, response.to_wire())
+    async def _send_error(
+        self, client_id: str, request_id: str | int, error: Error
+    ) -> None:
+        """Send error response to client."""
+        response = JSONRPCError.from_error(error, request_id)
+        await self.transport.send_to_client(client_id, response.to_wire())
 
     # ================================
     # Handle notifications
@@ -271,13 +251,10 @@ class MessageCoordinator:
         """Parse and route typed notification to handler."""
         method = payload["method"]
 
-        # Parse raw payload into typed notification
         notification = self.parser.parse_notification(payload)
         if notification is None:
-            # Parsing failed - already logged by parser
             return
 
-        # Route to handler with typed notification
         handler = self._notification_handlers.get(method)
         if not handler:
             print(f"Unknown notification '{method}' from {client_id}")

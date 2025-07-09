@@ -175,3 +175,61 @@ class ClientManager:
         original_request, future = request_future_tuple
         future.set_result(result_or_error)
         return True
+
+    def track_request_from_client(
+        self,
+        client_id: str,
+        request_id: str | int,
+        task: asyncio.Task[None],
+    ) -> None:
+        """Track a request from a client.
+
+        Args:
+            client_id: ID of the client
+            request_id: Unique request identifier
+            task: The task handling the request
+
+        Raises:
+            ValueError: If client doesn't exist
+        """
+        context = self.get_client(client_id)
+        if context is None:
+            raise ValueError(f"Client {client_id} not registered")
+
+        context.requests_from_client[request_id] = task
+
+    def remove_request_from_client(
+        self, client_id: str, request_id: str | int
+    ) -> asyncio.Task[None] | None:
+        """Remove and return a request from client.
+
+        Args:
+            client_id: ID of the client
+            request_id: Request identifier to remove
+
+        Returns:
+            The task if found, None otherwise
+        """
+        context = self.get_client(client_id)
+        if context is None:
+            return None
+
+        return context.requests_from_client.pop(request_id, None)
+
+    def get_request_from_client(
+        self, client_id: str, request_id: str | int
+    ) -> asyncio.Task[None] | None:
+        """Get a request from client without removing it.
+
+        Args:
+            client_id: ID of the client
+            request_id: Request identifier to look up
+
+        Returns:
+            The task if found, None otherwise
+        """
+        context = self.get_client(client_id)
+        if context is None:
+            return None
+
+        return context.requests_from_client.get(request_id)
