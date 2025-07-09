@@ -25,10 +25,10 @@ class ClientContext:
     subscriptions: set[str] = field(default_factory=set)
 
     # Request tracking
-    in_flight_requests: dict[str | int, asyncio.Task[None]] = field(
+    requests_from_client: dict[str | int, asyncio.Task[None]] = field(
         default_factory=dict
     )
-    pending_requests: dict[
+    requests_to_client: dict[
         str | int, tuple[Request, asyncio.Future[Result | Error]]
     ] = field(default_factory=dict)
 
@@ -49,28 +49,41 @@ class ClientManager:
         """Get client context."""
         return self._clients.get(client_id)
 
+    def is_client_initialized(self, client_id: str) -> bool:
+        """Check if a specific client is initialized."""
+        context = self.get_client(client_id)
+        if context is None:
+            return False
+
+        return context.initialized
+
+    def client_count(self) -> int:
+        """Get number of active clients."""
+        return len(self._clients)
+
     def disconnect_client(self, client_id: str) -> None:
-        """Clean up all client state for a disconnected client."""
+        """Clean up all client state for a disconnected client.
+
+        Cancels all in-flight requests from the client and resolves all pending
+        requests to the client with an error.
+        """
         context = self.get_client(client_id)
         if context is None:
             return
 
-        # Cancel in-flight requests FROM this client
-        for task in context.in_flight_requests.values():
+        for task in context.requests_from_client.values():
             task.cancel()
-        context.in_flight_requests.clear()
+        context.requests_from_client.clear()
 
-        # Resolve pending requests TO this client with errors
-        for _, future in context.pending_requests.values():
+        for _, future in context.requests_to_client.values():
             if not future.done():
                 error = Error(
                     code=INTERNAL_ERROR,
                     message="Request failed. Client disconnected.",
                 )
                 future.set_result(error)
-        context.pending_requests.clear()
+        context.requests_to_client.clear()
 
-        # Remove client entirely
         del self._clients[client_id]
 
     def cleanup_all_clients(self) -> None:
@@ -78,15 +91,7 @@ class ClientManager:
         for client_id in list(self._clients.keys()):
             self.disconnect_client(client_id)
 
-    def active_clients(self) -> set[str]:
-        """Get IDs of all active clients."""
-        return set(self._clients.keys())
-
-    def client_count(self) -> int:
-        """Get number of active clients."""
-        return len(self._clients)
-
-    def track_pending_request(
+    def track_request_to_client(
         self,
         client_id: str,
         request_id: str,
@@ -108,9 +113,9 @@ class ClientManager:
         if context is None:
             raise ValueError(f"Client {client_id} not registered")
 
-        context.pending_requests[request_id] = (request, future)
+        context.requests_to_client[request_id] = (request, future)
 
-    def remove_pending_request(
+    def remove_request_to_client(
         self, client_id: str, request_id: str
     ) -> tuple[Request, asyncio.Future[Result | Error]] | None:
         """Remove and return a pending request.
@@ -126,12 +131,47 @@ class ClientManager:
         if context is None:
             return None
 
-        return context.pending_requests.pop(request_id, None)
+        return context.requests_to_client.pop(request_id, None)
 
-    def is_client_initialized(self, client_id: str) -> bool:
-        """Check if a specific client is initialized."""
+    def get_request_to_client(
+        self, client_id: str, request_id: str
+    ) -> tuple[Request, asyncio.Future[Result | Error]] | None:
+        """Get a pending request without removing it.
+
+        Args:
+            client_id: ID of the client
+            request_id: Request identifier to look up
+
+        Returns:
+            Tuple of (request, future) if found, None otherwise
+        """
+        context = self.get_client(client_id)
+        if context is None:
+            return None
+
+        return context.requests_to_client.get(request_id)
+
+    def resolve_request_to_client(
+        self, client_id: str, request_id: str, result_or_error: Result | Error
+    ) -> bool:
+        """Resolve a pending request with the parsed response.
+
+        Args:
+            client_id: ID of the client
+            request_id: Request identifier to resolve
+            result_or_error: Parsed response from the coordinator
+
+        Returns:
+            True if request was found and resolved, False otherwise
+        """
         context = self.get_client(client_id)
         if context is None:
             return False
 
-        return context.initialized
+        request_future_tuple = context.requests_to_client.pop(request_id, None)
+        if not request_future_tuple:
+            return False
+
+        original_request, future = request_future_tuple
+        future.set_result(result_or_error)
+        return True

@@ -187,7 +187,7 @@ class TestRequestSending:
         # Assert - request tracking was cleaned up
         client_context = client_manager.get_client(client_id)
         assert client_context is not None  # Client should still be registered
-        assert len(client_context.pending_requests) == 0  # But no pending requests
+        assert len(client_context.requests_to_client) == 0  # But no pending requests
 
 
 class TestNotificationSending:

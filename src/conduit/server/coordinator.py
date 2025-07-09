@@ -308,20 +308,20 @@ class MessageCoordinator:
             print(f"Response from {client_id} missing request ID")
             return
 
-        # Get context and work with it directly
-        context = self.client_manager.get_client(client_id)
-        if not context:
-            print(f"No client context for {client_id}")
-            return
-
-        request_future_tuple = context.pending_requests.pop(request_id, None)
+        request_future_tuple = self.client_manager.get_request_to_client(
+            client_id, request_id
+        )
         if not request_future_tuple:
             print(f"No pending request {request_id} for client {client_id}")
             return
 
         original_request, future = request_future_tuple
+
         result_or_error = self.parser.parse_response(payload, original_request)
-        future.set_result(result_or_error)
+
+        self.client_manager.resolve_request_to_client(
+            client_id, request_id, result_or_error
+        )
 
     # ================================
     # Cancel requests
@@ -386,7 +386,7 @@ class MessageCoordinator:
 
         # Set up tracking
         self._ensure_client_registered(client_id)
-        self.client_manager.track_pending_request(
+        self.client_manager.track_request_to_client(
             client_id, request_id, request, future
         )
 
@@ -397,7 +397,7 @@ class MessageCoordinator:
             await self._handle_request_timeout(client_id, request_id, timeout)
             raise
         finally:
-            self.client_manager.remove_pending_request(client_id, request_id)
+            self.client_manager.remove_request_to_client(client_id, request_id)
 
     async def _ensure_ready_to_send(self) -> None:
         """Ensure coordinator is running and transport is open."""

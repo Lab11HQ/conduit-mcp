@@ -159,12 +159,12 @@ class TestMessageCoordinatorLifecycle:
         assert client_manager.client_count() == 2
 
         # In-flight requests (FROM clients TO server)
-        client1.in_flight_requests["req1"] = task1
-        client2.in_flight_requests["req2"] = task2
+        client1.requests_from_client["req1"] = task1
+        client2.requests_from_client["req2"] = task2
 
         ping_request = PingRequest()
-        client1.pending_requests["ping1"] = (ping_request, future1)
-        client2.pending_requests["ping2"] = (ping_request, future2)
+        client1.requests_to_client["ping1"] = (ping_request, future1)
+        client2.requests_to_client["ping2"] = (ping_request, future2)
 
         # Act
         await coordinator.stop()
