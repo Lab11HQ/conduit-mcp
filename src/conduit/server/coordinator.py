@@ -53,33 +53,16 @@ class MessageCoordinator:
         self._notification_handlers: dict[str, NotificationHandler] = {}
         self._message_loop_task: asyncio.Task[None] | None = None
 
+    # ================================
+    # Lifecycle
+    # ================================
+
     @property
     def running(self) -> bool:
         """True if the message loop is actively processing messages."""
         return (
             self._message_loop_task is not None and not self._message_loop_task.done()
         )
-
-    def register_request_handler(self, method: str, handler: RequestHandler) -> None:
-        """Register a handler for a specific method.
-
-        Args:
-            method: JSON-RPC method name (e.g., "tools/list")
-            handler: Async function that takes (client_id, typed_request) and handles it
-        """
-        self._request_handlers[method] = handler
-
-    def register_notification_handler(
-        self, method: str, handler: NotificationHandler
-    ) -> None:
-        """Register a handler for a specific method.
-
-        Args:
-            method: JSON-RPC method name (e.g., "tools/list")
-            handler: Async function that takes (client_id, typed_notification) and
-                handles it
-        """
-        self._notification_handlers[method] = handler
 
     async def start(self) -> None:
         """Start the message processing loop.
@@ -121,6 +104,10 @@ class MessageCoordinator:
 
         self.client_manager.cleanup_all_clients()
 
+    # ================================
+    # Message loop
+    # ================================
+
     async def _message_loop(self) -> None:
         """Process incoming client messages until cancelled or transport fails.
 
@@ -140,6 +127,23 @@ class MessageCoordinator:
         except Exception as e:
             print(f"Transport error: {e}")
 
+    def _on_message_loop_done(self, task: asyncio.Task[None]) -> None:
+        """Clean up when message loop exits unexpectedly.
+
+        Called when the message loop task completes due to transport failure
+        or other unexpected errors (not normal stop() cancellation).
+        """
+        # Clear task reference so running becomes False
+        self._message_loop_task = None
+
+        # Clean up all client state - cancel in-flight requests and
+        # resolve pending requests with errors
+        self.client_manager.cleanup_all_clients()
+
+    # ================================
+    # Route messages
+    # ================================
+
     async def _handle_client_message(self, client_message: ClientMessage) -> None:
         """Route client message to appropriate handler with client context.
 
@@ -157,6 +161,10 @@ class MessageCoordinator:
             await self._handle_response(client_id, payload)
         else:
             print(f"Unknown message type from {client_id}: {payload}")
+
+    # ================================
+    # Handle requests
+    # ================================
 
     async def _handle_request(self, client_id: str, payload: dict[str, Any]) -> None:
         """Parse and route typed request to handler.
@@ -253,6 +261,10 @@ class MessageCoordinator:
             response = JSONRPCError.from_error(error, request_id)
             await self.transport.send_to_client(client_id, response.to_wire())
 
+    # ================================
+    # Handle notifications
+    # ================================
+
     async def _handle_notification(
         self, client_id: str, payload: dict[str, Any]
     ) -> None:
@@ -285,6 +297,10 @@ class MessageCoordinator:
         except Exception as e:
             print(f"Error processing notification '{method}' from {client_id}: {e}")
 
+    # ================================
+    # Handle responses
+    # ================================
+
     async def _handle_response(self, client_id: str, payload: dict[str, Any]) -> None:
         """Handle response from client to our outbound request."""
         request_id = payload.get("id")
@@ -307,18 +323,9 @@ class MessageCoordinator:
         result_or_error = self.parser.parse_response(payload, original_request)
         future.set_result(result_or_error)
 
-    def _on_message_loop_done(self, task: asyncio.Task[None]) -> None:
-        """Clean up when message loop exits unexpectedly.
-
-        Called when the message loop task completes due to transport failure
-        or other unexpected errors (not normal stop() cancellation).
-        """
-        # Clear task reference so running becomes False
-        self._message_loop_task = None
-
-        # Clean up all client state - cancel in-flight requests and
-        # resolve pending requests with errors
-        self.client_manager.cleanup_all_clients()
+    # ================================
+    # Cancel requests
+    # ================================
 
     async def cancel_request(self, client_id: str, request_id: str | int) -> bool:
         """Cancel a specific request for a specific client."""
@@ -344,6 +351,10 @@ class MessageCoordinator:
             task.cancel()
         context.in_flight_requests.clear()
         return count
+
+    # ================================
+    # Send requests
+    # ================================
 
     async def send_request_to_client(
         self, client_id: str, request: Request, timeout: float = 30.0
@@ -415,6 +426,10 @@ class MessageCoordinator:
         except Exception as e:
             print(f"Error sending cancellation to {client_id}: {e}")
 
+    # ================================
+    # Send notifications
+    # ================================
+
     async def send_notification_to_client(
         self, client_id: str, notification: Notification
     ) -> None:
@@ -422,3 +437,28 @@ class MessageCoordinator:
         await self._ensure_ready_to_send()
         jsonrpc_notification = JSONRPCNotification.from_notification(notification)
         await self.transport.send_to_client(client_id, jsonrpc_notification.to_wire())
+
+    # ================================
+    # Register handlers
+    # ================================
+
+    def register_request_handler(self, method: str, handler: RequestHandler) -> None:
+        """Register a handler for a specific method.
+
+        Args:
+            method: JSON-RPC method name (e.g., "tools/list")
+            handler: Async function that takes (client_id, typed_request) and handles it
+        """
+        self._request_handlers[method] = handler
+
+    def register_notification_handler(
+        self, method: str, handler: NotificationHandler
+    ) -> None:
+        """Register a handler for a specific method.
+
+        Args:
+            method: JSON-RPC method name (e.g., "tools/list")
+            handler: Async function that takes (client_id, typed_notification) and
+                handles it
+        """
+        self._notification_handlers[method] = handler
