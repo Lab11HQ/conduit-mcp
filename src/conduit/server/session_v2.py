@@ -2,7 +2,14 @@
 
 from dataclasses import dataclass
 
-from conduit.protocol.base import INTERNAL_ERROR, METHOD_NOT_FOUND, Error
+from conduit.protocol.base import (
+    INTERNAL_ERROR,
+    METHOD_NOT_FOUND,
+    Error,
+    Notification,
+    Request,
+    Result,
+)
 from conduit.protocol.common import (
     CancelledNotification,
     EmptyResult,
@@ -110,11 +117,6 @@ class ServerSession:
     # ================================
     # Initialization
     # ================================
-    def is_client_initialized(self, client_id: str) -> bool:
-        """Check if a specific client is initialized."""
-        context = self.client_manager.get_client(client_id)
-        return context is not None and context.initialized
-
     async def _handle_initialize(
         self, client_id: str, request: InitializeRequest
     ) -> InitializeResult | Error:
@@ -456,3 +458,59 @@ class ServerSession:
         self._coordinator.register_notification_handler(
             "notifications/initialized", self._handle_initialized
         )
+
+    # ================================
+    # Request sending
+    # ================================
+
+    async def send_request_to_client(
+        self, client_id: str, request: Request, timeout: float = 30.0
+    ) -> Result | Error:
+        """Send request to client with protocol validation.
+
+        Validates that the client is initialized before sending non-ping requests.
+        Only ping requests are allowed before initialization is complete.
+
+        Args:
+            client_id: ID of the client to send the request to
+            request: The request object to send
+            timeout: Maximum time to wait for response in seconds
+
+        Returns:
+            Result | Error: The client's response or timeout error
+
+        Raises:
+            ValueError: If attempting to send non-ping request to uninitialized client
+            ConnectionError: If transport is closed
+            TimeoutError: If client doesn't respond within timeout
+        """
+        if request.method != "ping" and not self.client_manager.is_client_initialized(
+            client_id
+        ):
+            raise ValueError(
+                f"Cannot send {request.method} to uninitialized client {client_id}. "
+                "Only ping requests are allowed before initialization."
+            )
+
+        return await self._coordinator.send_request_to_client(
+            client_id, request, timeout
+        )
+
+    # ================================
+    # Notification sending
+    # ================================
+
+    async def send_notification_to_client(
+        self, client_id: str, notification: Notification
+    ) -> None:
+        """Send notification to client with protocol validation.
+
+        Args:
+            client_id: ID of the client to send the notification to
+            notification: The notification object to send
+
+        Raises:
+            ConnectionError: If transport is closed
+        """
+
+        await self._coordinator.send_notification_to_client(client_id, notification)

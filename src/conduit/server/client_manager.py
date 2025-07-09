@@ -127,3 +127,11 @@ class ClientManager:
             return None
 
         return context.pending_requests.pop(request_id, None)
+
+    def is_client_initialized(self, client_id: str) -> bool:
+        """Check if a specific client is initialized."""
+        context = self.get_client(client_id)
+        if context is None:
+            return False
+
+        return context.initialized
