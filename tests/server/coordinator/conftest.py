@@ -51,7 +51,14 @@ class MockServerTransport(ServerTransport):
         return self._is_open
 
     async def close(self) -> None:
+        """Close the transport and stop the message iterator."""
         self._is_open = False
+        # Clear the queue to help the iterator exit faster
+        while not self.client_message_queue.empty():
+            try:
+                self.client_message_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
 
     # Test helpers
     def add_client_message(self, client_id: str, payload: dict[str, Any]) -> None:
@@ -65,9 +72,12 @@ class MockServerTransport(ServerTransport):
 
 
 @pytest.fixture
-def mock_transport():
-    """Mock ServerTransport for testing."""
-    return MockServerTransport()
+async def mock_transport():
+    """Mock ServerTransport for testing with automatic cleanup."""
+    transport = MockServerTransport()
+    yield transport
+    # Cleanup - close the transport to stop the async generator
+    await transport.close()
 
 
 @pytest.fixture
@@ -77,9 +87,13 @@ def client_manager():
 
 
 @pytest.fixture
-def coordinator(mock_transport, client_manager):
-    """MessageCoordinator with mock dependencies."""
-    return MessageCoordinator(mock_transport, client_manager)
+async def coordinator(mock_transport, client_manager):
+    """MessageCoordinator with mock dependencies and automatic cleanup."""
+    coord = MessageCoordinator(mock_transport, client_manager)
+    yield coord
+    # Cleanup - ensure coordinator is stopped
+    if coord.running:
+        await coord.stop()
 
 
 async def yield_to_event_loop(seconds: float = 0.01) -> None:

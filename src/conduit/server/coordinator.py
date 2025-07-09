@@ -364,48 +364,61 @@ class MessageCoordinator:
         Raises:
             ConnectionError: If transport is closed
             TimeoutError: If client doesn't respond within timeout
+            Exception: If transport send fails
         """
-        if not self.transport.is_open:
-            raise ConnectionError("Cannot send request: transport is closed")
+        await self._ensure_ready_to_send()
 
-        # Get or create client context
-        context = self.client_manager.get_client(client_id)
-        if not context:
-            context = self.client_manager.register_client(client_id)
-
-        # Generate request ID and create JSON-RPC wrapper
+        # Prepare the request
         request_id = str(uuid.uuid4())
         jsonrpc_request = JSONRPCRequest.from_request(request, request_id)
-
-        # Set up response tracking
         future: asyncio.Future[Result | Error] = asyncio.Future()
-        context.pending_requests[request_id] = (request, future)
+
+        # Set up tracking
+        self._ensure_client_registered(client_id)
+        self.client_manager.track_pending_request(
+            client_id, request_id, request, future
+        )
 
         try:
             await self.transport.send_to_client(client_id, jsonrpc_request.to_wire())
-            result = await asyncio.wait_for(future, timeout)
-            return result
+            return await asyncio.wait_for(future, timeout)
         except asyncio.TimeoutError:
-            # Clean up pending request
-            context.pending_requests.pop(request_id, None)
+            await self._handle_request_timeout(client_id, request_id, timeout)
+            raise
+        finally:
+            self.client_manager.remove_pending_request(client_id, request_id)
 
-            # Send cancellation notification to client
-            try:
-                cancelled_notification = CancelledNotification(
-                    request_id=request_id,
-                    reason="Request timed out",
-                )
-                await self._send_cancellation_to_client(
-                    client_id, cancelled_notification
-                )
-            except Exception as e:
-                print(f"Error sending cancellation to {client_id}: {e}")
+    async def _ensure_ready_to_send(self) -> None:
+        """Ensure coordinator is running and transport is open."""
+        if not self.running:
+            await self.start()
 
-            raise TimeoutError(f"Request {request_id} timed out after {timeout}s")
+        if not self.transport.is_open:
+            raise ConnectionError("Cannot send request: transport is closed")
 
-    async def _send_cancellation_to_client(
-        self, client_id: str, notification: CancelledNotification
+    def _ensure_client_registered(self, client_id: str) -> None:
+        """Ensure client is registered with the client manager."""
+        if not self.client_manager.get_client(client_id):
+            self.client_manager.register_client(client_id)
+
+    async def _handle_request_timeout(
+        self, client_id: str, request_id: str, timeout: float
     ) -> None:
-        """Send cancellation notification to a specific client."""
+        """Clean up and notify client when request times out."""
+
+        try:
+            cancelled_notification = CancelledNotification(
+                request_id=request_id,
+                reason="Request timed out",
+            )
+            await self.send_notification_to_client(client_id, cancelled_notification)
+        except Exception as e:
+            print(f"Error sending cancellation to {client_id}: {e}")
+
+    async def send_notification_to_client(
+        self, client_id: str, notification: Notification
+    ) -> None:
+        """Send a notification to a specific client."""
+        await self._ensure_ready_to_send()
         jsonrpc_notification = JSONRPCNotification.from_notification(notification)
         await self.transport.send_to_client(client_id, jsonrpc_notification.to_wire())

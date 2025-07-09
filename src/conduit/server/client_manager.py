@@ -85,3 +85,45 @@ class ClientManager:
     def client_count(self) -> int:
         """Get number of active clients."""
         return len(self._clients)
+
+    def track_pending_request(
+        self,
+        client_id: str,
+        request_id: str,
+        request: Request,
+        future: asyncio.Future[Result | Error],
+    ) -> None:
+        """Track a pending request for a client.
+
+        Args:
+            client_id: ID of the client
+            request_id: Unique request identifier
+            request: The original request object
+            future: Future that will be resolved with the response
+
+        Raises:
+            ValueError: If client doesn't exist
+        """
+        context = self.get_client(client_id)
+        if context is None:
+            raise ValueError(f"Client {client_id} not registered")
+
+        context.pending_requests[request_id] = (request, future)
+
+    def remove_pending_request(
+        self, client_id: str, request_id: str
+    ) -> tuple[Request, asyncio.Future[Result | Error]] | None:
+        """Remove and return a pending request.
+
+        Args:
+            client_id: ID of the client
+            request_id: Request identifier to remove
+
+        Returns:
+            Tuple of (request, future) if found, None otherwise
+        """
+        context = self.get_client(client_id)
+        if context is None:
+            return None
+
+        return context.pending_requests.pop(request_id, None)
