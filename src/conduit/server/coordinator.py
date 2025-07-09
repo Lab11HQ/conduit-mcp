@@ -53,9 +53,6 @@ class MessageCoordinator:
         self._notification_handlers: dict[str, NotificationHandler] = {}
         self._message_loop_task: asyncio.Task[None] | None = None
 
-        # Client-specific request tracking moved to ClientManager
-        # Removed: self._in_flight_requests, self._pending_requests
-
     @property
     def running(self) -> bool:
         """True if the message loop is actively processing messages."""
@@ -107,7 +104,7 @@ class MessageCoordinator:
         """Stop message processing and cancel in-flight requests.
 
         Cancels the background message processing task and any in-flight
-        request handlers.
+        request handlers across all clients.
 
         Safe to call multiple times.
         """
@@ -122,9 +119,7 @@ class MessageCoordinator:
                 pass
             self._message_loop_task = None
 
-        # Cancel in-flight requests
-        # TODO: Implement this
-        # self._in_flight_requests.clear() # This line is removed
+        self.client_manager.cleanup_all_clients()
 
     async def _message_loop(self) -> None:
         """Process incoming client messages until cancelled or transport fails.

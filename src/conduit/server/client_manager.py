@@ -73,3 +73,11 @@ class ClientManager:
         """Clean up all client connections and state."""
         for client_id in list(self._clients.keys()):
             self.disconnect_client(client_id)
+
+    def active_clients(self) -> set[str]:
+        """Get IDs of all active clients."""
+        return set(self._clients.keys())
+
+    def client_count(self) -> int:
+        """Get number of active clients."""
+        return len(self._clients)
