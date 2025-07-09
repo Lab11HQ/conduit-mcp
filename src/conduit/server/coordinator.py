@@ -308,10 +308,17 @@ class MessageCoordinator:
         future.set_result(result_or_error)
 
     def _on_message_loop_done(self, task: asyncio.Task[None]) -> None:
-        """Clean up when message loop exits."""
-        # Cancel any remaining in-flight requests
-        # TODO: Implement this
-        pass
+        """Clean up when message loop exits unexpectedly.
+
+        Called when the message loop task completes due to transport failure
+        or other unexpected errors (not normal stop() cancellation).
+        """
+        # Clear task reference so running becomes False
+        self._message_loop_task = None
+
+        # Clean up all client state - cancel in-flight requests and
+        # resolve pending requests with errors
+        self.client_manager.cleanup_all_clients()
 
     async def cancel_request(self, client_id: str, request_id: str | int) -> bool:
         """Cancel a specific request for a specific client."""

@@ -16,20 +16,27 @@ class MockServerTransport(ServerTransport):
         self.sent_messages: dict[str, list[dict[str, Any]]] = {}
         self.client_message_queue: asyncio.Queue[ClientMessage] = asyncio.Queue()
         self._is_open = True
+        self._should_raise_error = False  # Add this flag
 
     async def send_to_client(self, client_id: str, message: dict[str, Any]) -> None:
         if client_id not in self.sent_messages:
             self.sent_messages[client_id] = []
         self.sent_messages[client_id].append(message)
 
+    def simulate_error(self) -> None:
+        """Simulate a transport error."""
+        self._should_raise_error = True
+
     def client_messages(self) -> AsyncIterator[ClientMessage]:
         return self._client_message_iterator()
 
     async def _client_message_iterator(self) -> AsyncIterator[ClientMessage]:
         while self._is_open:
+            if self._should_raise_error:
+                raise ConnectionError("Transport error")
             try:
                 message = await asyncio.wait_for(
-                    self.client_message_queue.get(), timeout=1.0
+                    self.client_message_queue.get(), timeout=0.01
                 )
                 yield message
             except asyncio.TimeoutError:

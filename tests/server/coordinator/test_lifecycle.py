@@ -173,6 +173,6 @@ class TestMessageCoordinatorLifecycle:
         # Assert - both types of requests are cancelled
         assert task1.cancelled()
         assert task2.cancelled()
-        assert future1.cancelled()
-        assert future2.cancelled()
+        assert future1.done()
+        assert future2.done()
         assert client_manager.client_count() == 0

@@ -1,7 +1,7 @@
 import asyncio
 from dataclasses import dataclass, field
 
-from conduit.protocol.base import Error, Request, Result
+from conduit.protocol.base import INTERNAL_ERROR, Error, Request, Result
 from conduit.protocol.initialization import ClientCapabilities, Implementation
 from conduit.protocol.logging import LoggingLevel
 from conduit.protocol.roots import Root
@@ -51,19 +51,23 @@ class ClientManager:
 
     def disconnect_client(self, client_id: str) -> None:
         """Clean up all client state for a disconnected client."""
-        if client_id not in self._clients:
+        context = self.get_client(client_id)
+        if context is None:
             return
-
-        context = self._clients[client_id]
 
         # Cancel in-flight requests FROM this client
         for task in context.in_flight_requests.values():
             task.cancel()
         context.in_flight_requests.clear()
 
-        # Cancel pending requests TO this client
+        # Resolve pending requests TO this client with errors
         for _, future in context.pending_requests.values():
-            future.cancel()
+            if not future.done():
+                error = Error(
+                    code=INTERNAL_ERROR,
+                    message="Request failed. Client disconnected.",
+                )
+                future.set_result(error)
         context.pending_requests.clear()
 
         # Remove client entirely
