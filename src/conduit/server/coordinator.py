@@ -268,34 +268,25 @@ class MessageCoordinator:
     async def _handle_notification(
         self, client_id: str, payload: dict[str, Any]
     ) -> None:
-        """Parse and route typed notification to handler.
-
-        Args:
-            client_id: ID of the client that sent the notification
-            payload: Raw JSON-RPC notification payload
-        """
+        """Parse and route typed notification to handler."""
         method = payload["method"]
 
-        try:
-            # Parse raw payload into typed notification
-            notification = self.parser.parse_notification(payload)
+        # Parse raw payload into typed notification
+        notification = self.parser.parse_notification(payload)
+        if notification is None:
+            # Parsing failed - already logged by parser
+            return
 
-            if notification is None:
-                # Parsing failed - already logged
-                return
+        # Route to handler with typed notification
+        handler = self._notification_handlers.get(method)
+        if not handler:
+            print(f"Unknown notification '{method}' from {client_id}")
+            return
 
-            # Route to handler with typed notification
-            if handler := self._notification_handlers.get(method):
-                # Run as background task (notifications don't need responses)
-                asyncio.create_task(
-                    handler(client_id, notification),
-                    name=f"handle_{method}_{client_id}",
-                )
-            else:
-                print(f"Unknown notification '{method}' from {client_id}")
-
-        except Exception as e:
-            print(f"Error processing notification '{method}' from {client_id}: {e}")
+        asyncio.create_task(
+            handler(client_id, notification),
+            name=f"handle_{method}_{client_id}",
+        )
 
     # ================================
     # Handle responses
