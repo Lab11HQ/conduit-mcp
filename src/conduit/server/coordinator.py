@@ -170,6 +170,8 @@ class MessageCoordinator:
         """Handle an incoming request from a client."""
         request_id = payload["id"]
 
+        self._ensure_client_registered(client_id)
+
         request_or_error = self.parser.parse_request(payload)
 
         if isinstance(request_or_error, Error):
@@ -194,11 +196,8 @@ class MessageCoordinator:
             await self._send_error(client_id, request_id, error)
             return
 
-        if not self.client_manager.get_client(client_id):
-            self.client_manager.register_client(client_id)
-
         task = asyncio.create_task(
-            self._execute_handler(handler, client_id, request_id, request),
+            self._execute_request_handler(handler, client_id, request_id, request),
             name=f"handle_{request.method}_{client_id}_{request_id}",
         )
 
@@ -209,7 +208,7 @@ class MessageCoordinator:
             )
         )
 
-    async def _execute_handler(
+    async def _execute_request_handler(
         self,
         handler: RequestHandler,
         client_id: str,
@@ -375,11 +374,6 @@ class MessageCoordinator:
         if not self.transport.is_open:
             raise ConnectionError("Cannot send request: transport is closed")
 
-    def _ensure_client_registered(self, client_id: str) -> None:
-        """Ensure client is registered with the client manager."""
-        if not self.client_manager.get_client(client_id):
-            self.client_manager.register_client(client_id)
-
     async def _handle_request_timeout(
         self, client_id: str, request_id: str, timeout: float
     ) -> None:
@@ -430,3 +424,12 @@ class MessageCoordinator:
                 handles it
         """
         self._notification_handlers[method] = handler
+
+    # ================================
+    # Helpers
+    # ================================
+
+    def _ensure_client_registered(self, client_id: str) -> None:
+        """Ensure client is registered with the client manager."""
+        if not self.client_manager.get_client(client_id):
+            self.client_manager.register_client(client_id)
