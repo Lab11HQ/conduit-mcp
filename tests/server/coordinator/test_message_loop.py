@@ -1,5 +1,7 @@
 import asyncio
 
+import pytest
+
 from conduit.protocol.base import Error
 from conduit.protocol.common import PingRequest
 
@@ -134,7 +136,8 @@ class TestMessageLoop:
         # Assert - all client state cleaned up
         assert not coordinator.running
         assert client_manager.client_count() == 0
-        assert task1.cancelled()
+        with pytest.raises(asyncio.CancelledError):
+            await task1
 
         # Be explicit about error resolution
         assert future1.done()
