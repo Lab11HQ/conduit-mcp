@@ -60,7 +60,7 @@ from conduit.server.managers.completions import (
     CompletionManager,
     CompletionNotConfiguredError,
 )
-from conduit.server.managers.logging_v2 import LoggingManager
+from conduit.server.managers.logging import LoggingManager
 from conduit.server.managers.prompts_v2 import PromptManager
 from conduit.server.managers.resources_v2 import ResourceManager
 from conduit.server.managers.tools_v2 import ToolManager
