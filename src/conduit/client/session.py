@@ -177,7 +177,8 @@ class ClientSession(BaseSession):
                 protocol version.
         """
         init_request = self._create_init_request()
-        response = await self.send_request(init_request)
+        response = await self.send_request(init_request)  # TODO: MAKE SURE WE DON'T
+        # TRY TO CANCEL THE REQUEST IF IT TIMES OUT
 
         if isinstance(response, Error):
             raise RuntimeError(response.message)

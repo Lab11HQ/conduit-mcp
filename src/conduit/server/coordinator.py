@@ -53,8 +53,9 @@ class MessageCoordinator:
         self._notification_handlers: dict[str, NotificationHandler] = {}
         self._message_loop_task: asyncio.Task[None] | None = None
 
-        # Client-specific request tracking moved to ClientManager
-        # Removed: self._in_flight_requests, self._pending_requests
+    # ================================
+    # Lifecycle
+    # ================================
 
     @property
     def running(self) -> bool:
@@ -62,27 +63,6 @@ class MessageCoordinator:
         return (
             self._message_loop_task is not None and not self._message_loop_task.done()
         )
-
-    def register_request_handler(self, method: str, handler: RequestHandler) -> None:
-        """Register a handler for a specific method.
-
-        Args:
-            method: JSON-RPC method name (e.g., "tools/list")
-            handler: Async function that takes (client_id, typed_request) and handles it
-        """
-        self._request_handlers[method] = handler
-
-    def register_notification_handler(
-        self, method: str, handler: NotificationHandler
-    ) -> None:
-        """Register a handler for a specific method.
-
-        Args:
-            method: JSON-RPC method name (e.g., "tools/list")
-            handler: Async function that takes (client_id, typed_notification) and
-                handles it
-        """
-        self._notification_handlers[method] = handler
 
     async def start(self) -> None:
         """Start the message processing loop.
@@ -107,7 +87,7 @@ class MessageCoordinator:
         """Stop message processing and cancel in-flight requests.
 
         Cancels the background message processing task and any in-flight
-        request handlers.
+        request handlers across all clients.
 
         Safe to call multiple times.
         """
@@ -122,9 +102,11 @@ class MessageCoordinator:
                 pass
             self._message_loop_task = None
 
-        # Cancel in-flight requests
-        # TODO: Implement this
-        # self._in_flight_requests.clear() # This line is removed
+        self.client_manager.cleanup_all_clients()
+
+    # ================================
+    # Message loop
+    # ================================
 
     async def _message_loop(self) -> None:
         """Process incoming client messages until cancelled or transport fails.
@@ -145,6 +127,23 @@ class MessageCoordinator:
         except Exception as e:
             print(f"Transport error: {e}")
 
+    def _on_message_loop_done(self, task: asyncio.Task[None]) -> None:
+        """Clean up when message loop exits unexpectedly.
+
+        Called when the message loop task completes due to transport failure
+        or other unexpected errors (not normal stop() cancellation).
+        """
+        # Clear task reference so running becomes False
+        self._message_loop_task = None
+
+        # Clean up all client state - cancel in-flight requests and
+        # resolve pending requests with errors
+        self.client_manager.cleanup_all_clients()
+
+    # ================================
+    # Route messages
+    # ================================
+
     async def _handle_client_message(self, client_message: ClientMessage) -> None:
         """Route client message to appropriate handler with client context.
 
@@ -163,132 +162,111 @@ class MessageCoordinator:
         else:
             print(f"Unknown message type from {client_id}: {payload}")
 
+    # ================================
+    # Handle requests
+    # ================================
+
     async def _handle_request(self, client_id: str, payload: dict[str, Any]) -> None:
-        """Parse and route typed request to handler.
-
-        Parses raw JSON-RPC payload into typed Request object and routes to
-        the appropriate handler. Parsing errors are sent back to the client.
-
-        Args:
-            client_id: ID of the client that sent the request
-            payload: Raw JSON-RPC request payload
-        """
-        method = payload["method"]
+        """Handle an incoming request from a client."""
         request_id = payload["id"]
 
-        try:
-            # Parse raw payload into typed request
-            request_or_error = self.parser.parse_request(payload)
+        self._ensure_client_registered(client_id)
 
-            if isinstance(request_or_error, Error):
-                # Send parsing error back to client
-                response = JSONRPCError.from_error(request_or_error, request_id)
-                await self.transport.send_to_client(client_id, response.to_wire())
-                return
+        request_or_error = self.parser.parse_request(payload)
 
-            # Route to handler with typed request
-            if handler := self._request_handlers.get(method):
-                # Get or create client context
-                context = self.client_manager.get_client(client_id)
-                if not context:
-                    context = self.client_manager.register_client(client_id)
+        if isinstance(request_or_error, Error):
+            await self._send_error(client_id, request_id, request_or_error)
+            return
 
-                # Run as background task to avoid blocking message loop
-                task = asyncio.create_task(
-                    self._execute_request_handler(
-                        handler, client_id, request_or_error, request_id
-                    ),
-                    name=f"handle_{method}_{client_id}_{request_id}",
-                )
+        await self._route_request(client_id, request_id, request_or_error)
 
-                # Store task in client context
-                context.in_flight_requests[request_id] = task
-
-                # Clean up when task completes
-                task.add_done_callback(
-                    lambda t: context.in_flight_requests.pop(request_id, None)
-                )
-            else:
-                # Send METHOD_NOT_FOUND error
-                error = Error(
-                    code=METHOD_NOT_FOUND, message=f"Unknown method: {method}"
-                )
-                response = JSONRPCError.from_error(error, request_id)
-                await self.transport.send_to_client(client_id, response.to_wire())
-
-        except Exception as e:
-            # Handle unexpected parsing errors
+    async def _route_request(
+        self,
+        client_id: str,
+        request_id: str | int,
+        request: Request,
+    ) -> None:
+        """Route request to appropriate handler and execute it."""
+        handler = self._request_handlers.get(request.method)
+        if not handler:
             error = Error(
-                code=INTERNAL_ERROR, message=f"Error processing request: {str(e)}"
+                code=METHOD_NOT_FOUND,
+                message=f"No handler for method: {request.method}",
             )
-            response = JSONRPCError.from_error(error, request_id)
-            await self.transport.send_to_client(client_id, response.to_wire())
+            await self._send_error(client_id, request_id, error)
+            return
+
+        task = asyncio.create_task(
+            self._execute_request_handler(handler, client_id, request_id, request),
+            name=f"handle_{request.method}_{client_id}_{request_id}",
+        )
+
+        self.client_manager.track_request_from_client(client_id, request_id, task)
+        task.add_done_callback(
+            lambda t: self.client_manager.remove_request_from_client(
+                client_id, request_id
+            )
+        )
 
     async def _execute_request_handler(
         self,
         handler: RequestHandler,
         client_id: str,
-        request: Request,
         request_id: str | int,
+        request: Request,
     ) -> None:
-        """Execute a request handler and send the appropriate response.
-
-        Args:
-            handler: The request handler to execute
-            client_id: ID of the client that sent the request
-            request: The parsed request object
-            request_id: ID of the request for response correlation
-        """
+        """Execute handler and send response back to client."""
         try:
-            # Execute the handler
             result_or_error = await handler(client_id, request)
 
-            # Format response based on handler result
             if isinstance(result_or_error, Error):
                 response = JSONRPCError.from_error(result_or_error, request_id)
             else:
                 response = JSONRPCResponse.from_result(result_or_error, request_id)
 
-            # Send response back to client
             await self.transport.send_to_client(client_id, response.to_wire())
+        except Exception:
+            error = Error(
+                code=INTERNAL_ERROR,
+                message="Problem handling request",
+                data={"request": request},
+            )
+            await self._send_error(client_id, request_id, error)
 
-        except Exception as e:
-            # Handle unexpected handler failures
-            error = Error(code=INTERNAL_ERROR, message=f"Handler error: {str(e)}")
-            response = JSONRPCError.from_error(error, request_id)
-            await self.transport.send_to_client(client_id, response.to_wire())
+    async def _send_error(
+        self, client_id: str, request_id: str | int, error: Error
+    ) -> None:
+        """Send error response to client."""
+        response = JSONRPCError.from_error(error, request_id)
+        await self.transport.send_to_client(client_id, response.to_wire())
+
+    # ================================
+    # Handle notifications
+    # ================================
 
     async def _handle_notification(
         self, client_id: str, payload: dict[str, Any]
     ) -> None:
-        """Parse and route typed notification to handler.
-
-        Args:
-            client_id: ID of the client that sent the notification
-            payload: Raw JSON-RPC notification payload
-        """
+        """Parse and route typed notification to handler."""
         method = payload["method"]
 
-        try:
-            # Parse raw payload into typed notification
-            notification = self.parser.parse_notification(payload)
+        notification = self.parser.parse_notification(payload)
+        if notification is None:
+            return
 
-            if notification is None:
-                # Parsing failed - already logged
-                return
+        handler = self._notification_handlers.get(method)
+        if not handler:
+            print(f"Unknown notification '{method}' from {client_id}")
+            return
 
-            # Route to handler with typed notification
-            if handler := self._notification_handlers.get(method):
-                # Run as background task (notifications don't need responses)
-                asyncio.create_task(
-                    handler(client_id, notification),
-                    name=f"handle_{method}_{client_id}",
-                )
-            else:
-                print(f"Unknown notification '{method}' from {client_id}")
+        asyncio.create_task(
+            handler(client_id, notification),
+            name=f"handle_{method}_{client_id}",
+        )
 
-        except Exception as e:
-            print(f"Error processing notification '{method}' from {client_id}: {e}")
+    # ================================
+    # Handle responses
+    # ================================
 
     async def _handle_response(self, client_id: str, payload: dict[str, Any]) -> None:
         """Handle response from client to our outbound request."""
@@ -297,51 +275,43 @@ class MessageCoordinator:
             print(f"Response from {client_id} missing request ID")
             return
 
-        # Get context and work with it directly
-        context = self.client_manager.get_client(client_id)
-        if not context:
-            print(f"No client context for {client_id}")
-            return
-
-        request_future_tuple = context.pending_requests.pop(request_id, None)
+        request_future_tuple = self.client_manager.get_request_to_client(
+            client_id, request_id
+        )
         if not request_future_tuple:
             print(f"No pending request {request_id} for client {client_id}")
             return
 
         original_request, future = request_future_tuple
+
         result_or_error = self.parser.parse_response(payload, original_request)
-        future.set_result(result_or_error)
 
-    def _on_message_loop_done(self, task: asyncio.Task[None]) -> None:
-        """Clean up when message loop exits."""
-        # Cancel any remaining in-flight requests
-        # TODO: Implement this
-        pass
+        self.client_manager.resolve_request_to_client(
+            client_id, request_id, result_or_error
+        )
 
-    async def cancel_request(self, client_id: str, request_id: str | int) -> bool:
-        """Cancel a specific request for a specific client."""
-        context = self.client_manager.get_client(client_id)
-        if not context:
-            return False
+    # ================================
+    # Cancel requests
+    # ================================
 
-        task = context.in_flight_requests.pop(request_id, None)
+    async def cancel_request_from_client(
+        self, client_id: str, request_id: str | int
+    ) -> bool:
+        """Cancel a specific request from a client.
+
+        Returns:
+            True if request was found and successfully cancelled, False if request
+            not found or was already completed/cancelled.
+        """
+        task = self.client_manager.remove_request_from_client(client_id, request_id)
         if not task:
             return False
 
-        task.cancel()
-        return True
+        return task.cancel()
 
-    async def cancel_client_requests(self, client_id: str) -> int:
-        """Cancel all requests for a specific client. Returns count cancelled."""
-        context = self.client_manager.get_client(client_id)
-        if not context:
-            return 0
-
-        count = len(context.in_flight_requests)
-        for task in context.in_flight_requests.values():
-            task.cancel()
-        context.in_flight_requests.clear()
-        return count
+    # ================================
+    # Send requests
+    # ================================
 
     async def send_request_to_client(
         self, client_id: str, request: Request, timeout: float = 30.0
@@ -362,48 +332,94 @@ class MessageCoordinator:
         Raises:
             ConnectionError: If transport is closed
             TimeoutError: If client doesn't respond within timeout
+            Exception: If transport send fails
         """
-        if not self.transport.is_open:
-            raise ConnectionError("Cannot send request: transport is closed")
+        await self._ensure_ready_to_send()
 
-        # Get or create client context
-        context = self.client_manager.get_client(client_id)
-        if not context:
-            context = self.client_manager.register_client(client_id)
-
-        # Generate request ID and create JSON-RPC wrapper
+        # Prepare the request
         request_id = str(uuid.uuid4())
         jsonrpc_request = JSONRPCRequest.from_request(request, request_id)
-
-        # Set up response tracking
         future: asyncio.Future[Result | Error] = asyncio.Future()
-        context.pending_requests[request_id] = (request, future)
+
+        # Set up tracking
+        self._ensure_client_registered(client_id)
+        self.client_manager.track_request_to_client(
+            client_id, request_id, request, future
+        )
 
         try:
             await self.transport.send_to_client(client_id, jsonrpc_request.to_wire())
-            result = await asyncio.wait_for(future, timeout)
-            return result
+            return await asyncio.wait_for(future, timeout)
         except asyncio.TimeoutError:
-            # Clean up pending request
-            context.pending_requests.pop(request_id, None)
+            await self._handle_request_timeout(client_id, request_id, timeout)
+            raise
+        finally:
+            self.client_manager.remove_request_to_client(client_id, request_id)
 
-            # Send cancellation notification to client
-            try:
-                cancelled_notification = CancelledNotification(
-                    request_id=request_id,
-                    reason="Request timed out",
-                )
-                await self._send_cancellation_to_client(
-                    client_id, cancelled_notification
-                )
-            except Exception as e:
-                print(f"Error sending cancellation to {client_id}: {e}")
+    async def _ensure_ready_to_send(self) -> None:
+        """Ensure coordinator is running and transport is open."""
+        if not self.running:
+            await self.start()
 
-            raise TimeoutError(f"Request {request_id} timed out after {timeout}s")
+        if not self.transport.is_open:
+            raise ConnectionError("Cannot send request: transport is closed")
 
-    async def _send_cancellation_to_client(
-        self, client_id: str, notification: CancelledNotification
+    async def _handle_request_timeout(
+        self, client_id: str, request_id: str, timeout: float
     ) -> None:
-        """Send cancellation notification to a specific client."""
+        """Clean up and notify client when request times out."""
+
+        try:
+            cancelled_notification = CancelledNotification(
+                request_id=request_id,
+                reason="Request timed out",
+            )
+            await self.send_notification_to_client(client_id, cancelled_notification)
+        except Exception as e:
+            print(f"Error sending cancellation to {client_id}: {e}")
+
+    # ================================
+    # Send notifications
+    # ================================
+
+    async def send_notification_to_client(
+        self, client_id: str, notification: Notification
+    ) -> None:
+        """Send a notification to a specific client."""
+        await self._ensure_ready_to_send()
         jsonrpc_notification = JSONRPCNotification.from_notification(notification)
         await self.transport.send_to_client(client_id, jsonrpc_notification.to_wire())
+
+    # ================================
+    # Register handlers
+    # ================================
+
+    def register_request_handler(self, method: str, handler: RequestHandler) -> None:
+        """Register a handler for a specific method.
+
+        Args:
+            method: JSON-RPC method name (e.g., "tools/list")
+            handler: Async function that takes (client_id, typed_request) and handles it
+        """
+        self._request_handlers[method] = handler
+
+    def register_notification_handler(
+        self, method: str, handler: NotificationHandler
+    ) -> None:
+        """Register a handler for a specific method.
+
+        Args:
+            method: JSON-RPC method name (e.g., "tools/list")
+            handler: Async function that takes (client_id, typed_notification) and
+                handles it
+        """
+        self._notification_handlers[method] = handler
+
+    # ================================
+    # Helpers
+    # ================================
+
+    def _ensure_client_registered(self, client_id: str) -> None:
+        """Ensure client is registered with the client manager."""
+        if not self.client_manager.get_client(client_id):
+            self.client_manager.register_client(client_id)
