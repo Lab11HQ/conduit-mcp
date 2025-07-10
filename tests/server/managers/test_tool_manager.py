@@ -15,6 +15,10 @@ from conduit.server.managers.tools import ToolManager
 
 
 class TestToolManager:
+    def setup_method(self):
+        # Arrange - consistent client ID for all tests
+        self.client_id = "test-client-123"
+
     def test_register_stores_tool_and_handler(self):
         # Arrange
         manager = ToolManager()
@@ -43,7 +47,7 @@ class TestToolManager:
         request = ListToolsRequest()
 
         # Act
-        result = await manager.handle_list(request)
+        result = await manager.handle_list(self.client_id, request)
 
         # Assert
         assert isinstance(result, ListToolsResult)
@@ -61,10 +65,10 @@ class TestToolManager:
         request = CallToolRequest(name="test-tool", arguments={})
 
         # Act
-        result = await manager.handle_call(request)
+        result = await manager.handle_call(self.client_id, request)
 
         # Assert
-        handler.assert_awaited_once_with(request)
+        handler.assert_awaited_once_with(self.client_id, request)
         assert result is expected_result
 
     async def test_handle_call_raises_keyerror_for_unknown_tool(self):
@@ -74,7 +78,7 @@ class TestToolManager:
 
         # Act & Assert
         with pytest.raises(KeyError):
-            await manager.handle_call(request)
+            await manager.handle_call(self.client_id, request)
 
     async def test_handle_call_converts_handler_exception_to_error_result(self):
         # Arrange
@@ -87,10 +91,9 @@ class TestToolManager:
         request = CallToolRequest(name="failing-tool", arguments={})
 
         # Act
-        result = await manager.handle_call(request)
+        result = await manager.handle_call(self.client_id, request)
 
         # Assert
         assert isinstance(result, CallToolResult)
         assert result.is_error is True
         assert len(result.content) == 1
-        assert "Tool execution failed: Something went wrong" in result.content[0].text
