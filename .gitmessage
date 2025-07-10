@@ -15,7 +15,7 @@ Impact:
 #   chore:    maintenance tasks, deps, tooling
 #
 # Guidelines:
-# - Use imperative mood ("add" not "added")
+# - Use imperative mood ("add" not "added") in the headline
 # - First line ~50-60 chars (clarity over brevity)
 # - Wrap body at 72 characters
 # - Focus on the value and reasoning

@@ -27,5 +27,3 @@
 - [] Breaking changes documented in commit messages
 
 ---
-
-*Thanks for contributing to conduit-mcp! 🚀*
