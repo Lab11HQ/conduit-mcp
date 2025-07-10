@@ -148,9 +148,10 @@ class TestRequestHandling:
         assert error["code"] == INTERNAL_ERROR
 
         # Assert: Client was registered and request was tracked/cleaned up
+        await yield_loop()  # Let client manager clean up
         assert coordinator.client_manager.get_client("client-1") is not None
         client = coordinator.client_manager.get_client("client-1")
-        assert len(client.requests_from_client) == 0  # Exception cleanup worked
+        assert len(client.requests_from_client) == 0
 
     async def test_cancel_request_and_cleanup(
         self, coordinator, mock_transport, yield_loop
