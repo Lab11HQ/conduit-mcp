@@ -13,6 +13,10 @@ from conduit.server.managers.prompts import PromptManager
 
 
 class TestPromptManager:
+    def setup_method(self):
+        # Arrange - consistent client ID for all tests
+        self.client_id = "test-client-123"
+
     def test_register_stores_prompt_and_handler(self):
         # Arrange
         manager = PromptManager()
@@ -34,7 +38,7 @@ class TestPromptManager:
         request = ListPromptsRequest()
 
         # Act
-        result = await manager.handle_list_prompts(request)
+        result = await manager.handle_list_prompts(self.client_id, request)
 
         # Assert
         assert result == ListPromptsResult(prompts=[])
@@ -51,7 +55,7 @@ class TestPromptManager:
         request = ListPromptsRequest()
 
         # Act
-        result = await manager.handle_list_prompts(request)
+        result = await manager.handle_list_prompts(self.client_id, request)
 
         # Assert
         assert isinstance(result, ListPromptsResult)
@@ -70,17 +74,17 @@ class TestPromptManager:
         request = GetPromptRequest(name="test-prompt")
 
         # Act
-        result = await manager.handle_get_prompt(request)
+        result = await manager.handle_get_prompt(self.client_id, request)
 
         # Assert
-        handler.assert_awaited_once_with(request)
+        handler.assert_awaited_once_with(self.client_id, request)
         assert result is expected_result
 
     async def test_handle_get_prompt_raises_keyerror_for_unknown_prompt(self):
         # Arrange
         manager = PromptManager()
-        request = GetPromptRequest(name="unknown-prompt")
+        request = GetPromptRequest(name="unknown-prompt-name")
 
         # Act & Assert
-        with pytest.raises(KeyError, match="Unknown prompt: unknown-prompt"):
-            await manager.handle_get_prompt(request)
+        with pytest.raises(KeyError, match="Unknown prompt: unknown-prompt-name"):
+            await manager.handle_get_prompt(self.client_id, request)

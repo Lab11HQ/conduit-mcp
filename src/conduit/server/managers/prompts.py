@@ -13,13 +13,13 @@ class PromptManager:
     def __init__(self):
         self.registered: dict[str, Prompt] = {}
         self.handlers: dict[
-            str, Callable[[GetPromptRequest], Awaitable[GetPromptResult]]
+            str, Callable[[str, GetPromptRequest], Awaitable[GetPromptResult]]
         ] = {}
 
     def register(
         self,
         prompt: Prompt,
-        handler: Callable[[GetPromptRequest], Awaitable[GetPromptResult]],
+        handler: Callable[[str, GetPromptRequest], Awaitable[GetPromptResult]],
     ) -> None:
         """Register a prompt with its handler function.
 
@@ -37,7 +37,7 @@ class PromptManager:
         self.handlers[name] = handler
 
     async def handle_list_prompts(
-        self, request: ListPromptsRequest
+        self, client_id: str, request: ListPromptsRequest
     ) -> ListPromptsResult:
         """List all registered prompts.
 
@@ -50,9 +50,12 @@ class PromptManager:
         Returns:
             ListPromptsResult: All registered prompts.
         """
+        # TODO: Filter prompts based on client capabilities
         return ListPromptsResult(prompts=list(self.registered.values()))
 
-    async def handle_get_prompt(self, request: GetPromptRequest) -> GetPromptResult:
+    async def handle_get_prompt(
+        self, client_id: str, request: GetPromptRequest
+    ) -> GetPromptResult:
         """Execute a registered prompt handler with the given arguments.
 
         Your prompt handler should process the request arguments and return
@@ -75,7 +78,7 @@ class PromptManager:
             raise KeyError(f"Unknown prompt: {name}")
 
         try:
-            return await self.handlers[name](request)
+            return await self.handlers[name](client_id, request)
         except Exception:
             # Re-raise handler failures for session to convert to protocol errors
             raise
