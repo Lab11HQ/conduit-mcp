@@ -75,8 +75,11 @@ class MessageParser:
 
     def is_valid_response(self, payload: dict[str, Any]) -> bool:
         """Check if payload is a valid JSON-RPC response."""
-        has_valid_id = payload.get("id") is not None and isinstance(
-            payload.get("id"), (int, str)
+        id_value = payload.get("id")
+        has_valid_id = (
+            id_value is not None
+            and isinstance(id_value, (int, str))
+            and not isinstance(id_value, bool)
         )
         has_result = "result" in payload
         has_error = "error" in payload
