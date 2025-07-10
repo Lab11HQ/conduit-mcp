@@ -25,6 +25,20 @@ class MessageParser:
     with proper error handling and type safety.
     """
 
+    # ================================
+    # Request parsing
+    # ================================
+
+    def is_valid_request(self, payload: dict[str, Any]) -> bool:
+        """Check if payload is a valid JSON-RPC request."""
+        id_value = payload.get("id")
+        has_valid_id = (
+            id_value is not None
+            and isinstance(id_value, (int, str))
+            and not isinstance(id_value, bool)  # Exclude booleans explicitly
+        )
+        return "method" in payload and has_valid_id
+
     def parse_request(self, payload: dict[str, Any]) -> Request | Error:
         """Parse a JSON-RPC request payload into a typed Request object or Error.
 
@@ -54,6 +68,24 @@ class MessageParser:
                     "params": payload.get("params", {}),
                 },
             )
+
+    # ================================
+    # Response parsing
+    # ================================
+
+    def is_valid_response(self, payload: dict[str, Any]) -> bool:
+        """Check if payload is a valid JSON-RPC response."""
+        id_value = payload.get("id")
+        has_valid_id = (
+            id_value is not None
+            and isinstance(id_value, (int, str))
+            and not isinstance(id_value, bool)
+        )
+        has_result = "result" in payload
+        has_error = "error" in payload
+        has_exactly_one_response_field = has_result ^ has_error
+
+        return has_valid_id and has_exactly_one_response_field
 
     def parse_response(
         self, payload: dict[str, Any], original_request: Request
@@ -98,6 +130,10 @@ class MessageParser:
                     },
                 )
 
+    # ================================
+    # Notification parsing
+    # ================================
+
     def parse_notification(self, payload: dict[str, Any]) -> Notification | None:
         """Parse a JSON-RPC notification payload into a typed Notification object.
 
@@ -124,24 +160,6 @@ class MessageParser:
             print(f"Failed to deserialize {method} notification: {e}")
             return None
 
-    def is_valid_request(self, payload: dict[str, Any]) -> bool:
-        """Check if payload is a valid JSON-RPC request."""
-        has_valid_id = payload.get("id") is not None and isinstance(
-            payload.get("id"), (int, str)
-        )
-        return "method" in payload and has_valid_id
-
     def is_valid_notification(self, payload: dict[str, Any]) -> bool:
         """Check if payload is a valid JSON-RPC notification."""
         return "method" in payload and "id" not in payload
-
-    def is_valid_response(self, payload: dict[str, Any]) -> bool:
-        """Check if payload is a valid JSON-RPC response."""
-        has_valid_id = payload.get("id") is not None and isinstance(
-            payload.get("id"), (int, str)
-        )
-        has_result = "result" in payload
-        has_error = "error" in payload
-        has_exactly_one_response_field = has_result ^ has_error
-
-        return has_valid_id and has_exactly_one_response_field
