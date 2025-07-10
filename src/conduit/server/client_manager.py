@@ -154,12 +154,12 @@ class ClientManager:
     def resolve_request_to_client(
         self, client_id: str, request_id: str, result_or_error: Result | Error
     ) -> bool:
-        """Resolve a pending request with the parsed response.
+        """Resolve a pending request with a result or error.
 
         Args:
             client_id: ID of the client
             request_id: Request identifier to resolve
-            result_or_error: Parsed response from the coordinator
+            result_or_error: Result or error to resolve the request with
 
         Returns:
             True if request was found and resolved, False otherwise
