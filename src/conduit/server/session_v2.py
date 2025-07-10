@@ -56,7 +56,7 @@ from conduit.protocol.tools import (
 from conduit.server.client_manager import ClientManager
 from conduit.server.coordinator import MessageCoordinator
 from conduit.server.managers.callbacks_v2 import CallbackManager
-from conduit.server.managers.completions_v2 import (
+from conduit.server.managers.completions import (
     CompletionManager,
     CompletionNotConfiguredError,
 )

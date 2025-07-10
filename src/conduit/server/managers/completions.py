@@ -11,17 +11,20 @@ class CompletionNotConfiguredError(Exception):
 
 class CompletionManager:
     def __init__(self):
-        self.handler: Callable[[CompleteRequest], Awaitable[CompleteResult]] | None = (
-            None
-        )
+        self.handler: (
+            Callable[[str, CompleteRequest], Awaitable[CompleteResult]] | None
+        ) = None
 
     def set_handler(
-        self, handler: Callable[[CompleteRequest], Awaitable[CompleteResult]]
+        self,
+        handler: Callable[[str, CompleteRequest], Awaitable[CompleteResult]],
     ) -> None:
         """Set the completion handler for all completion requests."""
         self.handler = handler
 
-    async def handle_complete(self, request: CompleteRequest) -> CompleteResult:
+    async def handle_complete(
+        self, client_id: str, request: CompleteRequest
+    ) -> CompleteResult:
         """Generate completions using the configured handler.
 
         Delegates to the registered completion handler for actual generation.
@@ -30,6 +33,7 @@ class CompletionManager:
 
         Args:
             request: Complete request with reference and arguments.
+            client_id: The client's unique identifier.
 
         Returns:
             CompleteResult: Generated completion from the handler.
@@ -40,4 +44,4 @@ class CompletionManager:
         """
         if self.handler is None:
             raise CompletionNotConfiguredError("No completion handler registered")
-        return await self.handler(request)
+        return await self.handler(client_id, request)

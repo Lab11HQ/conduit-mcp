@@ -14,6 +14,7 @@ class TestCompletionManager:
     async def test_init_creates_unconfigured_manager(self):
         # Arrange
         manager = CompletionManager()
+        client_id = "test-client-123"
         request = CompleteRequest(
             ref=PromptReference(name="test"),
             argument={"name": "test", "value": "value"},
@@ -23,11 +24,12 @@ class TestCompletionManager:
         with pytest.raises(
             CompletionNotConfiguredError, match="No completion handler registered"
         ):
-            await manager.handle_complete(request)
+            await manager.handle_complete(client_id, request)
 
     async def test_handle_complete_calls_handler_and_returns_result(self):
         # Arrange
         manager = CompletionManager()
+        client_id = "test-client-123"
         request = CompleteRequest(
             ref=PromptReference(name="test"),
             argument={"name": "test", "value": "value"},
@@ -39,8 +41,8 @@ class TestCompletionManager:
 
         # Act
         manager.set_handler(handler)
-        result = await manager.handle_complete(request)
+        result = await manager.handle_complete(client_id, request)
 
         # Assert
-        handler.assert_awaited_once_with(request)
+        handler.assert_awaited_once_with(client_id, request)
         assert result is expected_result
