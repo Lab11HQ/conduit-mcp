@@ -294,30 +294,20 @@ class MessageCoordinator:
     # Cancel requests
     # ================================
 
-    async def cancel_request(self, client_id: str, request_id: str | int) -> bool:
-        """Cancel a specific request for a specific client."""
-        context = self.client_manager.get_client(client_id)
-        if not context:
-            return False
+    async def cancel_request_from_client(
+        self, client_id: str, request_id: str | int
+    ) -> bool:
+        """Cancel a specific request from a client.
 
-        task = context.in_flight_requests.pop(request_id, None)
+        Returns:
+            True if request was found and successfully cancelled, False if request
+            not found or was already completed/cancelled.
+        """
+        task = self.client_manager.remove_request_from_client(client_id, request_id)
         if not task:
             return False
 
-        task.cancel()
-        return True
-
-    async def cancel_client_requests(self, client_id: str) -> int:
-        """Cancel all requests for a specific client. Returns count cancelled."""
-        context = self.client_manager.get_client(client_id)
-        if not context:
-            return 0
-
-        count = len(context.in_flight_requests)
-        for task in context.in_flight_requests.values():
-            task.cancel()
-        context.in_flight_requests.clear()
-        return count
+        return task.cancel()
 
     # ================================
     # Send requests

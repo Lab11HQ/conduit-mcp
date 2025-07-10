@@ -362,7 +362,7 @@ class ServerSession:
         self, client_id: str, notification: CancelledNotification
     ) -> None:
         """Handle cancelled notification from specific client."""
-        was_cancelled = await self._coordinator.cancel_request(
+        was_cancelled = await self._coordinator.cancel_request_from_client(
             client_id, notification.request_id
         )
         await self.callbacks.call_cancelled(client_id, notification)
