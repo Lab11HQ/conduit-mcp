@@ -56,6 +56,7 @@ class TestRequestHandling:
         assert coordinator.client_manager.get_client("client-1") is not None
 
         # Assert: Request was tracked and cleaned up
+        await yield_loop()  # Let client manager clean up
         client = coordinator.client_manager.get_client("client-1")
         assert len(client.requests_from_client) == 0
 
