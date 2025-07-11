@@ -43,24 +43,3 @@ class LoggingManager:
         """Get the current logging level for a specific client."""
         context = self.client_manager.get_client(client_id)
         return context.log_level if context else None
-
-    def should_send_log(self, level: LoggingLevel) -> bool:
-        """Check if a log message should be sent based on current log level."""
-        if self.current_level is None:
-            return False
-
-        priorities = {
-            "debug": 0,
-            "info": 1,
-            "notice": 2,
-            "warning": 3,
-            "error": 4,
-            "critical": 5,
-            "alert": 6,
-            "emergency": 7,
-        }
-
-        current_priority = priorities.get(self.current_level, 0)
-        message_priority = priorities.get(level, 0)
-
-        return message_priority >= current_priority

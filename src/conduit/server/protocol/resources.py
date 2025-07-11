@@ -3,7 +3,7 @@
 import re
 from typing import Awaitable, Callable
 
-from conduit.protocol.base import EmptyResult
+from conduit.protocol.common import EmptyResult
 from conduit.protocol.resources import (
     ListResourcesRequest,
     ListResourcesResult,
@@ -45,9 +45,6 @@ class ResourceManager:
         # Templates (global, dynamic resources with URI patterns)
         self.registered_templates: dict[str, ResourceTemplate] = {}
         self.template_handlers: dict[str, ClientAwareResourceHandler] = {}
-
-        # Client subscriptions now stored in ClientContext.subscriptions
-        # Removed: self.subscriptions
 
         # Callbacks now receive client context
         self._on_subscribe: ClientAwareSubscriptionCallback | None = None

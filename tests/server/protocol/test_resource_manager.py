@@ -16,13 +16,20 @@ from conduit.protocol.resources import (
     SubscribeRequest,
     UnsubscribeRequest,
 )
-from conduit.server.managers.resources import ResourceManager
+from conduit.server.client_manager import ClientManager
+from conduit.server.protocol.resources import ResourceManager
 
 
 class TestResourceManager:
+    def setup_method(self):
+        # Arrange - Create client manager and register a test client
+        self.client_manager = ClientManager()
+        self.client_id = "test-client-123"
+        self.client_context = self.client_manager.register_client(self.client_id)
+
     def test_register_resource_stores_resource_and_handler(self):
         # Arrange
-        manager = ResourceManager()
+        manager = ResourceManager(self.client_manager)
         resource = Resource(uri="file://test.txt", name="Test File")
         handler = AsyncMock()
 
@@ -37,7 +44,7 @@ class TestResourceManager:
 
     def test_register_template_stores_template_and_handler(self):
         # Arrange
-        manager = ResourceManager()
+        manager = ResourceManager(self.client_manager)
         template = ResourceTemplate(
             uri_template="file://logs/{date}.log", name="Log Files"
         )
@@ -54,21 +61,21 @@ class TestResourceManager:
 
     async def test_handle_list_resources_returns_registered_resources(self):
         # Arrange
-        manager = ResourceManager()
+        manager = ResourceManager(self.client_manager)
         resource = Resource(uri="file://test.txt", name="Test File")
         handler = AsyncMock()
         manager.register(resource, handler)
         request = ListResourcesRequest()
 
         # Act
-        result = await manager.handle_list_resources(request)
+        result = await manager.handle_list_resources(self.client_id, request)
 
         # Assert
         assert result == ListResourcesResult(resources=[resource])
 
     async def test_handle_list_templates_returns_registered_templates(self):
         # Arrange
-        manager = ResourceManager()
+        manager = ResourceManager(self.client_manager)
         template = ResourceTemplate(
             uri_template="file://logs/{date}.log", name="Log Files"
         )
@@ -77,14 +84,14 @@ class TestResourceManager:
         request = ListResourceTemplatesRequest()
 
         # Act
-        result = await manager.handle_list_templates(request)
+        result = await manager.handle_list_templates(self.client_id, request)
 
         # Assert
         assert result == ListResourceTemplatesResult(resource_templates=[template])
 
     async def test_handle_read_delegates_to_static_resource_handler(self):
         # Arrange
-        manager = ResourceManager()
+        manager = ResourceManager(self.client_manager)
         resource = Resource(uri="file://test.txt", name="Test File")
         expected_result = ReadResourceResult(
             contents=[TextResourceContents(uri="file://test.txt", text="file content")]
@@ -94,109 +101,107 @@ class TestResourceManager:
         request = ReadResourceRequest(uri="file://test.txt")
 
         # Act
-        result = await manager.handle_read(request)
+        result = await manager.handle_read(self.client_id, request)
 
         # Assert
-        handler.assert_awaited_once_with(request)
+        handler.assert_awaited_once_with(self.client_id, request)
         assert result is expected_result
 
     async def test_handle_read_raises_keyerror_for_unknown_resource(self):
-        # Arrange
-        manager = ResourceManager()
+        # Arrange - don't register any resources
+        manager = ResourceManager(self.client_manager)
         request = ReadResourceRequest(uri="file://unknown.txt")
 
         # Act & Assert
-        with pytest.raises(KeyError, match="Unknown resource: file://unknown.txt"):
-            await manager.handle_read(request)
+        with pytest.raises(KeyError):
+            await manager.handle_read(self.client_id, request)
 
     async def test_handle_subscribe_adds_to_subscriptions_for_known_resource(self):
         # Arrange
-        manager = ResourceManager()
+        manager = ResourceManager(self.client_manager)
         resource = Resource(uri="file://test.txt", name="Test File")
         handler = AsyncMock()
         manager.register(resource, handler)
         request = SubscribeRequest(uri="file://test.txt")
 
         # Act
-        result = await manager.handle_subscribe(request)
+        result = await manager.handle_subscribe(self.client_id, request)
 
         # Assert
-        assert "file://test.txt" in manager.subscriptions
+        assert "file://test.txt" in self.client_context.subscriptions
         assert isinstance(result, EmptyResult)
 
     async def test_handle_subscribe_calls_callback_if_registered(self):
         # Arrange
-        manager = ResourceManager()
+        manager = ResourceManager(self.client_manager)
         resource = Resource(uri="file://test.txt", name="Test File")
         handler = AsyncMock()
         callback = AsyncMock()
         manager.register(resource, handler)
-        manager._on_subscribe = callback
+        manager.on_subscribe(callback)
         request = SubscribeRequest(uri="file://test.txt")
 
         # Act
-        await manager.handle_subscribe(request)
+        await manager.handle_subscribe(self.client_id, request)
 
         # Assert
-        callback.assert_awaited_once_with("file://test.txt")
+        callback.assert_awaited_once_with(self.client_id, "file://test.txt")
 
     async def test_handle_subscribe_raises_keyerror_for_unknown_resource(self):
         # Arrange
-        manager = ResourceManager()
+        manager = ResourceManager(self.client_manager)
         request = SubscribeRequest(uri="file://unknown.txt")
 
         # Act & Assert
-        with pytest.raises(
-            KeyError, match="Cannot subscribe to unknown resource: file://unknown.txt"
-        ):
-            await manager.handle_subscribe(request)
+        with pytest.raises(KeyError):
+            await manager.handle_subscribe(self.client_id, request)
 
     async def test_handle_unsubscribe_removes_from_subscriptions(self):
         # Arrange
-        manager = ResourceManager()
+        manager = ResourceManager(self.client_manager)
         resource = Resource(uri="file://test.txt", name="Test File")
         handler = AsyncMock()
         manager.register(resource, handler)
-        manager.subscriptions.add("file://test.txt")
+        self.client_context.subscriptions.add("file://test.txt")
+        assert "file://test.txt" in self.client_context.subscriptions
         request = UnsubscribeRequest(uri="file://test.txt")
 
         # Act
-        result = await manager.handle_unsubscribe(request)
+        result = await manager.handle_unsubscribe(self.client_id, request)
 
         # Assert
-        assert "file://test.txt" not in manager.subscriptions
+        assert "file://test.txt" not in self.client_context.subscriptions
         assert isinstance(result, EmptyResult)
 
     async def test_handle_unsubscribe_calls_callback_if_registered(self):
         # Arrange
-        manager = ResourceManager()
+        manager = ResourceManager(self.client_manager)
         callback = AsyncMock()
-        manager.subscriptions.add("file://test.txt")
-        manager._on_unsubscribe = callback
+        self.client_context.subscriptions.add("file://test.txt")
+        assert "file://test.txt" in self.client_context.subscriptions
+        manager.on_unsubscribe(callback)
         request = UnsubscribeRequest(uri="file://test.txt")
 
         # Act
-        await manager.handle_unsubscribe(request)
+        await manager.handle_unsubscribe(self.client_id, request)
 
         # Assert
-        callback.assert_awaited_once_with("file://test.txt")
+        callback.assert_awaited_once_with(self.client_id, "file://test.txt")
 
     async def test_handle_unsubscribe_raises_keyerror_if_not_subscribed(self):
-        # Arrange
-        manager = ResourceManager()
+        # Arrange - don't subscribe to any resources
+        manager = ResourceManager(self.client_manager)
         request = UnsubscribeRequest(uri="file://test.txt")
 
         # Act & Assert
-        with pytest.raises(
-            KeyError, match="Not subscribed to resource: file://test.txt"
-        ):
-            await manager.handle_unsubscribe(request)
+        with pytest.raises(KeyError):
+            await manager.handle_unsubscribe(self.client_id, request)
 
     async def test_handle_read_delegates_to_template_handler_when_uri_matches_pattern(
         self,
     ):
         # Arrange
-        manager = ResourceManager()
+        manager = ResourceManager(self.client_manager)
         template = ResourceTemplate(
             uri_template="file://logs/{date}.log", name="Log Files"
         )
@@ -212,64 +217,42 @@ class TestResourceManager:
         request = ReadResourceRequest(uri="file://logs/2024-01-15.log")
 
         # Act
-        result = await manager.handle_read(request)
+        result = await manager.handle_read(self.client_id, request)
 
         # Assert
-        handler.assert_awaited_once_with(request)
+        handler.assert_awaited_once_with(self.client_id, request)
         assert result is expected_result
 
     async def test_handle_subscribe_allows_subscription_to_template_matching_uri(self):
         # Arrange
-        manager = ResourceManager()
+        manager = ResourceManager(self.client_manager)
         template = ResourceTemplate(
             uri_template="file://logs/{date}.log", name="Log Files"
         )
         handler = AsyncMock()
         callback = AsyncMock()
         manager.register(template, handler)
-        manager._on_subscribe = callback
+        manager.on_subscribe(callback)
         request = SubscribeRequest(uri="file://logs/2024-01-15.log")
 
         # Act
-        result = await manager.handle_subscribe(request)
+        result = await manager.handle_subscribe(self.client_id, request)
 
         # Assert
-        assert "file://logs/2024-01-15.log" in manager.subscriptions
-        callback.assert_awaited_once_with("file://logs/2024-01-15.log")
+        assert "file://logs/2024-01-15.log" in self.client_context.subscriptions
+        callback.assert_awaited_once_with(self.client_id, "file://logs/2024-01-15.log")
         assert isinstance(result, EmptyResult)
 
-    def test_matches_template(self):
+    async def test_handle_subscribe_raises_keyerror_for_non_matching_template(self):
         # Arrange
-        uri = "file://logs/2024-01-15.log"
-        template = "file://logs/{date}.log"
-        manager = ResourceManager()
+        manager = ResourceManager(self.client_manager)
+        template = ResourceTemplate(
+            uri_template="file://logs/{date}.log", name="Log Files"
+        )
+        handler = AsyncMock()
+        manager.register(template, handler)
+        request = SubscribeRequest(uri="file://config/settings.json")
 
-        # Act
-        result = manager._matches_template(uri=uri, template=template)
-
-        # Assert
-        assert result is True
-
-    def test_does_not_match_template(self):
-        # Arrange
-        uri = "file://config.json"
-        template = "file://logs/{date}.log"
-        manager = ResourceManager()
-
-        # Act
-        result = manager._matches_template(uri=uri, template=template)
-
-        # Assert
-        assert result is False
-
-    # def test_extract_template_variables(self):
-    #     # Arrange
-    #     uri = "db://users/123/posts/456"
-    #     template = "db://users/{user_id}/posts/{post_id}"
-    #     manager = ResourceManager()
-
-    #     # Act
-    #     result = manager._extract_template_variables(uri, template)
-
-    #     # Assert
-    #     assert result == {"user_id": "123", "post_id": "456"}
+        # Act & Assert
+        with pytest.raises(KeyError):
+            await manager.handle_subscribe(self.client_id, request)

@@ -32,7 +32,7 @@ from conduit.protocol.base import Notification, ProtocolModel, Request, Result
 
 class Root(ProtocolModel):
     """
-    A filesystem location or resource that the server can access and operate on.
+    A filesystem resource that the server can access.
 
     Roots define the boundaries of what a server can work with—think of them as
     declaring "here are the directories and files you're allowed to touch."

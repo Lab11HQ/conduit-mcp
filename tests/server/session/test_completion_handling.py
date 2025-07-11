@@ -8,7 +8,7 @@ from conduit.protocol.completions import (
     CompletionArgument,
 )
 from conduit.protocol.prompts import PromptReference
-from conduit.server.managers.completions import CompletionNotConfiguredError
+from conduit.server.protocol.completions import CompletionNotConfiguredError
 
 from .conftest import ServerSessionTest
 

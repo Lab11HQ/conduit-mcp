@@ -53,17 +53,17 @@ from conduit.protocol.tools import (
     ListToolsRequest,
     ListToolsResult,
 )
+from conduit.server.callbacks import CallbackManager
 from conduit.server.client_manager import ClientManager
 from conduit.server.coordinator import MessageCoordinator
-from conduit.server.managers.callbacks_v2 import CallbackManager
-from conduit.server.managers.completions_v2 import (
+from conduit.server.protocol.completions import (
     CompletionManager,
     CompletionNotConfiguredError,
 )
-from conduit.server.managers.logging_v2 import LoggingManager
-from conduit.server.managers.prompts_v2 import PromptManager
-from conduit.server.managers.resources_v2 import ResourceManager
-from conduit.server.managers.tools_v2 import ToolManager
+from conduit.server.protocol.logging import LoggingManager
+from conduit.server.protocol.prompts import PromptManager
+from conduit.server.protocol.resources import ResourceManager
+from conduit.server.protocol.tools import ToolManager
 from conduit.transport.server import ServerTransport
 
 
