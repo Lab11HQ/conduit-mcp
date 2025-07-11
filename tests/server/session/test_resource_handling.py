@@ -22,7 +22,7 @@ from conduit.protocol.resources import (
     SubscribeRequest,
     UnsubscribeRequest,
 )
-from conduit.server.session_v2 import ServerConfig, ServerSession
+from conduit.server.session import ServerConfig, ServerSession
 
 
 class TestResourceHandling:

@@ -13,7 +13,7 @@ from conduit.protocol.tools import (
     ListToolsResult,
     TextContent,
 )
-from conduit.server.session_v2 import ServerConfig, ServerSession
+from conduit.server.session import ServerConfig, ServerSession
 
 
 class TestToolHandling:

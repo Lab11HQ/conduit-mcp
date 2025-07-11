@@ -6,7 +6,7 @@ from conduit.protocol.base import PROTOCOL_VERSION
 from conduit.protocol.common import EmptyResult, PingRequest, ProgressNotification
 from conduit.protocol.initialization import Implementation, ServerCapabilities
 from conduit.protocol.tools import ListToolsRequest
-from conduit.server.session_v2 import ServerConfig, ServerSession
+from conduit.server.session import ServerConfig, ServerSession
 
 
 class TestSendMessage:

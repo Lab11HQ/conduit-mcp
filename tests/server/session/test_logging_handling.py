@@ -4,7 +4,7 @@ from conduit.protocol.base import METHOD_NOT_FOUND, PROTOCOL_VERSION, Error
 from conduit.protocol.common import EmptyResult
 from conduit.protocol.initialization import Implementation, ServerCapabilities
 from conduit.protocol.logging import SetLevelRequest
-from conduit.server.session_v2 import ServerConfig, ServerSession
+from conduit.server.session import ServerConfig, ServerSession
 
 
 class TestLoggingHandling:

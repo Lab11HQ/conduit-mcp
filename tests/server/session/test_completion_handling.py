@@ -15,7 +15,7 @@ from conduit.protocol.completions import (
 from conduit.protocol.initialization import Implementation, ServerCapabilities
 from conduit.protocol.prompts import PromptReference
 from conduit.server.protocol.completions import CompletionNotConfiguredError
-from conduit.server.session_v2 import ServerConfig, ServerSession
+from conduit.server.session import ServerConfig, ServerSession
 
 
 class TestCompletionHandling:

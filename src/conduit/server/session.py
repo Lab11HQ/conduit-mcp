@@ -1,9 +1,11 @@
+"""Multi-client aware server session implementation."""
+
 from dataclasses import dataclass
 
 from conduit.protocol.base import (
     INTERNAL_ERROR,
     METHOD_NOT_FOUND,
-    PROTOCOL_VERSION,
+    PROTOCOL_VERSION_MISMATCH,
     Error,
     Notification,
     Request,
@@ -17,16 +19,14 @@ from conduit.protocol.common import (
 )
 from conduit.protocol.completions import CompleteRequest, CompleteResult
 from conduit.protocol.initialization import (
-    ClientCapabilities,
+    PROTOCOL_VERSION,
     Implementation,
     InitializedNotification,
     InitializeRequest,
     InitializeResult,
     ServerCapabilities,
 )
-from conduit.protocol.logging import (
-    SetLevelRequest,
-)
+from conduit.protocol.logging import SetLevelRequest
 from conduit.protocol.prompts import (
     GetPromptRequest,
     GetPromptResult,
@@ -46,7 +46,6 @@ from conduit.protocol.resources import (
 from conduit.protocol.roots import (
     ListRootsRequest,
     ListRootsResult,
-    Root,
     RootsListChangedNotification,
 )
 from conduit.protocol.tools import (
@@ -56,6 +55,8 @@ from conduit.protocol.tools import (
     ListToolsResult,
 )
 from conduit.server.callbacks import CallbackManager
+from conduit.server.client_manager import ClientManager
+from conduit.server.coordinator import MessageCoordinator
 from conduit.server.protocol.completions import (
     CompletionManager,
     CompletionNotConfiguredError,
@@ -64,8 +65,7 @@ from conduit.server.protocol.logging import LoggingManager
 from conduit.server.protocol.prompts import PromptManager
 from conduit.server.protocol.resources import ResourceManager
 from conduit.server.protocol.tools import ToolManager
-from conduit.shared.session import BaseSession
-from conduit.transport.base import Transport
+from conduit.transport.server import ServerTransport
 
 
 @dataclass
@@ -76,59 +76,78 @@ class ServerConfig:
     protocol_version: str = PROTOCOL_VERSION
 
 
-@dataclass
-class ClientState:
-    capabilities: ClientCapabilities | None = None
-    info: Implementation | None = None
-    protocol_version: str | None = None
+class ServerSession:
+    """Multi-client aware MCP server session.
 
-    # Domain state
-    roots: list[Root] | None = None
+    Handles protocol logic for multiple clients simultaneously, with each
+    client maintaining its own state and initialization status. Uses a
+    MessageCoordinator to handle message loop mechanics while focusing on
+    protocol implementation.
+    """
 
-
-class ServerSession(BaseSession):
-    def __init__(
-        self,
-        transport: Transport,
-        config: ServerConfig,
-    ):
-        super().__init__(transport)
+    def __init__(self, transport: ServerTransport, config: ServerConfig):
+        self.transport = transport
         self.server_config = config
-        self.client_state = ClientState()
-        self._received_initialized: bool = False
 
-        # Domain managers
+        # Client state management
+        self.client_manager = ClientManager()
+
+        # Domain managers (these will need client-aware updates)
         self.tools = ToolManager()
-        self.resources = ResourceManager()
+        self.resources = ResourceManager(self.client_manager)
         self.prompts = PromptManager()
-        self.logging = LoggingManager()
+        self.logging = LoggingManager(self.client_manager)
         self.completions = CompletionManager()
         self.callbacks = CallbackManager()
+
+        # Message processing with client manager
+        self._coordinator = MessageCoordinator(transport, self.client_manager)
+        self._register_handlers()
+
+    async def start(self) -> None:
+        """Start the server session and message processing."""
+        await self._coordinator.start()
+
+    async def stop(self) -> None:
+        """Stop the server session and clean up client connections."""
+        await self._coordinator.stop()
+
+        # Clean up all client connections
+        self.client_manager.cleanup_all_clients()
 
     # ================================
     # Initialization
     # ================================
-    @property
-    def initialized(self) -> bool:
-        return self._received_initialized
 
     async def _handle_initialize(
-        self, request: InitializeRequest
+        self, client_id: str, request: InitializeRequest
     ) -> InitializeResult | Error:
-        """Handle client initialization request.
+        """Handle initialize request from specific client."""
 
-        Stores client capabilities and info for the session, then responds with
-        server capabilities to continue the initialization handshake.
+        if request.protocol_version != self.server_config.protocol_version:
+            return Error(
+                code=PROTOCOL_VERSION_MISMATCH,
+                message="Unsupported protocol version",
+                data={
+                    "client_version": request.protocol_version,
+                    "server_version": self.server_config.protocol_version,
+                },
+            )
 
-        Args:
-            request: The client's initialization request containing capabilities,
-                version, and implementation details.
+        # Check if client is already initialized
+        if self.client_manager.is_client_initialized(client_id):
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Client already initialized",
+            )
 
-        Returns:
-            InitializeResult: The server's response containing its capabilities,
-                version, and instructions for the client.
-        """
-        self._store_client_state(request)
+        self.client_manager.initialize_client(
+            client_id,
+            capabilities=request.capabilities,
+            client_info=request.client_info,
+            protocol_version=request.protocol_version,
+        )
+        # Session focuses on protocol response
         return InitializeResult(
             capabilities=self.server_config.capabilities,
             server_info=self.server_config.info,
@@ -136,89 +155,28 @@ class ServerSession(BaseSession):
             instructions=self.server_config.instructions,
         )
 
-    async def _handle_initialized(self, notification: InitializedNotification) -> None:
-        """Complete the initialization handshake.
+    async def _handle_initialized(
+        self, client_id: str, notification: InitializedNotification
+    ) -> None:
+        """Complete the initialization handshake for specific client.
 
-        Marks the server as fully initialized and notifies any registered callbacks.
-        After this point, the session is ready for normal operation.
-
-        Args:
-            notification: Confirmation from the client that initialization completed.
+        Marks the client as fully initialized and notifies any registered callbacks.
+        After this point, the client is ready for normal operation.
         """
-        self._received_initialized = True
-        await self.callbacks.call_initialized()
+        # Get client context and mark as initialized
+        context = self.client_manager.get_client(client_id)
+        if context:
+            context.initialized = True
 
-    def _store_client_state(self, request: InitializeRequest) -> None:
-        """Store client information from initialization request.
-
-        Captures the client's capabilities, version, and implementation details
-        for use throughout the session. This information helps the server adapt
-        its behavior based on what the client supports.
-
-        Args:
-            request: The client's initialization request containing capabilities,
-                version, and implementation details.
-        """
-        self.client_state.capabilities = request.capabilities
-        self.client_state.info = request.client_info
-        self.client_state.protocol_version = request.protocol_version
-
-    # ================================
-    # Request routing
-    # ================================
-
-    async def _handle_session_request(self, request: Request) -> Result | Error:
-        """Route incoming requests to the appropriate handler.
-
-        Returns an error if there is no handler for the request type.
-
-        Args:
-            request: Typed Request object from the base session.
-
-        Returns:
-            Result from the handler, or Error if handler returns one.
-
-        Note:
-            Handlers are responsible for capability checking and returning
-            appropriate Error objects rather than raising exceptions.
-        """
-        method = request.method
-
-        handlers = self._get_request_handlers()
-        if method not in handlers:
-            return Error(
-                code=METHOD_NOT_FOUND, message=f"Method not supported: {method}"
-            )
-
-        handler = handlers[method]
-        return await handler(request)
-
-    def _get_request_handlers(self):
-        """Get the request handlers for the server session.
-
-        Maps request methods to their corresponding handler functions.
-        """
-        return {
-            "ping": self._handle_ping,
-            "initialize": self._handle_initialize,
-            "tools/list": self._handle_list_tools,
-            "tools/call": self._handle_call_tool,
-            "prompts/list": self._handle_list_prompts,
-            "prompts/get": self._handle_get_prompt,
-            "resources/list": self._handle_list_resources,
-            "resources/templates/list": self._handle_list_resource_templates,
-            "resources/read": self._handle_read_resource,
-            "resources/subscribe": self._handle_subscribe,
-            "resources/unsubscribe": self._handle_unsubscribe,
-            "completion/complete": self._handle_complete,
-            "logging/setLevel": self._handle_set_level,
-        }
+        # Call callback with client context
+        await self.callbacks.call_initialized(client_id, notification)
 
     # ================================
     # Ping
     # ================================
 
-    async def _handle_ping(self, request: PingRequest) -> EmptyResult:
+    async def _handle_ping(self, client_id: str, request: PingRequest) -> EmptyResult:
+        """Handle ping request from specific client."""
         return EmptyResult()
 
     # ================================
@@ -226,50 +184,28 @@ class ServerSession(BaseSession):
     # ================================
 
     async def _handle_list_tools(
-        self, request: ListToolsRequest
+        self, client_id: str, request: ListToolsRequest
     ) -> ListToolsResult | Error:
-        """Handle a tools discovery request.
-
-        Enables clients to discover what capabilities this server offers.
-
-        Args:
-            request: The client's tool listing request.
-
-        Returns:
-            ListToolsResult: The server's catalog of available tools.
-            Error: If the server does not support the tools capability.
-        """
+        """Handle typed tools/list request - much cleaner!"""
         if self.server_config.capabilities.tools is None:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Server does not support tools capability",
             )
-        return await self.tools.handle_list(request)
+
+        return await self.tools.handle_list(client_id, request)
 
     async def _handle_call_tool(
-        self, request: CallToolRequest
+        self, client_id: str, request: CallToolRequest
     ) -> CallToolResult | Error:
-        """Execute a tool call request.
-
-        Tool execution failures become domain errors (CallToolResult with
-        is_error=True) that the LLM can see and potentially recover from.
-        System errors like unknown tools or missing capabilities return
-        protocol errors.
-
-        Args:
-            request: Tool call request with name and arguments.
-
-        Returns:
-            CallToolResult: Tool output, even if execution failed.
-            Error: If tools capability not supported or tool unknown.
-        """
+        """Handle tools/call request from specific client."""
         if self.server_config.capabilities.tools is None:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Server does not support tools capability",
             )
         try:
-            return await self.tools.handle_call(request)
+            return await self.tools.handle_call(client_id, request)
         except KeyError:
             return Error(code=METHOD_NOT_FOUND, message=f"Unknown tool: {request.name}")
 
@@ -278,48 +214,27 @@ class ServerSession(BaseSession):
     # ================================
 
     async def _handle_list_prompts(
-        self, request: ListPromptsRequest
+        self, client_id: str, request: ListPromptsRequest
     ) -> ListPromptsResult | Error:
-        """List available prompts.
-
-        Args:
-            request: List prompts request with optional pagination.
-
-        Returns:
-            ListPromptsResult: List of available prompts.
-            Error: If prompts capability not supported.
-        """
+        """Handle prompts/list request from specific client."""
         if self.server_config.capabilities.prompts is None:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Server does not support prompts capability",
             )
-        return await self.prompts.handle_list_prompts(request)
+        return await self.prompts.handle_list_prompts(client_id, request)
 
     async def _handle_get_prompt(
-        self, request: GetPromptRequest
+        self, client_id: str, request: GetPromptRequest
     ) -> GetPromptResult | Error:
-        """Retrieve a specific prompt with the given arguments.
-
-        The manager handles prompt execution and raises exceptions for unknown
-        prompts or handler failures. We convert these to appropriate protocol
-        errors.
-
-        Args:
-            request: Get prompt request with name and arguments.
-
-        Returns:
-            GetPromptResult: Prompt messages and metadata.
-            Error: If prompts capability not supported, prompt unknown, or handler
-                fails.
-        """
+        """Handle prompts/get request from specific client."""
         if self.server_config.capabilities.prompts is None:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Server does not support prompts capability",
             )
         try:
-            return await self.prompts.handle_get_prompt(request)
+            return await self.prompts.handle_get_prompt(client_id, request)
         except KeyError as e:
             return Error(code=METHOD_NOT_FOUND, message=str(e))
         except Exception:
@@ -333,67 +248,39 @@ class ServerSession(BaseSession):
     # ================================
 
     async def _handle_list_resources(
-        self, request: ListResourcesRequest
+        self, client_id: str, request: ListResourcesRequest
     ) -> ListResourcesResult | Error:
-        """List available resources.
-
-        Args:
-            request: List resources request with optional pagination.
-
-        Returns:
-            ListResourcesResult: List of available resources.
-            Error: If resources capability not supported.
-        """
+        """Handle resources/list request from specific client."""
         if self.server_config.capabilities.resources is None:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Server does not support resources capability",
             )
-        return await self.resources.handle_list_resources(request)
+
+        return await self.resources.handle_list_resources(client_id, request)
 
     async def _handle_list_resource_templates(
-        self, request: ListResourceTemplatesRequest
+        self, client_id: str, request: ListResourceTemplatesRequest
     ) -> ListResourceTemplatesResult | Error:
-        """List available resource templates.
-
-        Args:
-            request: List templates request with optional pagination.
-
-        Returns:
-            ListResourceTemplatesResult: List of available resource templates.
-            Error: If resources capability not supported.
-        """
+        """Handle resources/templates/list request from specific client."""
         if self.server_config.capabilities.resources is None:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Server does not support resources capability",
             )
-        return await self.resources.handle_list_templates(request)
+        return await self.resources.handle_list_templates(client_id, request)
 
     async def _handle_read_resource(
-        self, request: ReadResourceRequest
+        self, client_id: str, request: ReadResourceRequest
     ) -> ReadResourceResult | Error:
-        """Read a specific resource by URI.
-
-        The manager handles both static resources and template pattern matching.
-        It raises exceptions for unknown resources or handler failures that we
-        convert to appropriate protocol errors.
-
-        Args:
-            request: Read resource request with URI.
-
-        Returns:
-            ReadResourceResult: Resource content from the handler.
-            Error: If resources capability not supported, resource unknown, or
-                handler fails.
-        """
+        """Handle resources/read request from specific client."""
         if self.server_config.capabilities.resources is None:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Server does not support resources capability",
             )
         try:
-            return await self.resources.handle_read(request)
+            return await self.resources.handle_read(client_id, request)
         except KeyError as e:
             return Error(code=METHOD_NOT_FOUND, message=str(e))
         except Exception:
@@ -402,20 +289,10 @@ class ServerSession(BaseSession):
                 message="Error reading resource",
             )
 
-    async def _handle_subscribe(self, request: SubscribeRequest) -> EmptyResult | Error:
-        """Subscribe to resource change notifications.
-
-        Requires both resources capability and subscribe sub-capability to be enabled.
-        The manager validates resource existence and handles callback failures
-        internally.
-
-        Args:
-            request: Subscribe request with resource URI.
-
-        Returns:
-            EmptyResult: Subscription successful.
-            Error: If subscription capability not supported or resource unknown.
-        """
+    async def _handle_subscribe(
+        self, client_id: str, request: SubscribeRequest
+    ) -> EmptyResult | Error:
+        """Handle resources/subscribe request from specific client."""
         if not (
             self.server_config.capabilities.resources
             and self.server_config.capabilities.resources.subscribe
@@ -424,29 +301,15 @@ class ServerSession(BaseSession):
                 code=METHOD_NOT_FOUND,
                 message="Server does not support resource subscription",
             )
-
         try:
-            return await self.resources.handle_subscribe(request)
+            return await self.resources.handle_subscribe(client_id, request)
         except KeyError as e:
             return Error(code=METHOD_NOT_FOUND, message=str(e))
 
     async def _handle_unsubscribe(
-        self, request: UnsubscribeRequest
+        self, client_id: str, request: UnsubscribeRequest
     ) -> EmptyResult | Error:
-        """Unsubscribe from resource change notifications.
-
-        Requires both resources capability and subscribe sub-capability to be enabled.
-        The manager validates subscription existence and handles callback failures
-        internally.
-
-        Args:
-            request: Unsubscribe request with resource URI.
-
-        Returns:
-            EmptyResult: Unsubscription successful.
-            Error: If subscription capability not supported or not subscribed to
-                resource.
-        """
+        """Handle resources/unsubscribe request from specific client."""
         if not (
             self.server_config.capabilities.resources
             and self.server_config.capabilities.resources.subscribe
@@ -456,7 +319,7 @@ class ServerSession(BaseSession):
                 message="Server does not support resource subscription",
             )
         try:
-            return await self.resources.handle_unsubscribe(request)
+            return await self.resources.handle_unsubscribe(client_id, request)
         except KeyError as e:
             return Error(code=METHOD_NOT_FOUND, message=str(e))
 
@@ -465,29 +328,16 @@ class ServerSession(BaseSession):
     # ================================
 
     async def _handle_complete(
-        self, request: CompleteRequest
+        self, client_id: str, request: CompleteRequest
     ) -> CompleteResult | Error:
-        """Generate completions for prompts or resource templates.
-
-        The manager validates that a completion handler is configured and delegates
-        to it for generation. Handler exceptions become internal errors.
-
-        Args:
-            request: Complete request with reference and arguments.
-
-        Returns:
-            CompleteResult: Generated completion from the handler.
-            Error: If completions capability not supported, handler not configured,
-                or generation fails.
-        """
+        """Handle completion/complete request from specific client."""
         if not self.server_config.capabilities.completions:
             return Error(
                 code=METHOD_NOT_FOUND,
-                message="Server does not support completion capability",
+                message="Server does not support completions capability",
             )
-
         try:
-            return await self.completions.handle_complete(request)
+            return await self.completions.handle_complete(client_id, request)
         except CompletionNotConfiguredError:
             return Error(
                 code=METHOD_NOT_FOUND,
@@ -503,102 +353,178 @@ class ServerSession(BaseSession):
     # Logging
     # ================================
 
-    async def _handle_set_level(self, request: SetLevelRequest) -> EmptyResult | Error:
-        """Set the MCP protocol logging level.
-
-        The manager handles level setting and callback notifications internally.
-        Callback failures don't cause protocol errors since the level is successfully
-        set.
-
-        Args:
-            request: Set level request with the new logging level.
-
-        Returns:
-            EmptyResult: Level set successfully.
-            Error: If logging capability not supported.
-        """
+    async def _handle_set_level(
+        self, client_id: str, request: SetLevelRequest
+    ) -> EmptyResult | Error:
+        """Handle logging/setLevel request from specific client."""
         if not self.server_config.capabilities.logging:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Server does not support logging capability",
             )
-
-        return await self.logging.handle_set_level(request)
+        return await self.logging.handle_set_level(client_id, request)
 
     # ================================
-    # Notification handlers
+    # Notifications
     # ================================
 
-    async def _handle_session_notification(self, notification: Notification) -> None:
-        """Route incoming notifications to the appropriate handler.
+    async def _handle_cancelled(
+        self, client_id: str, notification: CancelledNotification
+    ) -> None:
+        """Handle cancelled notification from specific client."""
+        was_cancelled = await self._coordinator.cancel_request_from_client(
+            client_id, notification.request_id
+        )
+        await self.callbacks.call_cancelled(client_id, notification)
 
-        Args:
-            notification: Typed Notification object from the base session.
+    async def _handle_progress(
+        self, client_id: str, notification: ProgressNotification
+    ) -> None:
+        """Handle progress notification from specific client.
 
-        Note:
-            Only notifications with registered handlers are processed. Unknown
-            notification types are ignored, but missing handlers are silently ignored.
+        Progress notifications inform the server about the status of long-running
+        operations. The server can use this information for logging, monitoring,
+        or relaying progress to other interested parties.
         """
-        method = notification.method
-        handlers = self._get_notification_handlers()
-
-        if method in handlers:
-            handler = handlers[method]
-            await handler(notification)
-        # Silently ignore notifications without handlers
-
-    def _get_notification_handlers(self):
-        return {
-            "notifications/cancelled": self._handle_cancelled,
-            "notifications/progress": self._handle_progress,
-            "notifications/roots/list_changed": self._handle_roots_list_changed,
-            "notifications/initialized": self._handle_initialized,
-        }
-
-    async def _handle_cancelled(self, notification: CancelledNotification) -> None:
-        """Handle client cancellation notifications for in-flight requests.
-
-        Cancels the corresponding request task if it exists and calls the
-        registered callback. Only processes cancellations for requests that
-        are actually in-flight.
-
-        Args:
-            notification: Cancellation notification from server with request ID.
-
-        Note:
-            Request cleanup from _in_flight_requests is handled automatically
-            by the task's done callback when cancellation completes. This handler
-            only initiates cancellation and calls the registered callback.
-        """
-        if notification.request_id in self._in_flight_requests:
-            self._in_flight_requests[notification.request_id].cancel()
-            await self.callbacks.call_cancelled(notification)
-
-    async def _handle_progress(self, notification: ProgressNotification) -> None:
-        """Handle client progress notifications.
-
-        Delegates progress updates to the callback manager.
-
-        Args:
-            notification: Progress notification from server with progress token.
-        """
-        await self.callbacks.call_progress(notification)
+        await self.callbacks.call_progress(client_id, notification)
 
     async def _handle_roots_list_changed(
-        self, notification: RootsListChangedNotification
+        self, client_id: str, notification: RootsListChangedNotification
     ) -> None:
-        """Handle client roots list changed notifications.
+        """Handle roots/list_changed notification from specific client.
 
-        Fetches the updated roots list from the server, updates local client
-        state, and calls the registered callback with the new roots.
-
-        Args:
-            notification: Notification that roots have changed (content ignored).
+        When a client's roots change, we need to fetch the updated list,
+        update our client state, and notify any registered callbacks.
         """
         try:
-            result = await self.send_request(ListRootsRequest())
+            # Send request to client to get updated roots
+            result = await self._coordinator.send_request_to_client(
+                client_id, ListRootsRequest()
+            )
+
             if isinstance(result, ListRootsResult):
-                self.client_state.roots = result.roots
-                await self.callbacks.call_roots_changed(result.roots)
-        except Exception:
-            pass
+                # Update client state
+                context = self.client_manager.get_client(client_id)
+                if context:
+                    context.roots = result.roots
+
+                # Call registered callback with client context
+                await self.callbacks.call_roots_changed(client_id, result.roots)
+            else:
+                print(f"Failed to get roots from {client_id}: {result}")
+
+        except Exception as e:
+            print(f"Error handling roots change for {client_id}: {e}")
+
+    # ================================
+    # Request sending
+    # ================================
+
+    async def send_request_to_client(
+        self, client_id: str, request: Request, timeout: float = 30.0
+    ) -> Result | Error:
+        """Send request to client with protocol validation.
+
+        Validates that the client is initialized before sending non-ping requests.
+        Only ping requests are allowed before initialization is complete.
+
+        Args:
+            client_id: ID of the client to send the request to
+            request: The request object to send
+            timeout: Maximum time to wait for response in seconds
+
+        Returns:
+            Result | Error: The client's response or timeout error
+
+        Raises:
+            ValueError: If attempting to send non-ping request to uninitialized client
+            ConnectionError: If transport is closed
+            TimeoutError: If client doesn't respond within timeout
+        """
+        if request.method != "ping" and not self.client_manager.is_client_initialized(
+            client_id
+        ):
+            raise ValueError(
+                f"Cannot send {request.method} to uninitialized client {client_id}. "
+                "Only ping requests are allowed before initialization."
+            )
+
+        return await self._coordinator.send_request_to_client(
+            client_id, request, timeout
+        )
+
+    # ================================
+    # Notification sending
+    # ================================
+
+    async def send_notification_to_client(
+        self, client_id: str, notification: Notification
+    ) -> None:
+        """Send notification to client with protocol validation.
+
+        Args:
+            client_id: ID of the client to send the notification to
+            notification: The notification object to send
+
+        Raises:
+            ConnectionError: If transport is closed
+        """
+
+        await self._coordinator.send_notification_to_client(client_id, notification)
+
+    # ================================
+    # Register handlers
+    # ================================
+
+    def _register_handlers(self) -> None:
+        """Register all protocol handlers with the message processor."""
+        # Request handlers
+        self._coordinator.register_request_handler("ping", self._handle_ping)
+        self._coordinator.register_request_handler(
+            "initialize", self._handle_initialize
+        )
+        self._coordinator.register_request_handler(
+            "tools/list", self._handle_list_tools
+        )
+        self._coordinator.register_request_handler("tools/call", self._handle_call_tool)
+        self._coordinator.register_request_handler(
+            "prompts/list", self._handle_list_prompts
+        )
+        self._coordinator.register_request_handler(
+            "prompts/get", self._handle_get_prompt
+        )
+        self._coordinator.register_request_handler(
+            "resources/list", self._handle_list_resources
+        )
+        self._coordinator.register_request_handler(
+            "resources/templates/list", self._handle_list_resource_templates
+        )
+        self._coordinator.register_request_handler(
+            "resources/read", self._handle_read_resource
+        )
+        self._coordinator.register_request_handler(
+            "resources/subscribe", self._handle_subscribe
+        )
+        self._coordinator.register_request_handler(
+            "resources/unsubscribe", self._handle_unsubscribe
+        )
+        self._coordinator.register_request_handler(
+            "completion/complete", self._handle_complete
+        )
+        self._coordinator.register_request_handler(
+            "logging/setLevel", self._handle_set_level
+        )
+
+        # Notification handlers
+        self._coordinator.register_notification_handler(
+            "notifications/cancelled", self._handle_cancelled
+        )
+        self._coordinator.register_notification_handler(
+            "notifications/progress", self._handle_progress
+        )
+        self._coordinator.register_notification_handler(
+            "notifications/roots/list_changed", self._handle_roots_list_changed
+        )
+        self._coordinator.register_notification_handler(
+            "notifications/initialized", self._handle_initialized
+        )
