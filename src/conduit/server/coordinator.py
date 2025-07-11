@@ -11,6 +11,7 @@ from typing import Any, Awaitable, Callable, TypeVar
 from conduit.protocol.base import (
     INTERNAL_ERROR,
     METHOD_NOT_FOUND,
+    PROTOCOL_VERSION_MISMATCH,
     Error,
     Notification,
     Request,
@@ -225,6 +226,12 @@ class MessageCoordinator:
                 response = JSONRPCResponse.from_result(result_or_error, request_id)
 
             await self.transport.send_to_client(client_id, response.to_wire())
+
+            if isinstance(result_or_error, Error) and self._should_disconnect_for_error(
+                result_or_error
+            ):
+                self.client_manager.disconnect_client(client_id)
+
         except Exception:
             error = Error(
                 code=INTERNAL_ERROR,
@@ -423,3 +430,7 @@ class MessageCoordinator:
         """Ensure client is registered with the client manager."""
         if not self.client_manager.get_client(client_id):
             self.client_manager.register_client(client_id)
+
+    def _should_disconnect_for_error(self, error: Error) -> bool:
+        """Determine if a client should be disconnected for an error."""
+        return error.code == PROTOCOL_VERSION_MISMATCH

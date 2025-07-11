@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from conduit.protocol.base import (
     INTERNAL_ERROR,
     METHOD_NOT_FOUND,
+    PROTOCOL_VERSION_MISMATCH,
     Error,
     Notification,
     Request,
@@ -117,27 +118,36 @@ class ServerSession:
     # ================================
     # Initialization
     # ================================
+
     async def _handle_initialize(
         self, client_id: str, request: InitializeRequest
     ) -> InitializeResult | Error:
-        """Handle initialize request from specific client.
+        """Handle initialize request from specific client."""
 
-        Stores client capabilities and info for the session, then responds with
-        server capabilities to continue the initialization handshake.
-        """
-        # Get or create client context
-        context = self.client_manager.get_client(client_id)
-        if not context:
-            context = self.client_manager.register_client(client_id)
+        if request.protocol_version != self.server_config.protocol_version:
+            return Error(
+                code=PROTOCOL_VERSION_MISMATCH,
+                message="Unsupported protocol version",
+                data={
+                    "client_version": request.protocol_version,
+                    "server_version": self.server_config.protocol_version,
+                },
+            )
 
-        # Store client state (capabilities, info, protocol version)
-        context.capabilities = request.capabilities
-        context.info = request.client_info
-        context.protocol_version = request.protocol_version
+        # Check if client is already initialized
+        if self.client_manager.is_client_initialized(client_id):
+            return Error(
+                code=METHOD_NOT_FOUND,
+                message="Client already initialized",
+            )
 
-        # TODO: Add protocol version check
-
-        # Return server capabilities for this client
+        self.client_manager.initialize_client(
+            client_id,
+            capabilities=request.capabilities,
+            client_info=request.client_info,
+            protocol_version=request.protocol_version,
+        )
+        # Session focuses on protocol response
         return InitializeResult(
             capabilities=self.server_config.capabilities,
             server_info=self.server_config.info,
