@@ -416,59 +416,6 @@ class ServerSession:
         except Exception as e:
             print(f"Error handling roots change for {client_id}: {e}")
 
-    def _register_handlers(self) -> None:
-        """Register all protocol handlers with the message processor."""
-        # Request handlers
-        self._coordinator.register_request_handler("ping", self._handle_ping)
-        self._coordinator.register_request_handler(
-            "initialize", self._handle_initialize
-        )
-        self._coordinator.register_request_handler(
-            "tools/list", self._handle_list_tools
-        )
-        self._coordinator.register_request_handler("tools/call", self._handle_call_tool)
-        self._coordinator.register_request_handler(
-            "prompts/list", self._handle_list_prompts
-        )
-        self._coordinator.register_request_handler(
-            "prompts/get", self._handle_get_prompt
-        )
-        self._coordinator.register_request_handler(
-            "resources/list", self._handle_list_resources
-        )
-        self._coordinator.register_request_handler(
-            "resources/templates/list", self._handle_list_resource_templates
-        )
-        self._coordinator.register_request_handler(
-            "resources/read", self._handle_read_resource
-        )
-        self._coordinator.register_request_handler(
-            "resources/subscribe", self._handle_subscribe
-        )
-        self._coordinator.register_request_handler(
-            "resources/unsubscribe", self._handle_unsubscribe
-        )
-        self._coordinator.register_request_handler(
-            "completion/complete", self._handle_complete
-        )
-        self._coordinator.register_request_handler(
-            "logging/setLevel", self._handle_set_level
-        )
-
-        # Notification handlers
-        self._coordinator.register_notification_handler(
-            "notifications/cancelled", self._handle_cancelled
-        )
-        self._coordinator.register_notification_handler(
-            "notifications/progress", self._handle_progress
-        )
-        self._coordinator.register_notification_handler(
-            "notifications/roots/list_changed", self._handle_roots_list_changed
-        )
-        self._coordinator.register_notification_handler(
-            "notifications/initialized", self._handle_initialized
-        )
-
     # ================================
     # Request sending
     # ================================
@@ -524,3 +471,60 @@ class ServerSession:
         """
 
         await self._coordinator.send_notification_to_client(client_id, notification)
+
+    # ================================
+    # Register handlers
+    # ================================
+
+    def _register_handlers(self) -> None:
+        """Register all protocol handlers with the message processor."""
+        # Request handlers
+        self._coordinator.register_request_handler("ping", self._handle_ping)
+        self._coordinator.register_request_handler(
+            "initialize", self._handle_initialize
+        )
+        self._coordinator.register_request_handler(
+            "tools/list", self._handle_list_tools
+        )
+        self._coordinator.register_request_handler("tools/call", self._handle_call_tool)
+        self._coordinator.register_request_handler(
+            "prompts/list", self._handle_list_prompts
+        )
+        self._coordinator.register_request_handler(
+            "prompts/get", self._handle_get_prompt
+        )
+        self._coordinator.register_request_handler(
+            "resources/list", self._handle_list_resources
+        )
+        self._coordinator.register_request_handler(
+            "resources/templates/list", self._handle_list_resource_templates
+        )
+        self._coordinator.register_request_handler(
+            "resources/read", self._handle_read_resource
+        )
+        self._coordinator.register_request_handler(
+            "resources/subscribe", self._handle_subscribe
+        )
+        self._coordinator.register_request_handler(
+            "resources/unsubscribe", self._handle_unsubscribe
+        )
+        self._coordinator.register_request_handler(
+            "completion/complete", self._handle_complete
+        )
+        self._coordinator.register_request_handler(
+            "logging/setLevel", self._handle_set_level
+        )
+
+        # Notification handlers
+        self._coordinator.register_notification_handler(
+            "notifications/cancelled", self._handle_cancelled
+        )
+        self._coordinator.register_notification_handler(
+            "notifications/progress", self._handle_progress
+        )
+        self._coordinator.register_notification_handler(
+            "notifications/roots/list_changed", self._handle_roots_list_changed
+        )
+        self._coordinator.register_notification_handler(
+            "notifications/initialized", self._handle_initialized
+        )
