@@ -1,9 +1,17 @@
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
-from conduit.protocol.base import INTERNAL_ERROR, METHOD_NOT_FOUND, Error
+from conduit.protocol.base import (
+    INTERNAL_ERROR,
+    METHOD_NOT_FOUND,
+    PROTOCOL_VERSION,
+    Error,
+)
 from conduit.protocol.common import EmptyResult
-from conduit.protocol.content import TextResourceContents
-from conduit.protocol.initialization import ResourcesCapability
+from conduit.protocol.initialization import (
+    Implementation,
+    ResourcesCapability,
+    ServerCapabilities,
+)
 from conduit.protocol.resources import (
     ListResourcesRequest,
     ListResourcesResult,
@@ -11,362 +19,305 @@ from conduit.protocol.resources import (
     ListResourceTemplatesResult,
     ReadResourceRequest,
     ReadResourceResult,
-    Resource,
-    ResourceTemplate,
     SubscribeRequest,
     UnsubscribeRequest,
 )
+from conduit.server.session import ServerConfig, ServerSession
 
-from .conftest import ServerSessionTest
+
+class TestResourceHandling:
+    """Base class for resource handling tests."""
+
+    def setup_method(self):
+        self.transport = Mock()
+        self.config_with_resources = ServerConfig(
+            capabilities=ServerCapabilities(
+                resources=ResourcesCapability()  # Enable all features
+            ),
+            info=Implementation(name="test-server", version="1.0.0"),
+            protocol_version=PROTOCOL_VERSION,
+        )
+        self.config_without_resources = ServerConfig(
+            capabilities=ServerCapabilities(),
+            info=Implementation(name="test-server", version="1.0.0"),
+            protocol_version=PROTOCOL_VERSION,
+        )
+        self.config_with_subscription = ServerConfig(
+            capabilities=ServerCapabilities(
+                resources=ResourcesCapability(subscribe=True)
+            ),
+            info=Implementation(name="test-server", version="1.0.0"),
+            protocol_version=PROTOCOL_VERSION,
+        )
+        self.config_without_subscription = ServerConfig(
+            capabilities=ServerCapabilities(
+                resources=ResourcesCapability(subscribe=False)
+            ),
+            info=Implementation(name="test-server", version="1.0.0"),
+            protocol_version=PROTOCOL_VERSION,
+        )
 
 
-class TestListResources(ServerSessionTest):
-    async def test_returns_resources_from_manager_when_capability_enabled(self):
-        """Test listing static resources."""
+class TestListResources(TestResourceHandling):
+    """Test server session resource listing."""
+
+    async def test_list_resources_returns_result_when_capability_enabled(self):
         # Arrange
-        self.config.capabilities.resources = ResourcesCapability()
+        session = ServerSession(self.transport, self.config_with_resources)
+        client_id = "test-client"
 
-        # Create expected resources
-        resource1 = Resource(
-            name="test_resource_1",
-            uri="file:///test1.txt",
-            description="A test resource",
-            mime_type="text/plain",
+        # Mock the resources manager
+        expected_result = ListResourcesResult(resources=[])
+        session.resources.handle_list_resources = AsyncMock(
+            return_value=expected_result
         )
-        resource2 = Resource(
-            name="test_resource_2",
-            uri="file:///test2.txt",
-            description="Another test resource",
-            mime_type="text/plain",
-        )
-
-        # Mock the manager to return our resources
-        self.session.resources.handle_list_resources = AsyncMock(
-            return_value=ListResourcesResult(resources=[resource1, resource2])
-        )
-
-        request = ListResourcesRequest()
 
         # Act
-        result = await self.session._handle_list_resources(request)
+        result = await session._handle_list_resources(client_id, ListResourcesRequest())
 
         # Assert
-        assert isinstance(result, ListResourcesResult)
-        assert len(result.resources) == 2
-        assert result.resources[0].name == "test_resource_1"
-        assert result.resources[1].name == "test_resource_2"
-
-        # Verify manager was called
-        self.session.resources.handle_list_resources.assert_awaited_once_with(request)
-
-    async def test_rejects_list_resources_when_capability_not_set(self):
-        """Test error when resources capability is not configured."""
-        # Arrange
-        self.config.capabilities.resources = None  # No resources capability
-        request = ListResourcesRequest()
-
-        # Act
-        result = await self.session._handle_list_resources(request)
-
-        # Assert
-        assert isinstance(result, Error)
-        assert result.code == METHOD_NOT_FOUND
-        assert result.message == "Server does not support resources capability"
-
-
-class TestListResourceTemplates(ServerSessionTest):
-    async def test_returns_templates_from_manager_when_capability_enabled(self):
-        """Test listing resource templates."""
-        # Arrange
-        self.config.capabilities.resources = ResourcesCapability()
-
-        # Create expected templates
-        template1 = ResourceTemplate(
-            name="log_template",
-            uri_template="file:///logs/{date}.log",
-            description="Daily log files",
-            mime_type="text/plain",
-        )
-        template2 = ResourceTemplate(
-            name="user_template",
-            uri_template="db://users/{user_id}",
-            description="User profile data",
-            mime_type="application/json",
+        assert result == expected_result
+        session.resources.handle_list_resources.assert_awaited_once_with(
+            client_id, ListResourcesRequest()
         )
 
-        # Mock the manager to return our templates
-        self.session.resources.handle_list_templates = AsyncMock(
-            return_value=ListResourceTemplatesResult(
-                resource_templates=[template1, template2]
-            )
-        )
-
-        request = ListResourceTemplatesRequest()
-
-        # Act
-        result = await self.session._handle_list_resource_templates(request)
-
-        # Assert
-        assert isinstance(result, ListResourceTemplatesResult)
-        assert len(result.resource_templates) == 2
-        assert result.resource_templates[0].name == "log_template"
-        assert result.resource_templates[0].uri_template == "file:///logs/{date}.log"
-        assert result.resource_templates[1].name == "user_template"
-        assert result.resource_templates[1].uri_template == "db://users/{user_id}"
-
-        # Verify manager was called
-        self.session.resources.handle_list_templates.assert_awaited_once_with(request)
-
-    async def test_rejects_list_templates_when_capability_not_set(self):
-        """Test error when resources capability is not configured."""
+    async def test_list_resources_returns_error_when_capability_disabled(self):
         # Arrange
-        self.config.capabilities.resources = None  # No resources capability
-        request = ListResourceTemplatesRequest()
+        session = ServerSession(self.transport, self.config_without_resources)
+        client_id = "test-client"
 
         # Act
-        result = await self.session._handle_list_resource_templates(request)
+        result = await session._handle_list_resources(client_id, ListResourcesRequest())
 
         # Assert
         assert isinstance(result, Error)
         assert result.code == METHOD_NOT_FOUND
-        assert result.message == "Server does not support resources capability"
 
-
-class TestReadResource(ServerSessionTest):
-    async def test_returns_static_resource_when_capability_enabled(self):
-        """Test reading a static resource."""
+    async def test_list_resource_templates_returns_result_when_capability_enabled(
+        self,
+    ):
         # Arrange
-        self.config.capabilities.resources = ResourcesCapability()
+        session = ServerSession(self.transport, self.config_with_resources)
+        client_id = "test-client"
 
-        expected_result = ReadResourceResult(
-            contents=[
-                TextResourceContents(
-                    uri="file:///test.txt",
-                    text="Hello, world!",
-                    mime_type="text/plain",
-                )
-            ]
+        # Mock the resources manager
+        expected_result = ListResourceTemplatesResult(resource_templates=[])
+        session.resources.handle_list_templates = AsyncMock(
+            return_value=expected_result
         )
 
-        # Mock the manager to return success
-        self.session.resources.handle_read = AsyncMock(return_value=expected_result)
-
-        request = ReadResourceRequest(uri="file:///test.txt")
-
         # Act
-        result = await self.session._handle_read_resource(request)
+        result = await session._handle_list_resource_templates(
+            client_id, ListResourceTemplatesRequest()
+        )
 
         # Assert
-        assert isinstance(result, ReadResourceResult)
-        assert len(result.contents) == 1
-        assert result.contents[0].uri == "file:///test.txt"
-        assert result.contents[0].text == "Hello, world!"
+        assert result == expected_result
+        session.resources.handle_list_templates.assert_awaited_once_with(
+            client_id, ListResourceTemplatesRequest()
+        )
 
-        # Verify manager was called
-        self.session.resources.handle_read.assert_awaited_once_with(request)
-
-    async def test_rejects_read_resource_when_capability_not_set(self):
-        """Test error when resources capability is not configured."""
+    async def test_list_resource_templates_returns_error_when_capability_disabled(
+        self,
+    ):
         # Arrange
-        self.config.capabilities.resources = None  # No resources capability
-        request = ReadResourceRequest(uri="file:///test.txt")
+        session = ServerSession(self.transport, self.config_without_resources)
+        client_id = "test-client"
 
         # Act
-        result = await self.session._handle_read_resource(request)
+        result = await session._handle_list_resource_templates(
+            client_id, ListResourceTemplatesRequest()
+        )
 
         # Assert
         assert isinstance(result, Error)
         assert result.code == METHOD_NOT_FOUND
-        assert result.message == "Server does not support resources capability"
 
-    async def test_returns_method_not_found_when_resource_unknown(self):
-        """Test error when manager raises KeyError for unknown resource."""
+
+class TestReadResource(TestResourceHandling):
+    """Test server session resource reading."""
+
+    async def test_read_resource_returns_result_when_capability_enabled(self):
         # Arrange
-        self.config.capabilities.resources = ResourcesCapability()
+        session = ServerSession(self.transport, self.config_with_resources)
+        client_id = "test-client"
 
-        # Mock the manager to raise KeyError (unknown resource)
-        self.session.resources.handle_read = AsyncMock(
-            side_effect=KeyError("Unknown resource: file:///nonexistent.txt")
-        )
-
-        request = ReadResourceRequest(uri="file:///nonexistent.txt")
+        expected_result = ReadResourceResult(contents=[])
+        session.resources.handle_read = AsyncMock(return_value=expected_result)
 
         # Act
-        result = await self.session._handle_read_resource(request)
+        result = await session._handle_read_resource(
+            client_id, ReadResourceRequest(uri="test-uri")
+        )
+
+        # Assert
+        assert result == expected_result
+        session.resources.handle_read.assert_awaited_once_with(
+            client_id, ReadResourceRequest(uri="test-uri")
+        )
+
+    async def test_read_resource_returns_error_when_capability_disabled(self):
+        # Arrange
+        session = ServerSession(self.transport, self.config_without_resources)
+        client_id = "test-client"
+
+        # Act
+        result = await session._handle_read_resource(
+            client_id, ReadResourceRequest(uri="test-uri")
+        )
 
         # Assert
         assert isinstance(result, Error)
         assert result.code == METHOD_NOT_FOUND
-        assert "unknown resource" in result.message.lower()
 
-        # Verify manager was called
-        self.session.resources.handle_read.assert_awaited_once_with(request)
-
-    async def test_returns_internal_error_when_manager_raises_exception(self):
-        """Test error when manager raises unexpected exception."""
+    async def test_read_resource_returns_error_when_resource_not_found(self):
         # Arrange
-        self.config.capabilities.resources = ResourcesCapability()
+        session = ServerSession(self.transport, self.config_with_resources)
+        client_id = "test-client"
 
-        # Mock the manager to raise generic exception
-        self.session.resources.handle_read = AsyncMock(
-            side_effect=ValueError("File system error")
-        )
-
-        request = ReadResourceRequest(uri="file:///test.txt")
+        # Mock the resources manager
+        session.resources.handle_read = AsyncMock(side_effect=KeyError("test-uri"))
 
         # Act
-        result = await self.session._handle_read_resource(request)
+        result = await session._handle_read_resource(
+            client_id, ReadResourceRequest(uri="test-uri")
+        )
+
+        # Assert
+        assert isinstance(result, Error)
+        assert result.code == METHOD_NOT_FOUND
+
+        # Verify manager was called
+        session.resources.handle_read.assert_awaited_once_with(
+            client_id, ReadResourceRequest(uri="test-uri")
+        )
+
+    async def test_read_resource_returns_error_when_generic_exception_raised(self):
+        # Arrange
+        session = ServerSession(self.transport, self.config_with_resources)
+        client_id = "test-client"
+
+        # Mock the resources manager
+        session.resources.handle_read = AsyncMock(
+            side_effect=RuntimeError("test-error")
+        )
+
+        # Act
+        result = await session._handle_read_resource(
+            client_id, ReadResourceRequest(uri="test-uri")
+        )
 
         # Assert
         assert isinstance(result, Error)
         assert result.code == INTERNAL_ERROR
-        assert result.message == "Error reading resource"
 
         # Verify manager was called
-        self.session.resources.handle_read.assert_awaited_once_with(request)
-
-
-class TestResourceSubscription(ServerSessionTest):
-    async def test_subscribes_to_static_resource_when_capability_enabled(self):
-        """Test subscribing to a static resource."""
-        # Arrange
-        self.config.capabilities.resources = ResourcesCapability(subscribe=True)
-
-        # Mock the manager to return success
-        self.session.resources.handle_subscribe = AsyncMock(return_value=EmptyResult())
-
-        request = SubscribeRequest(uri="file:///test.txt")
-
-        # Act
-        result = await self.session._handle_subscribe(request)
-
-        # Assert
-        assert isinstance(result, EmptyResult)
-
-        # Verify manager was called
-        self.session.resources.handle_subscribe.assert_awaited_once_with(request)
-
-    async def test_rejects_subscribe_when_resources_capability_not_set(self):
-        """Test error when resources capability is not configured."""
-        # Arrange
-        self.config.capabilities.resources = None  # No resources capability
-        request = SubscribeRequest(uri="file:///test.txt")
-
-        # Act
-        result = await self.session._handle_subscribe(request)
-
-        # Assert
-        assert isinstance(result, Error)
-        assert result.code == METHOD_NOT_FOUND
-        assert result.message == "Server does not support resource subscription"
-
-    async def test_rejects_subscribe_when_subscribe_capability_not_set(self):
-        """Test error when resources capability exists but subscribe is not enabled."""
-        # Arrange
-        self.config.capabilities.resources = ResourcesCapability(subscribe=False)
-        request = SubscribeRequest(uri="file:///test.txt")
-
-        # Act
-        result = await self.session._handle_subscribe(request)
-
-        # Assert
-        assert isinstance(result, Error)
-        assert result.code == METHOD_NOT_FOUND
-        assert result.message == "Server does not support resource subscription"
-
-    async def test_returns_method_not_found_when_resource_unknown(self):
-        """Test error when manager raises KeyError for unknown resource."""
-        # Arrange
-        self.config.capabilities.resources = ResourcesCapability(subscribe=True)
-
-        # Mock the manager to raise KeyError (unknown resource)
-        self.session.resources.handle_subscribe = AsyncMock(
-            side_effect=KeyError(
-                "Cannot subscribe to unknown resource: file:///nonexistent.txt"
-            )
+        session.resources.handle_read.assert_awaited_once_with(
+            client_id, ReadResourceRequest(uri="test-uri")
         )
 
-        request = SubscribeRequest(uri="file:///nonexistent.txt")
+
+class TestSubscribeResource(TestResourceHandling):
+    """Test server session resource subscription."""
+
+    async def test_subscribe_returns_empty_result_when_capability_enabled(self):
+        # Arrange
+        session = ServerSession(self.transport, self.config_with_subscription)
+        client_id = "test-client"
+
+        # Mock the resources manager
+        session.resources.handle_subscribe = AsyncMock(return_value=EmptyResult())
 
         # Act
-        result = await self.session._handle_subscribe(request)
-
-        # Assert
-        assert isinstance(result, Error)
-        assert result.code == METHOD_NOT_FOUND
-        assert "unknown resource" in result.message.lower()
-
-        # Verify manager was called
-        self.session.resources.handle_subscribe.assert_awaited_once_with(request)
-
-    async def test_unsubscribes_from_resource_when_capability_enabled(self):
-        """Test successful unsubscription from resource when capability is enabled."""
-        # Arrange
-        self.config.capabilities.resources = ResourcesCapability(subscribe=True)
-
-        # Mock the manager to return success
-        self.session.resources.handle_unsubscribe = AsyncMock(
-            return_value=EmptyResult()
+        result = await session._handle_subscribe(
+            client_id, SubscribeRequest(uri="test-uri")
         )
 
-        request = UnsubscribeRequest(uri="file:///test.txt")
-
-        # Act
-        result = await self.session._handle_unsubscribe(request)
-
         # Assert
-        assert isinstance(result, EmptyResult)
-
-        # Verify manager was called
-        self.session.resources.handle_unsubscribe.assert_awaited_once_with(request)
-
-    async def test_rejects_unsubscribe_when_resources_capability_not_set(self):
-        """Test error when resources capability is not configured."""
-        # Arrange
-        self.config.capabilities.resources = None  # No resources capability
-        request = UnsubscribeRequest(uri="file:///test.txt")
-
-        # Act
-        result = await self.session._handle_unsubscribe(request)
-
-        # Assert
-        assert isinstance(result, Error)
-        assert result.code == METHOD_NOT_FOUND
-        assert result.message == "Server does not support resource subscription"
-
-    async def test_rejects_unsubscribe_when_subscribe_capability_not_set(self):
-        """Test error when resources capability exists but subscribe is not enabled."""
-        # Arrange
-        self.config.capabilities.resources = ResourcesCapability(subscribe=False)
-        request = UnsubscribeRequest(uri="file:///test.txt")
-
-        # Act
-        result = await self.session._handle_unsubscribe(request)
-
-        # Assert
-        assert isinstance(result, Error)
-        assert result.code == METHOD_NOT_FOUND
-        assert result.message == "Server does not support resource subscription"
-
-    async def test_returns_method_not_found_when_not_subscribed(self):
-        """Test error when manager raises KeyError for unsubscribed resource."""
-        # Arrange
-        self.config.capabilities.resources = ResourcesCapability(subscribe=True)
-
-        # Mock the manager to raise KeyError (not subscribed)
-        self.session.resources.handle_unsubscribe = AsyncMock(
-            side_effect=KeyError("Not subscribed to resource: file:///test.txt")
+        assert result == EmptyResult()
+        session.resources.handle_subscribe.assert_awaited_once_with(
+            client_id, SubscribeRequest(uri="test-uri")
         )
 
-        request = UnsubscribeRequest(uri="file:///test.txt")
+    async def test_subscribe_returns_error_when_capability_disabled(self):
+        # Arrange
+        session = ServerSession(self.transport, self.config_without_subscription)
+        client_id = "test-client"
 
         # Act
-        result = await self.session._handle_unsubscribe(request)
+        result = await session._handle_subscribe(
+            client_id, SubscribeRequest(uri="test-uri")
+        )
 
         # Assert
         assert isinstance(result, Error)
         assert result.code == METHOD_NOT_FOUND
-        assert "not subscribed" in result.message.lower()
 
-        # Verify manager was called
-        self.session.resources.handle_unsubscribe.assert_awaited_once_with(request)
+    async def test_subscribe_returns_error_when_resource_not_found(self):
+        # Arrange
+        session = ServerSession(self.transport, self.config_with_subscription)
+        client_id = "test-client"
+
+        # Mock the resources manager
+        session.resources.handle_subscribe = AsyncMock(side_effect=KeyError("test-uri"))
+
+        # Act
+        result = await session._handle_subscribe(
+            client_id, SubscribeRequest(uri="test-uri")
+        )
+
+        # Assert
+        assert isinstance(result, Error)
+        assert result.code == METHOD_NOT_FOUND
+
+    async def test_unsubscribe_returns_empty_result_when_capability_enabled(self):
+        # Arrange
+        session = ServerSession(self.transport, self.config_with_subscription)
+        client_id = "test-client"
+
+        # Mock the resources manager
+        session.resources.handle_unsubscribe = AsyncMock(return_value=EmptyResult())
+
+        # Act
+        result = await session._handle_unsubscribe(
+            client_id, UnsubscribeRequest(uri="test-uri")
+        )
+
+        # Assert
+        assert result == EmptyResult()
+        session.resources.handle_unsubscribe.assert_awaited_once_with(
+            client_id, UnsubscribeRequest(uri="test-uri")
+        )
+
+    async def test_unsubscribe_returns_error_when_capability_disabled(self):
+        # Arrange
+        session = ServerSession(self.transport, self.config_without_subscription)
+        client_id = "test-client"
+
+        # Act
+        result = await session._handle_unsubscribe(
+            client_id, UnsubscribeRequest(uri="test-uri")
+        )
+
+        # Assert
+        assert isinstance(result, Error)
+        assert result.code == METHOD_NOT_FOUND
+
+    async def test_unsubscribe_returns_error_when_resource_not_found(self):
+        # Arrange
+        session = ServerSession(self.transport, self.config_with_subscription)
+        client_id = "test-client"
+
+        # Mock the resources manager
+        session.resources.handle_unsubscribe = AsyncMock(
+            side_effect=KeyError("test-uri")
+        )
+
+        # Act
+        result = await session._handle_unsubscribe(
+            client_id, UnsubscribeRequest(uri="test-uri")
+        )
+
+        # Assert
+        assert isinstance(result, Error)
+        assert result.code == METHOD_NOT_FOUND

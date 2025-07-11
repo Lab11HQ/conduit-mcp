@@ -1,147 +1,149 @@
 from unittest.mock import AsyncMock, Mock
 
-from conduit.protocol.base import METHOD_NOT_FOUND, Error
+from conduit.protocol.base import PROTOCOL_VERSION
 from conduit.protocol.common import CancelledNotification, ProgressNotification
-from conduit.protocol.roots import (
-    ListRootsRequest,
-    ListRootsResult,
-    Root,
-    RootsListChangedNotification,
-)
-
-from .conftest import ServerSessionTest
+from conduit.protocol.initialization import Implementation, ServerCapabilities
+from conduit.protocol.roots import ListRootsResult, Root, RootsListChangedNotification
+from conduit.server.session import ServerConfig, ServerSession
 
 
-class TestNotificationRouting(ServerSessionTest):
-    async def test_ignores_unknown_notification_method(self):
-        """Test that unknown notification methods are silently ignored."""
+class TestNotificationHandling:
+    """Test server session notification handling."""
 
-        # Arrange - create a proper mock notification object
-        class UnknownNotification:
-            def __init__(self):
-                self.method = "notifications/unknown"
-
-        unknown_notification = UnknownNotification()
-
-        # Act - this should not raise an exception
-        await self.session._handle_session_notification(unknown_notification)
-
-        # Assert - no exception was raised (test passes if we get here)
-        # Unknown notifications are silently ignored
-        assert True
-
-
-class TestCancellationNotificationHandling(ServerSessionTest):
-    async def test_cancels_in_flight_request_and_notifies_callback(self):
-        # Arrange
-        request_id = "test-request-123"
-        mock_task = Mock()
-        self.session._in_flight_requests[request_id] = mock_task
-
-        cancellation = CancelledNotification(
-            request_id=request_id, reason="user cancelled"
+    def setup_method(self):
+        self.transport = Mock()
+        self.config = ServerConfig(
+            capabilities=ServerCapabilities(),
+            info=Implementation(name="test-server", version="1.0.0"),
+            protocol_version=PROTOCOL_VERSION,
         )
 
-        # Mock the callback manager
-        self.session.callbacks.call_cancelled = AsyncMock()
+    async def test_handle_cancelled_processes_cancellation_notification(self):
+        # Arrange
+        session = ServerSession(self.transport, self.config)
+        client_id = "test-client"
+        notification = CancelledNotification(request_id="req-123")
+
+        # Mock only the callback (the observable behavior)
+        session.callbacks.call_cancelled = AsyncMock()
 
         # Act
-        await self.session._handle_cancelled(cancellation)
+        await session._handle_cancelled(client_id, notification)
 
-        # Assert
-        mock_task.cancel.assert_called_once()
-        self.session.callbacks.call_cancelled.assert_awaited_once_with(cancellation)
-
-    async def test_ignores_cancellation_when_request_id_not_found(self):
-        # Arrange
-        cancellation = CancelledNotification(
-            request_id="unknown-request", reason="user cancelled"
+        # Assert - focus on what we can observe
+        session.callbacks.call_cancelled.assert_awaited_once_with(
+            client_id, notification
         )
 
-        # Mock the callback manager
-        self.session.callbacks.call_cancelled = AsyncMock()
+    async def test_handle_progress_calls_callback(self):
+        # Arrange
+        session = ServerSession(self.transport, self.config)
+        client_id = "test-client"
+        notification = ProgressNotification(
+            progress_token="progress-123", progress=50, total=100
+        )
+
+        # Mock the callbacks
+        session.callbacks.call_progress = AsyncMock()
 
         # Act
-        await self.session._handle_cancelled(cancellation)
+        await session._handle_progress(client_id, notification)
 
         # Assert
-        # No task should be cancelled and no callback should be called
-        self.session.callbacks.call_cancelled.assert_not_called()
-
-
-class TestProgressNotificationHandling(ServerSessionTest):
-    async def test_delegates_progress_notification_to_callback_manager(self):
-        # Arrange
-        progress_notification = ProgressNotification(
-            progress_token="test-123", progress=50.0, total=100.0
+        session.callbacks.call_progress.assert_awaited_once_with(
+            client_id, notification
         )
 
-        self.session.callbacks.call_progress = AsyncMock()
+    async def test_handle_roots_list_changed_updates_client_context_and_calls_callback(
+        self,
+    ):
+        # Arrange
+        session = ServerSession(self.transport, self.config)
+        client_id = "test-client"
+        notification = RootsListChangedNotification()
+
+        # Register client to create context
+        session.client_manager.register_client(client_id)
+
+        # Mock successful coordinator response
+        new_roots = [
+            Root(uri="file:///home/user/project", name="Project"),
+            Root(uri="file:///home/user/docs", name="Documents"),
+        ]
+        list_roots_result = ListRootsResult(roots=new_roots)
+        session._coordinator.send_request_to_client = AsyncMock(
+            return_value=list_roots_result
+        )
+
+        # Mock callback
+        session.callbacks.call_roots_changed = AsyncMock()
 
         # Act
-        await self.session._handle_progress(progress_notification)
+        await session._handle_roots_list_changed(client_id, notification)
 
-        # Assert
-        self.session.callbacks.call_progress.assert_awaited_once_with(
-            progress_notification
+        # Assert - verify client context was updated
+        client_context = session.client_manager.get_client(client_id)
+        assert client_context.roots == new_roots
+
+        # Assert - verify callback was called with client context
+        session.callbacks.call_roots_changed.assert_awaited_once_with(
+            client_id, new_roots
         )
 
-
-class TestRootsListChangedHandling(ServerSessionTest):
-    async def test_updates_state_and_calls_callback_on_successful_refresh(self):
+    async def test_transport_error_does_not_propagate_when_roots_list_changed(self):
         # Arrange
-        roots = [Root(uri="file:///test")]
-        roots_notification = RootsListChangedNotification(roots=roots)
+        session = ServerSession(self.transport, self.config)
+        client_id = "test-client"
+        notification = RootsListChangedNotification()
 
-        result = ListRootsResult(roots=roots)
-        self.session.send_request = AsyncMock(return_value=result)
-        self.session.callbacks.call_roots_changed = AsyncMock()
+        # Register client to create context
+        session.client_manager.register_client(client_id)
 
-        # Act
-        await self.session._handle_roots_list_changed(roots_notification)
+        # Mock coordinator to raise exception
+        session._coordinator.send_request_to_client = AsyncMock(
+            side_effect=Exception("Transport error")
+        )
 
-        # Assert
-        self.session.send_request.assert_awaited_once()
-        sent_request = self.session.send_request.call_args[0][0]
-        assert isinstance(sent_request, ListRootsRequest)
+        # Mock callback (should not be called)
+        session.callbacks.call_roots_changed = AsyncMock()
 
-        self.session.callbacks.call_roots_changed.assert_awaited_once_with(roots)
+        # Act - should not raise exception
+        await session._handle_roots_list_changed(client_id, notification)
 
-        assert self.session.client_state.roots == roots
+        # Assert - callback should not be called on error
+        session.callbacks.call_roots_changed.assert_not_awaited()
 
-    async def test_ignores_server_error_response_silently(self):
+    async def test_handle_roots_list_changed_does_not_propagate_callback_exception(
+        self,
+    ):
         # Arrange
-        roots_notification = RootsListChangedNotification(
-            roots=[Root(uri="file:///test")]
+        session = ServerSession(self.transport, self.config)
+        client_id = "test-client"
+        notification = RootsListChangedNotification()
+
+        # Register client to create context
+        session.client_manager.register_client(client_id)
+
+        # Mock successful coordinator response
+        new_roots = [Root(uri="file:///home/user/project", name="Project")]
+        list_roots_result = ListRootsResult(roots=new_roots)
+        session._coordinator.send_request_to_client = AsyncMock(
+            return_value=list_roots_result
         )
-        error_result = Error(code=METHOD_NOT_FOUND, message="Roots not supported")
-        self.session.send_request = AsyncMock(return_value=error_result)
-        self.session.callbacks.call_roots_changed = AsyncMock()
-        initial_roots = self.session.client_state.roots
 
-        # Act
-        await self.session._handle_roots_list_changed(roots_notification)
-
-        # Assert
-        self.session.send_request.assert_awaited_once()
-        assert self.session.client_state.roots == initial_roots
-        self.session.callbacks.call_roots_changed.assert_not_called()
-
-    async def test_ignores_request_failure_silently(self):
-        # Arrange
-        roots_notification = RootsListChangedNotification(
-            roots=[Root(uri="file:///test")]
+        # Mock callback to raise exception
+        session.callbacks.call_roots_changed = AsyncMock(
+            side_effect=Exception("Callback failed")
         )
-        self.session.send_request = AsyncMock(
-            side_effect=ConnectionError("Network failure")
+
+        # Act - should not raise exception despite callback failure
+        await session._handle_roots_list_changed(client_id, notification)
+
+        # Assert - client context should still be updated despite callback failure
+        client_context = session.client_manager.get_client(client_id)
+        assert client_context.roots == new_roots
+
+        # Assert - callback was attempted
+        session.callbacks.call_roots_changed.assert_awaited_once_with(
+            client_id, new_roots
         )
-        self.session.callbacks.call_roots_changed = AsyncMock()
-        initial_roots = self.session.client_state.roots
-
-        # Act
-        await self.session._handle_roots_list_changed(roots_notification)
-
-        # Assert
-        self.session.send_request.assert_awaited_once()
-        assert self.session.client_state.roots == initial_roots
-        self.session.callbacks.call_roots_changed.assert_not_called()

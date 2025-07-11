@@ -196,7 +196,6 @@ class ResourceManager:
         """
         uri = request.uri
 
-        # Validate resource exists
         if uri not in self.registered_resources:
             template_found = any(
                 self._matches_template(uri=uri, template=template)
@@ -205,12 +204,10 @@ class ResourceManager:
             if not template_found:
                 raise KeyError(f"Cannot subscribe to unknown resource: {uri}")
 
-        # Get client context (should exist from initialization)
         context = self.client_manager.get_client(client_id)
         if context:
             context.subscriptions.add(uri)
 
-        # Call callback with client context
         if self._on_subscribe:
             try:
                 await self._on_subscribe(client_id, uri)
@@ -239,15 +236,12 @@ class ResourceManager:
         """
         uri = request.uri
 
-        # Get client context (should exist from initialization)
         context = self.client_manager.get_client(client_id)
         if not context or uri not in context.subscriptions:
             raise KeyError(f"Client not subscribed to resource: {uri}")
 
-        # Remove subscription for this client
         context.subscriptions.remove(uri)
 
-        # Call callback with client context
         if self._on_unsubscribe:
             try:
                 await self._on_unsubscribe(client_id, uri)

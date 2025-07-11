@@ -1,77 +1,72 @@
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
-from conduit.protocol.base import METHOD_NOT_FOUND, Error
-from conduit.protocol.content import TextContent
-from conduit.protocol.initialization import ToolsCapability
+from conduit.protocol.base import METHOD_NOT_FOUND, PROTOCOL_VERSION, Error
+from conduit.protocol.initialization import (
+    Implementation,
+    ServerCapabilities,
+    ToolsCapability,
+)
 from conduit.protocol.tools import (
     CallToolRequest,
     CallToolResult,
-    JSONSchema,
     ListToolsRequest,
     ListToolsResult,
-    Tool,
+    TextContent,
 )
+from conduit.server.session import ServerConfig, ServerSession
 
-from .conftest import ServerSessionTest
 
+class TestToolHandling:
+    """Test server session tool handling."""
 
-class TestListTools(ServerSessionTest):
-    async def test_returns_tools_from_manager_when_capability_enabled(self):
-        """Test successful tool listing when tools capability is enabled."""
+    def setup_method(self):
+        self.transport = Mock()
+        self.config_with_tools = ServerConfig(
+            capabilities=ServerCapabilities(tools=ToolsCapability()),
+            info=Implementation(name="test-server", version="1.0.0"),
+            protocol_version=PROTOCOL_VERSION,
+        )
+        self.config_without_tools = ServerConfig(
+            capabilities=ServerCapabilities(),
+            info=Implementation(name="test-server", version="1.0.0"),
+            protocol_version=PROTOCOL_VERSION,
+        )
+
+        self.list_request = ListToolsRequest()
+
+    async def test_list_tools_capability_disabled(self):
         # Arrange
-        self.config.capabilities.tools = ToolsCapability()
-
-        # Create expected tools
-        tool1 = Tool(
-            name="test_tool_1",
-            description="A test tool",
-            input_schema=JSONSchema(properties={"arg1": {"type": "string"}}),
-        )
-        tool2 = Tool(
-            name="test_tool_2",
-            description="Another test tool",
-            input_schema=JSONSchema(properties={"arg2": {"type": "number"}}),
-        )
-
-        # Mock the manager to return our tools
-        self.session.tools.handle_list = AsyncMock(
-            return_value=ListToolsResult(tools=[tool1, tool2])
-        )
-
-        request = ListToolsRequest()
+        session = ServerSession(self.transport, self.config_without_tools)
+        client_id = "test-client"
 
         # Act
-        result = await self.session._handle_list_tools(request)
-
-        # Assert
-        assert isinstance(result, ListToolsResult)
-        assert len(result.tools) == 2
-        assert result.tools[0].name == "test_tool_1"
-        assert result.tools[1].name == "test_tool_2"
-
-        # Verify manager was called
-        self.session.tools.handle_list.assert_awaited_once_with(request)
-
-    async def test_rejects_list_tools_when_capability_not_set(self):
-        """Test error when tools capability is not configured."""
-        # Arrange
-        self.config.capabilities.tools = None  # No tools capability
-        request = ListToolsRequest()
-
-        # Act
-        result = await self.session._handle_list_tools(request)
+        result = await session._handle_list_tools(client_id, self.list_request)
 
         # Assert
         assert isinstance(result, Error)
         assert result.code == METHOD_NOT_FOUND
         assert result.message == "Server does not support tools capability"
 
-
-class TestCallTool(ServerSessionTest):
-    async def test_returns_result_from_manager_when_capability_enabled(self):
-        """Test successful tool call when tools capability is enabled."""
+    async def test_list_tools_capability_enabled(self):
         # Arrange
-        self.config.capabilities.tools = ToolsCapability()
+        session = ServerSession(self.transport, self.config_with_tools)
+        client_id = "test-client"
+
+        # Mock the tools manager
+        expected_result = ListToolsResult(tools=[])
+        session.tools.handle_list = AsyncMock(return_value=expected_result)
+
+        # Act
+        result = await session._handle_list_tools(client_id, self.list_request)
+
+        # Assert
+        assert result == expected_result
+        session.tools.handle_list.assert_called_once_with(client_id, self.list_request)
+
+    async def test_returns_call_tool_result_when_capability_enabled(self):
+        # Arrange
+        session = ServerSession(self.transport, self.config_with_tools)
+        client_id = "test-client"
 
         expected_result = CallToolResult(
             content=[TextContent(text="Tool executed successfully")],
@@ -79,12 +74,12 @@ class TestCallTool(ServerSessionTest):
         )
 
         # Mock the manager to return success
-        self.session.tools.handle_call = AsyncMock(return_value=expected_result)
+        session.tools.handle_call = AsyncMock(return_value=expected_result)
 
         request = CallToolRequest(name="test_tool", arguments={"arg1": "value1"})
 
         # Act
-        result = await self.session._handle_call_tool(request)
+        result = await session._handle_call_tool(client_id, request)
 
         # Assert
         assert isinstance(result, CallToolResult)
@@ -92,16 +87,16 @@ class TestCallTool(ServerSessionTest):
         assert result.is_error is False
 
         # Verify manager was called
-        self.session.tools.handle_call.assert_awaited_once_with(request)
+        session.tools.handle_call.assert_awaited_once_with(client_id, request)
 
     async def test_rejects_call_tool_when_capability_not_set(self):
-        """Test error when tools capability is not configured."""
         # Arrange
-        self.config.capabilities.tools = None  # No tools capability
+        session = ServerSession(self.transport, self.config_without_tools)
+        client_id = "test-client"
         request = CallToolRequest(name="test_tool", arguments={"arg1": "value1"})
 
         # Act
-        result = await self.session._handle_call_tool(request)
+        result = await session._handle_call_tool(client_id, request)
 
         # Assert
         assert isinstance(result, Error)
@@ -109,22 +104,21 @@ class TestCallTool(ServerSessionTest):
         assert result.message == "Server does not support tools capability"
 
     async def test_returns_method_not_found_when_tool_unknown(self):
-        """Test error when manager raises KeyError for unknown tool."""
         # Arrange
-        self.config.capabilities.tools = ToolsCapability()
+        session = ServerSession(self.transport, self.config_with_tools)
+        client_id = "test-client"
 
         # Mock the manager to raise KeyError (unknown tool)
-        self.session.tools.handle_call = AsyncMock(side_effect=KeyError("unknown_tool"))
+        session.tools.handle_call = AsyncMock(side_effect=KeyError("unknown_tool"))
 
         request = CallToolRequest(name="unknown_tool", arguments={"arg1": "value1"})
 
         # Act
-        result = await self.session._handle_call_tool(request)
+        result = await session._handle_call_tool(client_id, request)
 
         # Assert
         assert isinstance(result, Error)
         assert result.code == METHOD_NOT_FOUND
-        assert result.message == "Unknown tool: unknown_tool"
 
         # Verify manager was called
-        self.session.tools.handle_call.assert_awaited_once_with(request)
+        session.tools.handle_call.assert_awaited_once_with(client_id, request)

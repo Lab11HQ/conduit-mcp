@@ -336,11 +336,14 @@ class PaginatedResult(Result):
     """
 
 
+# Standard JSON-RPC error codes
 PARSE_ERROR = -32700
 INVALID_REQUEST = -32600
 METHOD_NOT_FOUND = -32601
 INVALID_PARAMS = -32602
 INTERNAL_ERROR = -32603
+# Custom error codes
+PROTOCOL_VERSION_MISMATCH = -32001
 
 
 class Error(ProtocolModel):

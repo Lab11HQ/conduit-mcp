@@ -1,78 +1,92 @@
-from conduit.protocol.base import PROTOCOL_VERSION
+from unittest.mock import Mock
+
+from conduit.protocol.base import (
+    METHOD_NOT_FOUND,
+    PROTOCOL_VERSION,
+    PROTOCOL_VERSION_MISMATCH,
+    Error,
+)
 from conduit.protocol.initialization import (
     ClientCapabilities,
     Implementation,
-    InitializedNotification,
     InitializeRequest,
     InitializeResult,
+    ServerCapabilities,
 )
+from conduit.server.session import ServerConfig, ServerSession
 
-from .conftest import ServerSessionTest
 
+class TestInitialization:
+    """Test server session initialization handling."""
 
-class TestInitialization(ServerSessionTest):
-    async def test_handle_initialize_stores_client_state(self):
-        """Test that _handle_initialize properly stores client information."""
-        # Arrange
-        client_capabilities = ClientCapabilities(
-            sampling=True,
-            elicitation=True,
-            roots={"listChanged": True},
+    def setup_method(self):
+        self.transport = Mock()
+        self.config = ServerConfig(
+            capabilities=ServerCapabilities(),
+            info=Implementation(name="test-server", version="1.0.0"),
         )
-        request = InitializeRequest(
-            client_info=Implementation(name="test-client", version="2.1.0"),
-            capabilities=client_capabilities,
+        self.session = ServerSession(self.transport, self.config)
+
+        self.valid_request = InitializeRequest(
+            capabilities=ClientCapabilities(),
+            client_info=Implementation(name="test-client", version="1.0.0"),
             protocol_version=PROTOCOL_VERSION,
         )
 
+    async def test_registers_client_when_protocol_version_matches(self):
+        # Arrange
+        client_id = "test-client-123"
+
         # Act
-        result = await self.session._handle_initialize(request)
+        result = await self.session._handle_initialize(client_id, self.valid_request)
 
         # Assert
         assert isinstance(result, InitializeResult)
+        assert result.capabilities == self.config.capabilities
+        assert result.server_info == self.config.info
+        assert result.protocol_version == self.config.protocol_version
 
-        # Verify client state was stored
-        assert self.session.client_state.capabilities == client_capabilities
-        assert self.session.client_state.info.name == "test-client"
-        assert self.session.client_state.info.version == "2.1.0"
-        assert self.session.client_state.protocol_version == PROTOCOL_VERSION
+        # Verify client was registered and initialized
+        assert self.session.client_manager.is_client_initialized(client_id)
+        client_context = self.session.client_manager.get_client(client_id)
+        assert client_context.capabilities == self.valid_request.capabilities
+        assert client_context.info == self.valid_request.client_info
 
-    async def test_handle_initialize_returns_result_with_server_config(self):
-        """Test that _handle_initialize returns server configuration."""
+    async def test_does_not_register_client_when_protocol_version_does_not_match(self):
         # Arrange
-        request = InitializeRequest(
-            client_info=Implementation(name="test-client", version="1.0.0"),
+        client_id = "test-client-456"
+        mismatched_request = InitializeRequest(
             capabilities=ClientCapabilities(),
+            client_info=Implementation(name="test-client", version="1.0.0"),
+            protocol_version="2024-01-01",
         )
 
         # Act
-        result = await self.session._handle_initialize(request)
+        result = await self.session._handle_initialize(client_id, mismatched_request)
 
         # Assert
-        assert isinstance(result, InitializeResult)
-        assert result.server_info == self.session.server_config.info
-        assert result.capabilities == self.session.server_config.capabilities
-        assert result.protocol_version == self.session.server_config.protocol_version
-        assert result.instructions == self.session.server_config.instructions
+        assert isinstance(result, Error)
+        assert result.code == PROTOCOL_VERSION_MISMATCH
 
-    async def test_initialization_state_tracking(self):
-        """Test that initialization state is properly tracked."""
+        # Verify no client context was created (since initialization failed)
+        client_context = self.session.client_manager.get_client(client_id)
+        assert client_context is None
+
+    async def test_cannot_reinitialize_client(self):
         # Arrange
-        assert self.session.initialized is False
+        client_id = "test-client-789"
 
-        # Act - handle initialize request
-        request = InitializeRequest(
-            client_info=Implementation(name="test-client", version="1.0.0"),
-            capabilities=ClientCapabilities(),
-        )
-        await self.session._handle_initialize(request)
+        # First initialization succeeds
+        result1 = await self.session._handle_initialize(client_id, self.valid_request)
+        assert isinstance(result1, InitializeResult)
+        assert self.session.client_manager.is_client_initialized(client_id)
 
-        # Assert - still not initialized until we get the notification
-        assert self.session.initialized is False
+        # Act - attempt to initialize again
+        result2 = await self.session._handle_initialize(client_id, self.valid_request)
 
-        # Act - handle initialized notification
-        notification = InitializedNotification()
-        await self.session._handle_initialized(notification)
+        # Assert
+        assert isinstance(result2, Error)
+        assert result2.code == METHOD_NOT_FOUND
 
-        # Assert - now we're initialized
-        assert self.session.initialized is True
+        # Verify client state unchanged
+        assert self.session.client_manager.is_client_initialized(client_id)

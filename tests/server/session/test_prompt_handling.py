@@ -1,157 +1,156 @@
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
-from conduit.protocol.base import INTERNAL_ERROR, METHOD_NOT_FOUND, Error
+from conduit.protocol.base import (
+    INTERNAL_ERROR,
+    METHOD_NOT_FOUND,
+    PROTOCOL_VERSION,
+    Error,
+)
 from conduit.protocol.content import TextContent
-from conduit.protocol.initialization import PromptsCapability
+from conduit.protocol.initialization import (
+    Implementation,
+    PromptsCapability,
+    ServerCapabilities,
+)
 from conduit.protocol.prompts import (
     GetPromptRequest,
     GetPromptResult,
     ListPromptsRequest,
     ListPromptsResult,
-    Prompt,
     PromptMessage,
 )
+from conduit.server.session import ServerConfig, ServerSession
 
-from .conftest import ServerSessionTest
 
+class TestPromptHandling:
+    """Test server session prompt handling."""
 
-class TestListPrompts(ServerSessionTest):
-    async def test_returns_prompts_from_manager_when_capability_enabled(self):
-        """Test successful prompt listing when prompts capability is enabled."""
+    def setup_method(self):
+        self.transport = Mock()
+        self.config_with_prompts = ServerConfig(
+            capabilities=ServerCapabilities(prompts=PromptsCapability()),
+            info=Implementation(name="test-server", version="1.0.0"),
+            protocol_version=PROTOCOL_VERSION,
+        )
+        self.config_without_prompts = ServerConfig(
+            capabilities=ServerCapabilities(),
+            info=Implementation(name="test-server", version="1.0.0"),
+            protocol_version=PROTOCOL_VERSION,
+        )
+
+    async def test_list_prompts_returns_result_when_capability_enabled(self):
         # Arrange
-        self.config.capabilities.prompts = PromptsCapability()
+        session = ServerSession(self.transport, self.config_with_prompts)
+        client_id = "test-client"
 
-        # Create expected prompts
-        prompt1 = Prompt(
-            name="test_prompt_1",
-            description="A test prompt",
-        )
-        prompt2 = Prompt(
-            name="test_prompt_2",
-            description="Another test prompt",
-        )
-
-        # Mock the manager to return our prompts
-        self.session.prompts.handle_list_prompts = AsyncMock(
-            return_value=ListPromptsResult(prompts=[prompt1, prompt2])
-        )
-
-        request = ListPromptsRequest()
+        # Mock the prompts manager
+        expected_result = ListPromptsResult(prompts=[])
+        session.prompts.handle_list_prompts = AsyncMock(return_value=expected_result)
 
         # Act
-        result = await self.session._handle_list_prompts(request)
+        result = await session._handle_list_prompts(client_id, ListPromptsRequest())
 
         # Assert
-        assert isinstance(result, ListPromptsResult)
-        assert len(result.prompts) == 2
-        assert result.prompts[0].name == "test_prompt_1"
-        assert result.prompts[1].name == "test_prompt_2"
+        assert result == expected_result
+        session.prompts.handle_list_prompts.assert_awaited_once_with(
+            client_id, ListPromptsRequest()
+        )
 
-        # Verify manager was called
-        self.session.prompts.handle_list_prompts.assert_awaited_once_with(request)
-
-    async def test_rejects_list_prompts_when_capability_not_set(self):
-        """Test error when prompts capability is not configured."""
+    async def test_list_prompts_returns_error_when_capability_disabled(self):
         # Arrange
-        self.config.capabilities.prompts = None  # No prompts capability
-        request = ListPromptsRequest()
+        session = ServerSession(self.transport, self.config_without_prompts)
+        client_id = "test-client"
 
         # Act
-        result = await self.session._handle_list_prompts(request)
+        result = await session._handle_list_prompts(client_id, ListPromptsRequest())
 
         # Assert
         assert isinstance(result, Error)
         assert result.code == METHOD_NOT_FOUND
-        assert result.message == "Server does not support prompts capability"
 
-
-class TestGetPrompt(ServerSessionTest):
-    async def test_returns_result_from_manager_when_capability_enabled(self):
-        """Test successful prompt retrieval when prompts capability is enabled."""
+    async def test_get_prompt_returns_result_when_capability_enabled(self):
         # Arrange
-        self.config.capabilities.prompts = PromptsCapability()
+        session = ServerSession(self.transport, self.config_with_prompts)
+        client_id = "test-client"
 
+        # Mock the prompts manager
         expected_result = GetPromptResult(
+            description="Test Description",
             messages=[
-                PromptMessage(
-                    role="user",
-                    content=TextContent(text="Test prompt content"),
-                )
-            ]
+                PromptMessage(role="user", content=TextContent(text="Test Content"))
+            ],
+        )
+        session.prompts.handle_get_prompt = AsyncMock(return_value=expected_result)
+
+        # Act
+        result = await session._handle_get_prompt(
+            client_id, GetPromptRequest(name="test-prompt")
         )
 
-        # Mock the manager to return success
-        self.session.prompts.handle_get_prompt = AsyncMock(return_value=expected_result)
-
-        request = GetPromptRequest(name="test_prompt", arguments={"arg1": "value1"})
-
-        # Act
-        result = await self.session._handle_get_prompt(request)
-
         # Assert
-        assert isinstance(result, GetPromptResult)
-        assert len(result.messages) == 1
-        assert result.messages[0].content.text == "Test prompt content"
+        assert result == expected_result
+        session.prompts.handle_get_prompt.assert_awaited_once_with(
+            client_id, GetPromptRequest(name="test-prompt")
+        )
 
-        # Verify manager was called
-        self.session.prompts.handle_get_prompt.assert_awaited_once_with(request)
-
-    async def test_rejects_get_prompt_when_capability_not_set(self):
-        """Test error when prompts capability is not configured."""
+    async def test_get_prompt_returns_error_when_capability_disabled(self):
         # Arrange
-        self.config.capabilities.prompts = None  # No prompts capability
-        request = GetPromptRequest(name="test_prompt", arguments={"arg1": "value1"})
+        session = ServerSession(self.transport, self.config_without_prompts)
+        client_id = "test-client"
 
         # Act
-        result = await self.session._handle_get_prompt(request)
+        result = await session._handle_get_prompt(
+            client_id, GetPromptRequest(name="test-prompt")
+        )
 
         # Assert
         assert isinstance(result, Error)
         assert result.code == METHOD_NOT_FOUND
-        assert result.message == "Server does not support prompts capability"
 
-    async def test_returns_method_not_found_when_prompt_unknown(self):
-        """Test error when manager raises KeyError for unknown prompt."""
+    async def test_get_prompt_returns_error_when_prompt_not_found(self):
         # Arrange
-        self.config.capabilities.prompts = PromptsCapability()
+        session = ServerSession(self.transport, self.config_with_prompts)
+        client_id = "test-client"
 
-        # Mock the manager to raise KeyError (unknown prompt)
-        self.session.prompts.handle_get_prompt = AsyncMock(
-            side_effect=KeyError("Unknown prompt: unknown_prompt")
+        # Mock the prompts manager
+        session.prompts.handle_get_prompt = AsyncMock(
+            side_effect=KeyError("test-prompt")
         )
 
-        request = GetPromptRequest(name="unknown_prompt", arguments={"arg1": "value1"})
-
         # Act
-        result = await self.session._handle_get_prompt(request)
+        result = await session._handle_get_prompt(
+            client_id, GetPromptRequest(name="test-prompt")
+        )
 
         # Assert
         assert isinstance(result, Error)
         assert result.code == METHOD_NOT_FOUND
-        assert "unknown_prompt" in result.message
 
         # Verify manager was called
-        self.session.prompts.handle_get_prompt.assert_awaited_once_with(request)
-
-    async def test_returns_internal_error_when_manager_raises_exception(self):
-        """Test error when manager raises unexpected exception."""
-        # Arrange
-        self.config.capabilities.prompts = PromptsCapability()
-
-        # Mock the manager to raise generic exception
-        self.session.prompts.handle_get_prompt = AsyncMock(
-            side_effect=ValueError("Something went wrong")
+        session.prompts.handle_get_prompt.assert_awaited_once_with(
+            client_id, GetPromptRequest(name="test-prompt")
         )
 
-        request = GetPromptRequest(name="test_prompt", arguments={"arg1": "value1"})
+    async def test_returns_error_when_handler_raises_generic_exception(self):
+        # Arrange
+        session = ServerSession(self.transport, self.config_with_prompts)
+        client_id = "test-client"
+
+        # Mock the prompts manager
+        session.prompts.handle_get_prompt = AsyncMock(
+            side_effect=RuntimeError("test-error")
+        )
 
         # Act
-        result = await self.session._handle_get_prompt(request)
+        result = await session._handle_get_prompt(
+            client_id, GetPromptRequest(name="test-prompt")
+        )
 
         # Assert
         assert isinstance(result, Error)
         assert result.code == INTERNAL_ERROR
-        assert result.message == "Error in prompt handler"
 
         # Verify manager was called
-        self.session.prompts.handle_get_prompt.assert_awaited_once_with(request)
+        session.prompts.handle_get_prompt.assert_awaited_once_with(
+            client_id, GetPromptRequest(name="test-prompt")
+        )

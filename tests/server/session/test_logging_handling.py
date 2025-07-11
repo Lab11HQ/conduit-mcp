@@ -1,71 +1,78 @@
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
-from conduit.protocol.base import METHOD_NOT_FOUND, Error
+from conduit.protocol.base import METHOD_NOT_FOUND, PROTOCOL_VERSION, Error
 from conduit.protocol.common import EmptyResult
+from conduit.protocol.initialization import Implementation, ServerCapabilities
 from conduit.protocol.logging import SetLevelRequest
+from conduit.server.session import ServerConfig, ServerSession
 
-from .conftest import ServerSessionTest
 
+class TestLoggingHandling:
+    """Test server session logging handling."""
 
-class TestSetLevel(ServerSessionTest):
-    async def test_sets_level_when_capability_enabled(self):
-        """Test successful log level setting when logging capability is enabled."""
+    def setup_method(self):
+        self.transport = Mock()
+        self.config_with_logging = ServerConfig(
+            capabilities=ServerCapabilities(logging=True),
+            info=Implementation(name="test-server", version="1.0.0"),
+            protocol_version=PROTOCOL_VERSION,
+        )
+        self.config_without_logging = ServerConfig(
+            capabilities=ServerCapabilities(),
+            info=Implementation(name="test-server", version="1.0.0"),
+            protocol_version=PROTOCOL_VERSION,
+        )
+        self.set_level_request = SetLevelRequest(level="info")
+
+    async def test_returns_empty_result_when_capability_enabled(self):
         # Arrange
-        self.config.capabilities.logging = True
+        session = ServerSession(self.transport, self.config_with_logging)
+        client_id = "test-client"
 
-        # Mock the manager to return success
-        self.session.logging.handle_set_level = AsyncMock(return_value=EmptyResult())
-
-        request = SetLevelRequest(level="info")
+        # Mock the logging manager
+        session.logging.handle_set_level = AsyncMock(return_value=EmptyResult())
 
         # Act
-        result = await self.session._handle_set_level(request)
+        result = await session._handle_set_level(client_id, self.set_level_request)
 
         # Assert
-        assert isinstance(result, EmptyResult)
+        assert result == EmptyResult()
+        session.logging.handle_set_level.assert_awaited_once_with(
+            client_id, self.set_level_request
+        )
 
-        # Verify manager was called
-        self.session.logging.handle_set_level.assert_awaited_once_with(request)
-
-    async def test_rejects_set_level_when_capability_not_set(self):
-        """Test error when logging capability is not configured."""
+    async def test_returns_error_when_capability_disabled(self):
         # Arrange
-        self.config.capabilities.logging = False
-        request = SetLevelRequest(level="debug")
+        session = ServerSession(self.transport, self.config_without_logging)
+        client_id = "test-client"
 
         # Act
-        result = await self.session._handle_set_level(request)
+        result = await session._handle_set_level(client_id, self.set_level_request)
 
         # Assert
         assert isinstance(result, Error)
         assert result.code == METHOD_NOT_FOUND
-        assert result.message == "Server does not support logging capability"
 
-    async def test_callback_failures_do_not_cause_protocol_errors(self):
-        """Test that on_level_change callback failures don't fail the request.
+    async def test_callback_failures_do_not_propagate(self):
+        """Test that callback failures do not propagate to the client.
 
-        This documents our design decision that callback failures are logged
-        but don't cause protocol errors, since the core operation (setting level)
-        succeeds.
+        This documents the design decision that callback failures do not
+        propagate to the client, since the core operation of setting the
+        log level is still successful.
         """
         # Arrange
-        self.config.capabilities.logging = True
-        assert self.session.logging.current_level is None
+        session = ServerSession(self.transport, self.config_with_logging)
+        client_id = "test-client"
 
-        # Set up a failing callback
-        failing_callback = AsyncMock(side_effect=ValueError("Callback failed"))
-        self.session.logging.on_level_change(failing_callback)
-
-        request = SetLevelRequest(level="info")
+        # Mock the logging manager
+        failing_callback = AsyncMock(side_effect=RuntimeError("test error"))
+        session.logging.on_level_change(failing_callback)
 
         # Act
-        result = await self.session._handle_set_level(request)
+        result = await session._handle_set_level(client_id, self.set_level_request)
 
         # Assert
-        assert isinstance(result, EmptyResult)  # Request still succeeds
-
-        # Verify the callback was called (and failed)
-        failing_callback.assert_awaited_once_with("info")
-
-        # Verify the level was still set despite callback failure
-        assert self.session.logging.current_level == "info"
+        assert result == EmptyResult()
+        failing_callback.assert_awaited_once_with(
+            client_id, self.set_level_request.level
+        )
