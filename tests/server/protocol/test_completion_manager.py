@@ -4,7 +4,7 @@ import pytest
 
 from conduit.protocol.completions import CompleteRequest, CompleteResult, Completion
 from conduit.protocol.prompts import PromptReference
-from conduit.server.managers.completions import (
+from conduit.server.protocol.completions import (
     CompletionManager,
     CompletionNotConfiguredError,
 )

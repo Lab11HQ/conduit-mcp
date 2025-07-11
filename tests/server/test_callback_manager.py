@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 from conduit.protocol.common import CancelledNotification, ProgressNotification
 from conduit.protocol.initialization import InitializedNotification
 from conduit.protocol.roots import Root
-from conduit.server.managers.callbacks import CallbackManager
+from conduit.server.callbacks import CallbackManager
 
 
 class TestInitializationCallback:

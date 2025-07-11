@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 from conduit.protocol.common import EmptyResult
 from conduit.protocol.logging import SetLevelRequest
 from conduit.server.client_manager import ClientManager
-from conduit.server.managers.logging import LoggingManager
+from conduit.server.protocol.logging import LoggingManager
 
 
 class TestLoggingManager:

@@ -11,7 +11,7 @@ from conduit.protocol.tools import (
     ListToolsResult,
     Tool,
 )
-from conduit.server.managers.tools import ToolManager
+from conduit.server.protocol.tools import ToolManager
 
 
 class TestToolManager:

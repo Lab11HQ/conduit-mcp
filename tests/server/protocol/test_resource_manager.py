@@ -17,7 +17,7 @@ from conduit.protocol.resources import (
     UnsubscribeRequest,
 )
 from conduit.server.client_manager import ClientManager
-from conduit.server.managers.resources import ResourceManager
+from conduit.server.protocol.resources import ResourceManager
 
 
 class TestResourceManager:

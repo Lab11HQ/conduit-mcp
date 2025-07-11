@@ -9,7 +9,7 @@ from conduit.protocol.prompts import (
     ListPromptsResult,
     Prompt,
 )
-from conduit.server.managers.prompts import PromptManager
+from conduit.server.protocol.prompts import PromptManager
 
 
 class TestPromptManager:
