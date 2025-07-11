@@ -1,3 +1,5 @@
+"""Client-aware resource manager for multi-client server sessions."""
+
 import re
 from typing import Awaitable, Callable
 
@@ -14,33 +16,50 @@ from conduit.protocol.resources import (
     SubscribeRequest,
     UnsubscribeRequest,
 )
+from conduit.server.client_manager import ClientManager
+
+# Type aliases for client-aware handlers
+ClientAwareResourceHandler = Callable[
+    [str, ReadResourceRequest], Awaitable[ReadResourceResult]
+]
+ClientAwareSubscriptionCallback = Callable[
+    [str, str], Awaitable[None]
+]  # (client_id, uri)
 
 
 class ResourceManager:
-    def __init__(self):
-        # Static resources
+    """Client-aware resource manager for multi-client server sessions.
+
+    Manages global resource registration with client-specific subscriptions.
+    Resources are registered once but subscriptions are tracked per-client,
+    enabling targeted notifications when resources change.
+    """
+
+    def __init__(self, client_manager: ClientManager):
+        self.client_manager = client_manager
+
+        # Static resources (global)
         self.registered_resources: dict[str, Resource] = {}
-        self.handlers: dict[
-            str, Callable[[ReadResourceRequest], Awaitable[ReadResourceResult]]
-        ] = {}
+        self.handlers: dict[str, ClientAwareResourceHandler] = {}
 
-        # Templates (dynamic resources with URI patterns)
+        # Templates (global, dynamic resources with URI patterns)
         self.registered_templates: dict[str, ResourceTemplate] = {}
-        self.template_handlers: dict[
-            str, Callable[[ReadResourceRequest], Awaitable[ReadResourceResult]]
-        ] = {}
+        self.template_handlers: dict[str, ClientAwareResourceHandler] = {}
 
-        # Subscriptions and callbacks
-        self.subscriptions: set[str] = set()
-        self._on_subscribe: Callable[[str], Awaitable[None]] | None = None
-        self._on_unsubscribe: Callable[[str], Awaitable[None]] | None = None
+        # Callbacks now receive client context
+        self._on_subscribe: ClientAwareSubscriptionCallback | None = None
+        self._on_unsubscribe: ClientAwareSubscriptionCallback | None = None
 
     def register(
         self,
         resource_or_template: Resource | ResourceTemplate,
-        handler: Callable[[ReadResourceRequest], Awaitable[ReadResourceResult]],
+        handler: ClientAwareResourceHandler,
     ) -> None:
-        """Register a resource or template with its handler function.
+        """Register a resource or template with its client-aware handler function.
+
+        Resources are registered globally but handlers receive client context
+        during execution. This allows resources to behave differently per client
+        for access control, personalization, or logging.
 
         Your handler should return ReadResourceResult with the resource content.
         Handler exceptions become INTERNAL_ERROR responses, so consider handling
@@ -50,8 +69,8 @@ class ResourceManager:
         Args:
             resource_or_template: Resource definition (static) or ResourceTemplate
                 (dynamic with URI patterns) to register.
-            handler: Async function that processes read requests. Should return
-                ReadResourceResult with resource contents.
+            handler: Async function that processes read requests with client context.
+                Should return ReadResourceResult with resource contents.
         """
         if isinstance(resource_or_template, Resource):
             self.registered_resources[resource_or_template.uri] = resource_or_template
@@ -62,62 +81,87 @@ class ResourceManager:
             )
             self.template_handlers[resource_or_template.uri_template] = handler
 
-    def on_subscribe(self, callback: Callable[[str], Awaitable[None]]) -> None:
+    def on_subscribe(self, callback: ClientAwareSubscriptionCallback) -> None:
         """Register callback for resource subscription events.
 
         Args:
             callback: Async function called when a client subscribes to a resource.
-                Receives the resource URI as an argument.
+                Receives (client_id, resource_uri) as arguments.
         """
         self._on_subscribe = callback
 
-    def on_unsubscribe(self, callback: Callable[[str], Awaitable[None]]) -> None:
+    def on_unsubscribe(self, callback: ClientAwareSubscriptionCallback) -> None:
         """Register callback for resource unsubscription events.
 
         Args:
             callback: Async function called when a client unsubscribes from a resource.
-                Receives the resource URI as an argument.
+                Receives (client_id, resource_uri) as arguments.
         """
         self._on_unsubscribe = callback
 
     async def handle_list_resources(
-        self, request: ListResourcesRequest
+        self, client_id: str, request: ListResourcesRequest
     ) -> ListResourcesResult:
-        """List all registered static resources.
+        """List all registered static resources for specific client.
 
-        Ignores pagination parameters for now - returns all resources.
-        Future versions can handle cursor, limit, and filtering.
+        Returns all registered resources. Could be extended to filter resources
+        based on client permissions or capabilities.
 
         Args:
-            request: List resources request with optional pagination.
+            client_id: ID of the client requesting resources
+            request: List resources request with optional pagination
 
         Returns:
-            ListResourcesResult: All registered static resources.
+            ListResourcesResult: All registered static resources
         """
+        # For now, all clients see all resources
+        # Could add client-specific filtering here
         return ListResourcesResult(resources=list(self.registered_resources.values()))
 
-    async def handle_read(self, request: ReadResourceRequest) -> ReadResourceResult:
-        """Read a resource by URI, checking static resources then templates.
+    async def handle_list_templates(
+        self, client_id: str, request: ListResourceTemplatesRequest
+    ) -> ListResourceTemplatesResult:
+        """List all registered resource templates for specific client.
+
+        Templates enable dynamic resource access with URI patterns like
+        'file:///logs/{date}.log'. Could be extended for client-specific templates.
+
+        Args:
+            client_id: ID of the client requesting templates
+            request: List templates request with optional pagination
+
+        Returns:
+            ListResourceTemplatesResult: All registered resource templates
+        """
+        return ListResourceTemplatesResult(
+            resource_templates=list(self.registered_templates.values())
+        )
+
+    async def handle_read(
+        self, client_id: str, request: ReadResourceRequest
+    ) -> ReadResourceResult:
+        """Read a resource by URI for specific client.
 
         Tries static resources first, then attempts template pattern matching.
         Handler exceptions bubble up to the session for protocol error conversion.
 
         Args:
-            request: Read resource request with URI.
+            client_id: ID of the client reading the resource
+            request: Read resource request with URI
 
         Returns:
-            ReadResourceResult: Resource content from the handler.
+            ReadResourceResult: Resource content from the handler
 
         Raises:
-            KeyError: If the URI matches no static resource or template pattern.
-            Exception: Any exception from the resource handler.
+            KeyError: If the URI matches no static resource or template pattern
+            Exception: Any exception from the resource handler
         """
         uri = request.uri
 
         # Try static resources first
         if uri in self.handlers:
             try:
-                return await self.handlers[uri](request)
+                return await self.handlers[uri](client_id, request)
             except Exception:
                 raise
 
@@ -125,49 +169,34 @@ class ResourceManager:
         for template_pattern, handler in self.template_handlers.items():
             if self._matches_template(uri=uri, template=template_pattern):
                 try:
-                    return await handler(request)
+                    return await handler(client_id, request)
                 except Exception:
                     raise
 
         # Not found - let session handle as protocol error
         raise KeyError(f"Unknown resource: {uri}")
 
-    async def handle_list_templates(
-        self, request: ListResourceTemplatesRequest
-    ) -> ListResourceTemplatesResult:
-        """List all registered resource templates.
-
-        Templates enable dynamic resource access with URI patterns like
-        'file:///logs/{date}.log'. Ignores pagination parameters for now.
-
-        Args:
-            request: List templates request with optional pagination.
-
-        Returns:
-            ListResourceTemplatesResult: All registered resource templates.
-        """
-        return ListResourceTemplatesResult(
-            resource_templates=list(self.registered_templates.values())
-        )
-
-    async def handle_subscribe(self, request: SubscribeRequest) -> EmptyResult:
-        """Subscribe to resource change notifications.
+    async def handle_subscribe(
+        self, client_id: str, request: SubscribeRequest
+    ) -> EmptyResult:
+        """Subscribe client to resource change notifications.
 
         Validates the resource exists (static or template match), records the
-        subscription, and calls the on_subscribe callback. Callback failures are
-        logged but don't fail the subscription since it's recorded and may work with
-        other update mechanisms.
+        client-specific subscription, and calls the on_subscribe callback.
 
         Args:
-            request: Subscribe request with resource URI.
+            client_id: ID of the client subscribing
+            request: Subscribe request with resource URI
 
         Returns:
-            EmptyResult: Subscription recorded successfully.
+            EmptyResult: Subscription recorded successfully
 
         Raises:
-            KeyError: If the URI matches no static resource or template pattern.
+            KeyError: If the URI matches no static resource or template pattern
         """
         uri = request.uri
+
+        # Validate resource exists
         if uri not in self.registered_resources:
             template_found = any(
                 self._matches_template(uri=uri, template=template)
@@ -176,44 +205,54 @@ class ResourceManager:
             if not template_found:
                 raise KeyError(f"Cannot subscribe to unknown resource: {uri}")
 
-        self.subscriptions.add(uri)
+        # Get client context (should exist from initialization)
+        context = self.client_manager.get_client(client_id)
+        if context:
+            context.subscriptions.add(uri)
+
+        # Call callback with client context
         if self._on_subscribe:
             try:
-                await self._on_subscribe(uri)
+                await self._on_subscribe(client_id, uri)
             except Exception as e:
-                print(f"Error in on_subscribe callback: {uri}: {e}")
+                print(f"Error in on_subscribe callback for {client_id}: {uri}: {e}")
 
         return EmptyResult()
 
-    async def handle_unsubscribe(self, request: UnsubscribeRequest) -> EmptyResult:
-        """Unsubscribe from resource change notifications.
+    async def handle_unsubscribe(
+        self, client_id: str, request: UnsubscribeRequest
+    ) -> EmptyResult:
+        """Unsubscribe client from resource change notifications.
 
-        Validates the subscription exists, removes it, and calls the on_unsubscribe
-        callback. Callback failures are logged but don't fail the operation since the
-        subscription is already removed.
+        Validates the client subscription exists, removes it, and calls the
+        on_unsubscribe callback.
 
         Args:
-            request: Unsubscribe request with resource URI.
+            client_id: ID of the client unsubscribing
+            request: Unsubscribe request with resource URI
 
         Returns:
-            EmptyResult: Unsubscription completed successfully.
+            EmptyResult: Unsubscription completed successfully
 
         Raises:
-            KeyError: If not currently subscribed to the resource.
+            KeyError: If client not currently subscribed to the resource
         """
         uri = request.uri
 
-        # Validate we're actually subscribed to this resource
-        if uri not in self.subscriptions:
-            raise KeyError(f"Not subscribed to resource: {uri}")
+        # Get client context (should exist from initialization)
+        context = self.client_manager.get_client(client_id)
+        if not context or uri not in context.subscriptions:
+            raise KeyError(f"Client not subscribed to resource: {uri}")
 
-        # Remove subscription and call callback
-        self.subscriptions.remove(uri)  # Can use remove() now since we validated
+        # Remove subscription for this client
+        context.subscriptions.remove(uri)
+
+        # Call callback with client context
         if self._on_unsubscribe:
             try:
-                await self._on_unsubscribe(uri)
+                await self._on_unsubscribe(client_id, uri)
             except Exception as e:
-                print(f"Error in on_unsubscribe callback: {uri}: {e}")
+                print(f"Error in on_unsubscribe callback for {client_id}: {uri}: {e}")
 
         return EmptyResult()
 
@@ -230,22 +269,3 @@ class ResourceManager:
         pattern = f"^{pattern}$"
 
         return bool(re.match(pattern, uri))
-
-    # def _extract_template_variables(self, uri: str, template: str) -> dict[str, str]:
-    #     """Extract variable values from a URI using a template.
-
-    #     Returns a dict mapping variable names to their values.
-    #     """
-    #     # Find variable names in template
-    #     var_names = re.findall(r"{([^}]+)}", template)
-
-    #     # Convert template to regex with named groups
-    #     pattern = re.escape(template)
-    #     for var_name in var_names:
-    #         pattern = pattern.replace(f"\\{{{var_name}\\}}", f"(?P<{var_name}>[^/]+)")
-    #     pattern = f"^{pattern}$"
-
-    #     match = re.match(pattern, uri)
-    #     if match:
-    #         return match.groupdict()
-    #     return {}

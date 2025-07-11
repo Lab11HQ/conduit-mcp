@@ -62,7 +62,7 @@ from conduit.server.managers.completions import (
 )
 from conduit.server.managers.logging import LoggingManager
 from conduit.server.managers.prompts import PromptManager
-from conduit.server.managers.resources_v2 import ResourceManager
+from conduit.server.managers.resources import ResourceManager
 from conduit.server.managers.tools import ToolManager
 from conduit.transport.server import ServerTransport
 
