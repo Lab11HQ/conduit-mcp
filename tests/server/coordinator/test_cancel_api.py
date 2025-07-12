@@ -1,5 +1,7 @@
 import asyncio
 
+from conduit.protocol.common import PingRequest
+
 
 class TestCancelAPI:
     """Test the public cancellation API methods."""
@@ -11,15 +13,19 @@ class TestCancelAPI:
         # Arrange: Set up a client with a tracked request
         client_id = "test-client"
         request_id = "req-123"
+        mock_request = PingRequest()
 
         # Register client and create a mock task
         client_manager.register_client(client_id)
         mock_task = asyncio.create_task(asyncio.sleep(10))
-        client_manager.track_request_from_client(client_id, request_id, mock_task)
+        client_manager.track_request_from_client(
+            client_id, request_id, mock_request, mock_task
+        )
 
         # Verify task is tracked
-        assert (
-            client_manager.get_request_from_client(client_id, request_id) is mock_task
+        assert client_manager.get_request_from_client(client_id, request_id) == (
+            mock_request,
+            mock_task,
         )
 
         # Act: Cancel the specific request
@@ -28,16 +34,14 @@ class TestCancelAPI:
         # Assert: Request was found and successfully cancelled
         assert result is True
         await yield_loop()
-        assert mock_task.cancelled()
-
-        # Assert: Request was removed from tracking
-        assert client_manager.get_request_from_client(client_id, request_id) is None
-
-        # Cleanup
         try:
             await mock_task
         except asyncio.CancelledError:
             pass
+        assert mock_task.cancelled()
+
+        # Assert: Request was removed from tracking
+        assert client_manager.get_request_from_client(client_id, request_id) is None
 
     async def test_cancel_request_from_client_not_found(
         self, coordinator, client_manager
@@ -62,12 +66,14 @@ class TestCancelAPI:
         # Arrange: Set up a client with a completed task
         client_id = "test-client"
         request_id = "req-123"
-
+        mock_request = PingRequest()
         client_manager.register_client(client_id)
 
         # Create a task that completes immediately
         mock_task = asyncio.create_task(asyncio.sleep(0))
-        client_manager.track_request_from_client(client_id, request_id, mock_task)
+        client_manager.track_request_from_client(
+            client_id, request_id, mock_request, mock_task
+        )
 
         # Wait for task to complete
         await yield_loop()

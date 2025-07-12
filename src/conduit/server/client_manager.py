@@ -25,7 +25,7 @@ class ClientContext:
     subscriptions: set[str] = field(default_factory=set)
 
     # Request tracking
-    requests_from_client: dict[str | int, asyncio.Task[None]] = field(
+    requests_from_client: dict[str | int, tuple[Request, asyncio.Task[None]]] = field(
         default_factory=dict
     )
     requests_to_client: dict[
@@ -97,7 +97,7 @@ class ClientManager:
         if context is None:
             return
 
-        for task in context.requests_from_client.values():
+        for request, task in context.requests_from_client.values():
             task.cancel()
         context.requests_from_client.clear()
 
@@ -206,6 +206,7 @@ class ClientManager:
         self,
         client_id: str,
         request_id: str | int,
+        request: Request,
         task: asyncio.Task[None],
     ) -> None:
         """Track a request from a client.
@@ -222,11 +223,11 @@ class ClientManager:
         if context is None:
             raise ValueError(f"Client {client_id} not registered")
 
-        context.requests_from_client[request_id] = task
+        context.requests_from_client[request_id] = (request, task)
 
     def remove_request_from_client(
         self, client_id: str, request_id: str | int
-    ) -> asyncio.Task[None] | None:
+    ) -> tuple[Request, asyncio.Task[None]] | None:
         """Remove and return a request from client.
 
         Args:
@@ -234,7 +235,7 @@ class ClientManager:
             request_id: Request identifier to remove
 
         Returns:
-            The task if found, None otherwise
+            Tuple of (request, task) if found, None otherwise
         """
         context = self.get_client(client_id)
         if context is None:
@@ -244,7 +245,7 @@ class ClientManager:
 
     def get_request_from_client(
         self, client_id: str, request_id: str | int
-    ) -> asyncio.Task[None] | None:
+    ) -> tuple[Request, asyncio.Task[None]] | None:
         """Get a request from client without removing it.
 
         Args:
@@ -252,7 +253,7 @@ class ClientManager:
             request_id: Request identifier to look up
 
         Returns:
-            The task if found, None otherwise
+            Tuple of (request, task) if found, None otherwise
         """
         context = self.get_client(client_id)
         if context is None:

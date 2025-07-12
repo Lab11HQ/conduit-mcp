@@ -197,7 +197,9 @@ class MessageCoordinator:
             name=f"handle_{request.method}_{client_id}_{request_id}",
         )
 
-        self.client_manager.track_request_from_client(client_id, request_id, task)
+        self.client_manager.track_request_from_client(
+            client_id, request_id, request, task
+        )
         task.add_done_callback(
             lambda t: self.client_manager.remove_request_from_client(
                 client_id, request_id
@@ -305,10 +307,11 @@ class MessageCoordinator:
             True if request was found and successfully cancelled, False if request
             not found or was already completed/cancelled.
         """
-        task = self.client_manager.remove_request_from_client(client_id, request_id)
-        if not task:
+        result = self.client_manager.remove_request_from_client(client_id, request_id)
+        if result is None:
             return False
 
+        request, task = result
         return task.cancel()
 
     # ================================

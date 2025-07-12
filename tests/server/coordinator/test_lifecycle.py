@@ -132,6 +132,8 @@ class TestMessageCoordinatorLifecycle:
         await coordinator.start()
 
         # Create mock in-flight tasks for multiple clients
+        mock_request1 = PingRequest()
+        mock_request2 = PingRequest()
         task1 = asyncio.create_task(asyncio.sleep(10))
         task2 = asyncio.create_task(asyncio.sleep(10))
 
@@ -145,8 +147,8 @@ class TestMessageCoordinatorLifecycle:
         assert client_manager.client_count() == 2
 
         # In-flight requests (FROM clients TO server)
-        client1.requests_from_client["req1"] = task1
-        client2.requests_from_client["req2"] = task2
+        client1.requests_from_client["req1"] = (mock_request1, task1)
+        client2.requests_from_client["req2"] = (mock_request2, task2)
 
         ping_request = PingRequest()
         client1.requests_to_client["ping1"] = (ping_request, future1)

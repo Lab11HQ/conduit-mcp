@@ -194,7 +194,7 @@ class TestRequestHandling:
         assert len(client.requests_from_client) == 1
 
         # Get the task and cancel it
-        task = coordinator.client_manager.get_request_from_client(
+        _, task = coordinator.client_manager.get_request_from_client(
             "client-1", "test-123"
         )
         assert task is not None

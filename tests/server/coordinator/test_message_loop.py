@@ -122,7 +122,7 @@ class TestMessageLoop:
         client_manager.register_client("client1")
         client_context = client_manager.get_client("client1")
 
-        client_context.requests_from_client["req1"] = task1
+        client_context.requests_from_client["req1"] = (PingRequest(), task1)
 
         ping_request = PingRequest()
         client_context.requests_to_client["ping1"] = (ping_request, future1)

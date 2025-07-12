@@ -43,7 +43,9 @@ class TestClientLifecycle:
 
         # Mock an in-flight request from the client
         processing_client_request = asyncio.create_task(asyncio.sleep(10))
-        manager.track_request_from_client(client_id, "req-1", processing_client_request)
+        manager.track_request_from_client(
+            client_id, "req-1", PingRequest(), processing_client_request
+        )
 
         # Mock a pending request to the client
         awaiting_client_response = asyncio.Future()
@@ -98,7 +100,9 @@ class TestClientLifecycle:
         # Client 1: Has both inbound and outbound requests
         processing_request_1 = asyncio.create_task(asyncio.sleep(10))
         awaiting_response_1 = asyncio.Future()
-        manager.track_request_from_client(client1_id, "req-1", processing_request_1)
+        manager.track_request_from_client(
+            client1_id, "req-1", PingRequest(), processing_request_1
+        )
         manager.track_request_to_client(
             client1_id, "req-2", PingRequest(), awaiting_response_1
         )
@@ -111,7 +115,9 @@ class TestClientLifecycle:
 
         # Client 3: Only has inbound request
         processing_request_3 = asyncio.create_task(asyncio.sleep(10))
-        manager.track_request_from_client(client3_id, "req-4", processing_request_3)
+        manager.track_request_from_client(
+            client3_id, "req-4", PingRequest(), processing_request_3
+        )
 
         # Verify setup
         assert manager.client_count() == 3
