@@ -85,10 +85,7 @@ class MessageCoordinator:
         self._message_loop_task.add_done_callback(self._on_message_loop_done)
 
     async def stop(self) -> None:
-        """Stop message processing and cancel in-flight requests.
-
-        Cancels the background message processing task and any in-flight
-        request handlers across all clients.
+        """Stop message processing and clean up all incoming and outgoing requests.
 
         Safe to call multiple times.
         """
@@ -129,16 +126,14 @@ class MessageCoordinator:
             print(f"Transport error: {e}")
 
     def _on_message_loop_done(self, task: asyncio.Task[None]) -> None:
-        """Clean up when message loop exits unexpectedly.
+        """Clean up when message loop task completes.
 
-        Called when the message loop task completes due to transport failure
-        or other unexpected errors (not normal stop() cancellation).
+        Called whenever the message loop task finishes - whether due to normal
+        completion, cancellation, or unexpected errors. Ensures proper cleanup
+        of coordinator state.
         """
-        # Clear task reference so running becomes False
         self._message_loop_task = None
 
-        # Clean up all client state - cancel in-flight requests and
-        # resolve pending requests with errors
         self.client_manager.cleanup_all_clients()
 
     # ================================

@@ -64,21 +64,8 @@ class TestMessageCoordinatorLifecycle:
         await coordinator.stop()
         assert not coordinator.running
 
-    async def test_stop_cancels_message_loop_task(self, coordinator):
-        # Arrange
-        await coordinator.start()
-        assert coordinator.running
-
-        # Act
-        await coordinator.stop()
-
-        # Assert
-        assert not coordinator.running
-        # The message loop task should be cancelled/completed
-        # (We can't easily test the internal task without exposing it)
-
     async def test_coordinator_handles_transport_failure_gracefully(
-        self, coordinator, mock_transport
+        self, coordinator, mock_transport, yield_loop
     ):
         # Arrange
         await coordinator.start()
@@ -86,8 +73,7 @@ class TestMessageCoordinatorLifecycle:
         # Act - simulate transport failure
         await mock_transport.close()
 
-        # Give some time for the message loop to detect the failure
-        await asyncio.sleep(0.1)
+        await yield_loop()
 
         # Assert - coordinator should still be cleanly stoppable
         await coordinator.stop()

@@ -16,7 +16,7 @@ class MockServerTransport(ServerTransport):
         self.sent_messages: dict[str, list[dict[str, Any]]] = {}
         self.client_message_queue: asyncio.Queue[ClientMessage] = asyncio.Queue()
         self._is_open = True
-        self._should_raise_error = False  # Add this flag
+        self._should_raise_error = False
 
     async def send_to_client(self, client_id: str, message: dict[str, Any]) -> None:
         if client_id not in self.sent_messages:
