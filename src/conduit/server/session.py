@@ -366,7 +366,7 @@ class ServerSession:
         """Subscribe to a resource.
 
         Returns:
-            EmptyResult: The result of the subscription.
+            EmptyResult: Successfully subscribed to the resource.
             Error: If the server doesn't support subscription or the resource
                 doesn't exist.
         """
@@ -389,7 +389,7 @@ class ServerSession:
         """Unsubscribe from a resource.
 
         Returns:
-            EmptyResult: The result of the unsubscription.
+            EmptyResult: Successfully unsubscribed from the resource.
             Error: If the server doesn't support unsubscription or the client
                 is not subscribed to the resource.
         """
@@ -448,7 +448,7 @@ class ServerSession:
         """Set the logging level for the given client.
 
         Returns:
-            EmptyResult: The result of the logging level setting.
+            EmptyResult: Successfully set the logging level.
             Error: If the server doesn't support logging or there's an error
                 setting the logging level.
         """
@@ -504,7 +504,7 @@ class ServerSession:
             print(f"Error handling roots change for {client_id}: {e}")
 
     # ================================
-    # Request sending
+    # Send messages
     # ================================
 
     async def send_request_to_client(
@@ -538,10 +538,6 @@ class ServerSession:
         return await self._coordinator.send_request_to_client(
             client_id, request, timeout
         )
-
-    # ================================
-    # Notification sending
-    # ================================
 
     async def send_notification_to_client(
         self, client_id: str, notification: Notification
