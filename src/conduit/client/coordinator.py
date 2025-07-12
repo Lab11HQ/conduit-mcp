@@ -309,6 +309,7 @@ class ClientMessageCoordinator:
             return await asyncio.wait_for(future, timeout)
         except asyncio.TimeoutError:
             await self._handle_request_timeout(request_id, request)
+            raise
         finally:
             self.server_manager.remove_request_to_server(request_id)
 
