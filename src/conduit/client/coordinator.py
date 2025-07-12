@@ -5,6 +5,7 @@ the session focused on protocol logic rather than message processing.
 """
 
 import asyncio
+from collections.abc import Coroutine
 from typing import Any, Awaitable, Callable, TypeVar
 
 from conduit.client.server_manager import ServerManager
@@ -26,7 +27,7 @@ TNotification = TypeVar("TNotification", bound=Notification)
 
 
 RequestHandler = Callable[[TRequest], Awaitable[TResult | Error]]
-NotificationHandler = Callable[[TNotification], Awaitable[None]]
+NotificationHandler = Callable[[TNotification], Coroutine[Any, Any, None]]
 
 
 class ClientMessageCoordinator:
@@ -226,6 +227,29 @@ class ClientMessageCoordinator:
             handler(notification),
             name=f"handle_{method}",
         )
+
+    # ================================
+    # Handle responses
+    # ================================
+
+    async def _handle_response(self, payload: dict[str, Any]) -> None:
+        """Handle response from server to our outbound request."""
+        request_id = payload.get("id")
+        if not request_id:
+            # Should never happen — router validates IDs
+            # Here for pyright
+            return
+
+        request_future_tuple = self.server_manager.get_request_to_server(request_id)
+        if not request_future_tuple:
+            print(f"No pending request {request_id}")
+            return
+
+        original_request, future = request_future_tuple
+
+        result_or_error = self.parser.parse_response(payload, original_request)
+
+        self.server_manager.resolve_request_to_server(request_id, result_or_error)
 
     # ================================
     # Cancel requests

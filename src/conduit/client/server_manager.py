@@ -125,3 +125,34 @@ class ServerManager:
         """
         context = self._server_context
         return context.requests_to_server.pop(request_id, None)
+
+    def get_request_to_server(
+        self, request_id: str | int
+    ) -> tuple[Request, asyncio.Future[Result | Error]] | None:
+        """Get a pending request to the server.
+
+        Args:
+            request_id: Request identifier to get
+
+        Returns:
+            Tuple of (request, future) if found, None otherwise
+        """
+        context = self._server_context
+        return context.requests_to_server.get(request_id, None)
+
+    def resolve_request_to_server(
+        self, request_id: str | int, result_or_error: Result | Error
+    ) -> None:
+        """Resolve a pending request to the server.
+
+        Sets the future and clears the request from the server context.
+
+        Args:
+            request_id: Request identifier to resolve
+            result_or_error: Result or error to resolve the request with
+        """
+        context = self._server_context
+        request_future_tuple = context.requests_to_server.pop(request_id, None)
+        if request_future_tuple:
+            request, future = request_future_tuple
+            future.set_result(result_or_error)

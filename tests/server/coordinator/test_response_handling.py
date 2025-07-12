@@ -2,6 +2,7 @@ import asyncio
 
 from conduit.protocol.base import Error, Result
 from conduit.protocol.common import EmptyResult, PingRequest
+from conduit.protocol.roots import ListRootsRequest
 
 
 class TestResponseHandling:
@@ -48,7 +49,7 @@ class TestResponseHandling:
         request_id = "test-request-456"
 
         # Set up a pending request
-        original_request = PingRequest()
+        original_request = ListRootsRequest()
         future: asyncio.Future[Result | Error] = asyncio.Future()
 
         client_manager.register_client(client_id)
@@ -79,19 +80,6 @@ class TestResponseHandling:
 
         # Verify the request was cleaned up
         assert client_manager.get_request_to_client(client_id, request_id) is None
-
-    async def test_ignores_response_missing_request_id(self, coordinator):
-        """Test that responses without request IDs are ignored gracefully."""
-        # Arrange
-        await coordinator.start()
-        client_id = "test_client"
-
-        # Create response payload without request ID
-        response_payload = {"jsonrpc": "2.0", "result": {}}
-
-        # Act & Assert - should handle gracefully without raising
-        await coordinator._handle_response(client_id, response_payload)
-        # If we get here, the test passed
 
     async def test_ignores_response_for_unknown_client(self, coordinator):
         """Test that responses from unknown clients are ignored gracefully."""

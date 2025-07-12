@@ -6,6 +6,7 @@ the session focused on protocol logic rather than message processing.
 
 import asyncio
 import uuid
+from collections.abc import Coroutine
 from typing import Any, Awaitable, Callable, TypeVar
 
 from conduit.protocol.base import (
@@ -35,7 +36,7 @@ TNotification = TypeVar("TNotification", bound=Notification)
 
 # Handler signatures - separate for requests vs notifications
 RequestHandler = Callable[[str, TRequest], Awaitable[TResult | Error]]
-NotificationHandler = Callable[[str, TNotification], Awaitable[None]]
+NotificationHandler = Callable[[str, TNotification], Coroutine[Any, Any, None]]
 
 
 class MessageCoordinator:
