@@ -1,0 +1,137 @@
+"""Message processing mechanics for client sessions.
+
+Handles the message loop, routing, and parsing while keeping
+the session focused on protocol logic rather than message processing.
+"""
+
+import asyncio
+from typing import Any, Awaitable, Callable, TypeVar
+
+from conduit.client.server_manager import ServerManager
+from conduit.protocol.base import (
+    Error,
+    Notification,
+    Request,
+    Result,
+)
+from conduit.shared.message_parser import MessageParser
+from conduit.transport.client import ClientTransport
+
+TRequest = TypeVar("TRequest", bound=Request)
+TResult = TypeVar("TResult", bound=Result)
+TNotification = TypeVar("TNotification", bound=Notification)
+
+
+RequestHandler = Callable[[TRequest], Awaitable[TResult | Error]]
+NotificationHandler = Callable[[TNotification], Awaitable[None]]
+
+
+class ClientMessageCoordinator:
+    """Coordinates all message flow for client sessions.
+
+    Handles bidirectional message coordination: routes inbound requests/notifications
+    from server, sends outbound requests to server, and manages response tracking.
+    Keeps the session focused on protocol logic.
+    """
+
+    def __init__(self, transport: ClientTransport, server_manager: ServerManager):
+        self.transport = transport
+        self.server_manager = server_manager
+        self.parser = MessageParser()
+        self._request_handlers: dict[str, RequestHandler] = {}
+        self._notification_handlers: dict[str, NotificationHandler] = {}
+        self._message_loop_task: asyncio.Task[None] | None = None
+
+    # ================================
+    # Lifecycle
+    # ================================
+
+    @property
+    def running(self) -> bool:
+        """True if the message loop is actively processing messages."""
+        return (
+            self._message_loop_task is not None and not self._message_loop_task.done()
+        )
+
+    async def start(self) -> None:
+        """Start the message processing loop.
+
+        Creates a background task that continuously reads and handles incoming
+        messages until stop() is called.
+
+        Safe to call multiple times - subsequent calls are ignored if already running.
+
+        Raises:
+            ConnectionError: If the transport is closed or unavailable.
+        """
+        if self.running:
+            return
+        if not self.transport.is_open:
+            raise ConnectionError("Cannot start coordinator: transport is closed")
+
+        self._message_loop_task = asyncio.create_task(self._message_loop())
+        self._message_loop_task.add_done_callback(self._on_message_loop_done)
+
+    async def stop(self) -> None:
+        """Stop message processing and clean up all incoming and outgoing requests.
+
+        Safe to call multiple times.
+        """
+        if not self.running:
+            return
+
+        if self._message_loop_task is not None:
+            self._message_loop_task.cancel()
+            try:
+                await self._message_loop_task
+            except asyncio.CancelledError:
+                pass
+            self._message_loop_task = None
+
+        self.server_manager.cleanup_requests()
+
+    # ================================
+    # Message loop
+    # ================================
+
+    async def _message_loop(self) -> None:
+        """Process incoming messages until cancelled or transport fails.
+
+        Runs continuously in the background and hands off messages to the message
+        handler. Individual message handling errors are logged and don't interrupt
+        the loop, but transport failures will stop message processing entirely.
+        """
+        try:
+            async for server_message in self.transport.server_messages():
+                try:
+                    await self._handle_server_message(server_message)
+                except Exception as e:
+                    print(f"Error handling message: {e}")
+                    continue
+        except Exception as e:
+            print(f"Transport error: {e}")
+
+    def _on_message_loop_done(self, task: asyncio.Task[None]) -> None:
+        """Clean up when message loop task completes.
+
+        Called whenever the message loop task finishes - whether due to normal
+        completion, cancellation, or unexpected errors. Ensures proper cleanup
+        of coordinator state.
+        """
+        self._message_loop_task = None
+        self.server_manager.cleanup_requests()
+
+    # ================================
+    # Route messages
+    # ================================
+
+    async def _handle_server_message(self, payload: dict[str, Any]) -> None:
+        """Route server message to appropriate handler."""
+        if self.parser.is_valid_request(payload):
+            await self._handle_request(payload)
+        elif self.parser.is_valid_notification(payload):
+            await self._handle_notification(payload)
+        elif self.parser.is_valid_response(payload):
+            await self._handle_response(payload)
+        else:
+            print(f"Unknown message type: {payload}")
