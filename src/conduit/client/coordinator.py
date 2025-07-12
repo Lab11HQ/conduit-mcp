@@ -209,3 +209,29 @@ class ClientMessageCoordinator:
         """Send error response to server."""
         response = JSONRPCError.from_error(error, request_id)
         await self.transport.send_to_server(response.to_wire())
+
+    # ================================
+    # Cancel requests
+    # ================================
+
+    async def cancel_request_from_server(self, request_id: str | int) -> None:
+        """Cancel a request from the server."""
+        result = self.server_manager.remove_request_from_server(request_id)
+        if result is None:
+            return
+        request, task = result
+        task.cancel()
+
+    # ================================
+    # Register handlers
+    # ================================
+
+    def register_request_handler(self, method: str, handler: RequestHandler) -> None:
+        """Register a request handler."""
+        self._request_handlers[method] = handler
+
+    def register_notification_handler(
+        self, method: str, handler: NotificationHandler
+    ) -> None:
+        """Register a notification handler."""
+        self._notification_handlers[method] = handler
