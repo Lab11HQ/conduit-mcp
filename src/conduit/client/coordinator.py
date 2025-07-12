@@ -205,10 +205,27 @@ class ClientMessageCoordinator:
             )
             await self._send_error(request_id, error)
 
-    async def _send_error(self, request_id: str | int, error: Error) -> None:
-        """Send error response to server."""
-        response = JSONRPCError.from_error(error, request_id)
-        await self.transport.send_to_server(response.to_wire())
+    # ================================
+    # Handle notifications
+    # ================================
+
+    async def _handle_notification(self, payload: dict[str, Any]) -> None:
+        """Parse and route typed notification to handler."""
+        method = payload["method"]
+
+        notification = self.parser.parse_notification(payload)
+        if notification is None:
+            return
+
+        handler = self._notification_handlers.get(method)
+        if not handler:
+            print(f"Unknown notification '{method}' from server")
+            return
+
+        asyncio.create_task(
+            handler(notification),
+            name=f"handle_{method}",
+        )
 
     # ================================
     # Cancel requests
@@ -235,3 +252,11 @@ class ClientMessageCoordinator:
     ) -> None:
         """Register a notification handler."""
         self._notification_handlers[method] = handler
+
+    # ================================
+    # Helpers
+    # ================================
+    async def _send_error(self, request_id: str | int, error: Error) -> None:
+        """Send error response to server."""
+        response = JSONRPCError.from_error(error, request_id)
+        await self.transport.send_to_server(response.to_wire())

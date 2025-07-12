@@ -237,13 +237,6 @@ class MessageCoordinator:
             )
             await self._send_error(client_id, request_id, error)
 
-    async def _send_error(
-        self, client_id: str, request_id: str | int, error: Error
-    ) -> None:
-        """Send error response to client."""
-        response = JSONRPCError.from_error(error, request_id)
-        await self.transport.send_to_client(client_id, response.to_wire())
-
     # ================================
     # Handle notifications
     # ================================
@@ -432,3 +425,10 @@ class MessageCoordinator:
     def _should_disconnect_for_error(self, error: Error) -> bool:
         """Determine if a client should be disconnected for an error."""
         return error.code == PROTOCOL_VERSION_MISMATCH
+
+    async def _send_error(
+        self, client_id: str, request_id: str | int, error: Error
+    ) -> None:
+        """Send error response to client."""
+        response = JSONRPCError.from_error(error, request_id)
+        await self.transport.send_to_client(client_id, response.to_wire())
