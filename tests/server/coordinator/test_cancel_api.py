@@ -7,7 +7,7 @@ class TestCancelAPI:
     """Test the public cancellation API methods."""
 
     async def test_cancel_request_from_client_success(
-        self, coordinator, client_manager, yield_loop
+        self, coordinator, client_manager
     ):
         """Test successfully cancelling a specific request from a client."""
         # Arrange: Set up a client with a tracked request
@@ -33,7 +33,6 @@ class TestCancelAPI:
 
         # Assert: Request was found and successfully cancelled
         assert result is True
-        await yield_loop()
         try:
             await mock_task
         except asyncio.CancelledError:
@@ -53,7 +52,7 @@ class TestCancelAPI:
 
         # Act: Try to cancel nonexistent request
         result = await coordinator.cancel_request_from_client(
-            client_id, "nonexistent-req"
+            client_id, "nonexistent-req-id"
         )
 
         # Assert: Returns False

@@ -214,13 +214,13 @@ class ClientMessageCoordinator:
     # Cancel requests
     # ================================
 
-    async def cancel_request_from_server(self, request_id: str | int) -> None:
+    async def cancel_request_from_server(self, request_id: str | int) -> bool:
         """Cancel a request from the server."""
         result = self.server_manager.remove_request_from_server(request_id)
         if result is None:
-            return
+            return False
         request, task = result
-        task.cancel()
+        return task.cancel()
 
     # ================================
     # Register handlers

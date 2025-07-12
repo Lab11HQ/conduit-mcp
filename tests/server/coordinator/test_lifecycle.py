@@ -142,17 +142,18 @@ class TestMessageCoordinatorLifecycle:
         future2 = asyncio.Future()
 
         # Register clients with both in-flight and pending requests
-        client1 = client_manager.register_client("client1")
-        client2 = client_manager.register_client("client2")
+        client1_context = client_manager.register_client("client1")
+        client2_context = client_manager.register_client("client2")
         assert client_manager.client_count() == 2
 
         # In-flight requests (FROM clients TO server)
-        client1.requests_from_client["req1"] = (mock_request1, task1)
-        client2.requests_from_client["req2"] = (mock_request2, task2)
+        client1_context.requests_from_client["req1"] = (mock_request1, task1)
+        client2_context.requests_from_client["req2"] = (mock_request2, task2)
 
-        ping_request = PingRequest()
-        client1.requests_to_client["ping1"] = (ping_request, future1)
-        client2.requests_to_client["ping2"] = (ping_request, future2)
+        ping_to_client1 = PingRequest()
+        ping_to_client2 = PingRequest()
+        client1_context.requests_to_client["ping1"] = (ping_to_client1, future1)
+        client2_context.requests_to_client["ping2"] = (ping_to_client2, future2)
 
         # Act
         await coordinator.stop()

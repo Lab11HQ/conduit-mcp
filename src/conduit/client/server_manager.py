@@ -7,6 +7,8 @@ from conduit.protocol.prompts import Prompt
 from conduit.protocol.resources import Resource, ResourceTemplate
 from conduit.protocol.tools import Tool
 
+RequestID = str | int
+
 
 @dataclass
 class ServerContext:
@@ -26,11 +28,11 @@ class ServerContext:
     prompts: list[Prompt] | None = None
 
     # Request tracking
-    requests_from_server: dict[str | int, tuple[Request, asyncio.Task[None]]] = field(
+    requests_from_server: dict[RequestID, tuple[Request, asyncio.Task[None]]] = field(
         default_factory=dict
     )
     requests_to_server: dict[
-        str | int, tuple[Request, asyncio.Future[Result | Error]]
+        RequestID, tuple[Request, asyncio.Future[Result | Error]]
     ] = field(default_factory=dict)
 
 
