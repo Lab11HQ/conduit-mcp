@@ -26,7 +26,7 @@ class ServerContext:
     prompts: list[Prompt] | None = None
 
     # Request tracking
-    requests_from_server: dict[str | int, asyncio.Task[None]] = field(
+    requests_from_server: dict[str | int, tuple[Request, asyncio.Task[None]]] = field(
         default_factory=dict
     )
     requests_to_server: dict[
@@ -52,7 +52,7 @@ class ServerManager:
         """
         context = self._server_context
 
-        for task in context.requests_from_server.values():
+        for request, task in context.requests_from_server.values():
             task.cancel()
         context.requests_from_server.clear()
 
@@ -64,3 +64,62 @@ class ServerManager:
                 )
                 future.set_result(error)
         context.requests_to_server.clear()
+
+    def track_request_from_server(
+        self,
+        request_id: str | int,
+        request: Request,
+        task: asyncio.Task[None],
+    ) -> None:
+        """Track a request from the server.
+
+        Args:
+            request_id: Unique request identifier
+            task: The task handling the request
+        """
+        context = self._server_context
+        context.requests_from_server[request_id] = (request, task)
+
+    def remove_request_from_server(
+        self, request_id: str | int
+    ) -> asyncio.Task[None] | None:
+        """Remove and return a request from server.
+
+        Args:
+            request_id: Request identifier to remove
+
+        Returns:
+            The task if found, None otherwise
+        """
+        context = self._server_context
+        return context.requests_from_server.pop(request_id, None)
+
+    def track_request_to_server(
+        self,
+        request_id: str,
+        request: Request,
+        future: asyncio.Future[Result | Error],
+    ) -> None:
+        """Track a pending request to the server.
+
+        Args:
+            request_id: Unique request identifier
+            request: The original request object
+            future: Future that will be resolved with the response
+        """
+        context = self._server_context
+        context.requests_to_server[request_id] = (request, future)
+
+    def remove_request_to_server(
+        self, request_id: str
+    ) -> tuple[Request, asyncio.Future[Result | Error]] | None:
+        """Remove and return a pending request to server.
+
+        Args:
+            request_id: Request identifier to remove
+
+        Returns:
+            Tuple of (request, future) if found, None otherwise
+        """
+        context = self._server_context
+        return context.requests_to_server.pop(request_id, None)
