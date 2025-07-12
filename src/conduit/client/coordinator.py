@@ -9,11 +9,14 @@ from typing import Any, Awaitable, Callable, TypeVar
 
 from conduit.client.server_manager import ServerManager
 from conduit.protocol.base import (
+    INTERNAL_ERROR,
+    METHOD_NOT_FOUND,
     Error,
     Notification,
     Request,
     Result,
 )
+from conduit.protocol.jsonrpc import JSONRPCError, JSONRPCResponse
 from conduit.shared.message_parser import MessageParser
 from conduit.transport.client import ClientTransport
 
@@ -135,3 +138,74 @@ class ClientMessageCoordinator:
             await self._handle_response(payload)
         else:
             print(f"Unknown message type: {payload}")
+
+    # ================================
+    # Handle requests
+    # ================================
+
+    async def _handle_request(self, payload: dict[str, Any]) -> None:
+        """Handle an incoming request from the server."""
+        request_id = payload["id"]
+
+        request_or_error = self.parser.parse_request(payload)
+
+        if isinstance(request_or_error, Error):
+            await self._send_error(request_id, request_or_error)
+            return
+
+        await self._route_request(request_id, request_or_error)
+
+    async def _route_request(
+        self,
+        request_id: str | int,
+        request: Request,
+    ) -> None:
+        """Route request to appropriate handler and execute it."""
+        handler = self._request_handlers.get(request.method)
+        if not handler:
+            error = Error(
+                code=METHOD_NOT_FOUND,
+                message=f"No handler for method: {request.method}",
+            )
+            await self._send_error(request_id, error)
+            return
+
+        task = asyncio.create_task(
+            self._execute_request_handler(handler, request_id, request),
+            name=f"handle_{request.method}_{request_id}",
+        )
+
+        self.server_manager.track_request_from_server(request_id, request, task)
+        task.add_done_callback(
+            lambda t: self.server_manager.remove_request_from_server(request_id)
+        )
+
+    async def _execute_request_handler(
+        self,
+        handler: RequestHandler,
+        request_id: str | int,
+        request: Request,
+    ) -> None:
+        """Execute handler and send response back to server."""
+        try:
+            result_or_error = await handler(request)
+
+            if isinstance(result_or_error, Error):
+                response = JSONRPCError.from_error(result_or_error, request_id)
+            else:
+                response = JSONRPCResponse.from_result(result_or_error, request_id)
+
+            await self.transport.send_to_server(response.to_wire())
+
+        except Exception:
+            error = Error(
+                code=INTERNAL_ERROR,
+                message="Problem handling request",
+                data={"request": request},
+            )
+            await self._send_error(request_id, error)
+
+    async def _send_error(self, request_id: str | int, error: Error) -> None:
+        """Send error response to server."""
+        response = JSONRPCError.from_error(error, request_id)
+        await self.transport.send_to_server(response.to_wire())
