@@ -5,6 +5,7 @@ the session focused on protocol logic rather than message processing.
 """
 
 import asyncio
+import uuid
 from collections.abc import Coroutine
 from typing import Any, Awaitable, Callable, TypeVar
 
@@ -17,7 +18,14 @@ from conduit.protocol.base import (
     Request,
     Result,
 )
-from conduit.protocol.jsonrpc import JSONRPCError, JSONRPCResponse
+from conduit.protocol.common import CancelledNotification
+from conduit.protocol.initialization import InitializeRequest
+from conduit.protocol.jsonrpc import (
+    JSONRPCError,
+    JSONRPCNotification,
+    JSONRPCRequest,
+    JSONRPCResponse,
+)
 from conduit.shared.message_parser import MessageParser
 from conduit.transport.client import ClientTransport
 
@@ -252,7 +260,7 @@ class ClientMessageCoordinator:
         self.server_manager.resolve_request_to_server(request_id, result_or_error)
 
     # ================================
-    # Cancel requests
+    # Cancel requests from server
     # ================================
 
     async def cancel_request_from_server(self, request_id: str | int) -> bool:
@@ -262,6 +270,84 @@ class ClientMessageCoordinator:
             return False
         request, task = result
         return task.cancel()
+
+    # ================================
+    # Send requests to server
+    # ================================
+
+    async def send_request(
+        self, request: Request, timeout: float = 30.0
+    ) -> Result | Error:
+        """Send a request to the server and wait for a response.
+
+        Handles timeouts with automatic cancellation except for initialization
+        requests.
+
+        Args:
+            request: The request object to send
+            timeout: Maximum time to wait for response in seconds
+
+        Returns:
+            Result | Error: The server's response or timeout error
+
+        Raises:
+            ConnectionError: Transport fails to send request
+            TimeoutError: If server doesn't respond within timeout
+        """
+        await self._ensure_ready_to_send()
+
+        # Prepare the request
+        request_id = str(uuid.uuid4())
+        jsonrpc_request = JSONRPCRequest.from_request(request, request_id)
+        future: asyncio.Future[Result | Error] = asyncio.Future()
+
+        # Set up tracking
+        self.server_manager.track_request_to_server(request_id, request, future)
+
+        try:
+            await self.transport.send_to_server(jsonrpc_request.to_wire())
+            return await asyncio.wait_for(future, timeout)
+        except asyncio.TimeoutError:
+            await self._handle_request_timeout(request_id, request)
+        finally:
+            self.server_manager.remove_request_to_server(request_id)
+
+    async def _ensure_ready_to_send(self) -> None:
+        """Ensure coordinator is running and transport is open."""
+        if not self.running:
+            await self.start()
+
+        if not self.transport.is_open:
+            raise ConnectionError("Cannot send request: transport is closed")
+
+    async def _handle_request_timeout(self, request_id: str, request: Request) -> None:
+        """Sends a cancellation notification to the server.
+
+        Note: Won't try to cancel initialization requests.
+        """
+        if isinstance(request, InitializeRequest):
+            return
+        try:
+            cancelled_notification = CancelledNotification(
+                request_id=request_id,
+                reason="Request timed out",
+            )
+            await self.send_notification(cancelled_notification)
+        except Exception as e:
+            print(f"Error sending cancellation to server: {e}")
+
+    # ================================
+    # Send notifications
+    # ================================
+
+    async def send_notification(self, notification: Notification) -> None:
+        """Send a notification to the server.
+
+        Starts the message loop if it's not already running.
+        """
+        await self._ensure_ready_to_send()
+        jsonrpc_notification = JSONRPCNotification.from_notification(notification)
+        await self.transport.send_to_server(jsonrpc_notification.to_wire())
 
     # ================================
     # Register handlers

@@ -289,7 +289,7 @@ class MessageCoordinator:
         )
 
     # ================================
-    # Cancel requests
+    # Cancel requests from client
     # ================================
 
     async def cancel_request_from_client(
@@ -329,9 +329,8 @@ class MessageCoordinator:
             Result | Error: The client's response or timeout error
 
         Raises:
-            ConnectionError: If transport is closed
+            ConnectionError: Transport fails to send request
             TimeoutError: If client doesn't respond within timeout
-            Exception: If transport send fails
         """
         await self._ensure_ready_to_send()
 
@@ -350,7 +349,7 @@ class MessageCoordinator:
             await self.transport.send_to_client(client_id, jsonrpc_request.to_wire())
             return await asyncio.wait_for(future, timeout)
         except asyncio.TimeoutError:
-            await self._handle_request_timeout(client_id, request_id, timeout)
+            await self._handle_request_timeout(client_id, request_id)
             raise
         finally:
             self.client_manager.remove_request_to_client(client_id, request_id)
@@ -363,9 +362,7 @@ class MessageCoordinator:
         if not self.transport.is_open:
             raise ConnectionError("Cannot send request: transport is closed")
 
-    async def _handle_request_timeout(
-        self, client_id: str, request_id: str, timeout: float
-    ) -> None:
+    async def _handle_request_timeout(self, client_id: str, request_id: str) -> None:
         """Clean up and notify client when request times out."""
 
         try:
