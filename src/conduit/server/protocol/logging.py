@@ -1,3 +1,4 @@
+import asyncio
 from typing import Awaitable, Callable
 
 from conduit.protocol.common import EmptyResult
@@ -34,7 +35,7 @@ class LoggingManager:
 
         if self._on_level_change:
             try:
-                await self._on_level_change(client_id, request.level)
+                asyncio.create_task(self._on_level_change(client_id, request.level))
             except Exception as e:
                 print(f"Error in log level change callback for {client_id}: {e}")
         return EmptyResult()

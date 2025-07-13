@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -145,6 +146,7 @@ class TestResourceManager:
         await manager.handle_subscribe(self.client_id, request)
 
         # Assert
+        await asyncio.sleep(0)  # Yield to let the callback run
         callback.assert_awaited_once_with(self.client_id, "file://test.txt")
 
     async def test_handle_subscribe_raises_keyerror_for_unknown_resource(self):
@@ -186,6 +188,7 @@ class TestResourceManager:
         await manager.handle_unsubscribe(self.client_id, request)
 
         # Assert
+        await asyncio.sleep(0)  # Yield to let the callback run
         callback.assert_awaited_once_with(self.client_id, "file://test.txt")
 
     async def test_handle_unsubscribe_raises_keyerror_if_not_subscribed(self):
@@ -240,6 +243,7 @@ class TestResourceManager:
 
         # Assert
         assert "file://logs/2024-01-15.log" in self.client_context.subscriptions
+        await asyncio.sleep(0)  # Yield to let the callback run
         callback.assert_awaited_once_with(self.client_id, "file://logs/2024-01-15.log")
         assert isinstance(result, EmptyResult)
 

@@ -1,5 +1,6 @@
 """Client-aware resource manager for multi-client server sessions."""
 
+import asyncio
 import re
 from typing import Awaitable, Callable
 
@@ -210,7 +211,7 @@ class ResourceManager:
 
         if self._on_subscribe:
             try:
-                await self._on_subscribe(client_id, uri)
+                asyncio.create_task(self._on_subscribe(client_id, uri))
             except Exception as e:
                 print(f"Error in on_subscribe callback for {client_id}: {uri}: {e}")
 
@@ -244,7 +245,7 @@ class ResourceManager:
 
         if self._on_unsubscribe:
             try:
-                await self._on_unsubscribe(client_id, uri)
+                asyncio.create_task(self._on_unsubscribe(client_id, uri))
             except Exception as e:
                 print(f"Error in on_unsubscribe callback for {client_id}: {uri}: {e}")
 

@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock, Mock
 
 from conduit.protocol.base import METHOD_NOT_FOUND, PROTOCOL_VERSION, Error
@@ -73,6 +74,7 @@ class TestLoggingHandling:
 
         # Assert
         assert result == EmptyResult()
+        await asyncio.sleep(0)  # Yield to let the callback run
         failing_callback.assert_awaited_once_with(
             client_id, self.set_level_request.level
         )

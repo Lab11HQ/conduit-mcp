@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock
 
 from conduit.protocol.common import EmptyResult
@@ -39,6 +40,7 @@ class TestLoggingManager:
         await manager.handle_set_level(self.client_id, request)
 
         # Assert
+        await asyncio.sleep(0)  # Yield to let the callback run
         callback.assert_awaited_once_with(self.client_id, "warning")
 
     async def test_handle_set_level_silent_if_no_callback_registered(self):
