@@ -466,7 +466,7 @@ class ServerSession:
     async def _handle_cancelled(
         self, client_id: str, notification: CancelledNotification
     ) -> None:
-        """Cancel a request from a client and call any registered callbacks."""
+        """Cancels a request from a client and calls the registered callback."""
         was_cancelled = await self._coordinator.cancel_request_from_client(
             client_id, notification.request_id
         )
@@ -475,7 +475,7 @@ class ServerSession:
     async def _handle_progress(
         self, client_id: str, notification: ProgressNotification
     ) -> None:
-        """Call registered callbacks for progress updates."""
+        """Calls the registered callback for progress updates."""
         await self.callbacks.call_progress(client_id, notification)
 
     async def _handle_roots_list_changed(
@@ -510,7 +510,7 @@ class ServerSession:
     async def send_request_to_client(
         self, client_id: str, request: Request, timeout: float = 30.0
     ) -> Result | Error:
-        """Send a request to a client.
+        """Sends a request to a client.
 
         Ensures that the client is initialized before sending non-ping requests.
 
@@ -542,7 +542,7 @@ class ServerSession:
     async def send_notification_to_client(
         self, client_id: str, notification: Notification
     ) -> None:
-        """Send a notification to a client.
+        """Sends a notification to a client.
 
         Args:
             client_id: ID of the client to send the notification to
