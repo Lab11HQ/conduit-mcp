@@ -487,9 +487,7 @@ class ServerSession:
         and call any registered callbacks.
         """
         try:
-            result = await self._coordinator.send_request_to_client(
-                client_id, ListRootsRequest()
-            )
+            result = await self._coordinator.send_request(client_id, ListRootsRequest())
 
             if isinstance(result, ListRootsResult):
                 context = self.client_manager.get_client(client_id)
@@ -507,7 +505,7 @@ class ServerSession:
     # Send messages
     # ================================
 
-    async def send_request_to_client(
+    async def send_request(
         self, client_id: str, request: Request, timeout: float = 30.0
     ) -> Result | Error:
         """Send a request to a client.
@@ -535,11 +533,9 @@ class ServerSession:
                 "Only ping requests are allowed before initialization."
             )
 
-        return await self._coordinator.send_request_to_client(
-            client_id, request, timeout
-        )
+        return await self._coordinator.send_request(client_id, request, timeout)
 
-    async def send_notification_to_client(
+    async def send_notification(
         self, client_id: str, notification: Notification
     ) -> None:
         """Send a notification to a client.
@@ -552,7 +548,7 @@ class ServerSession:
             ConnectionError: If transport is closed
         """
 
-        await self._coordinator.send_notification_to_client(client_id, notification)
+        await self._coordinator.send_notification(client_id, notification)
 
     # ================================
     # Register handlers

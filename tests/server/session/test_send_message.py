@@ -29,13 +29,13 @@ class TestSendMessage:
         )
 
         # Mock the coordinator
-        session._coordinator.send_notification_to_client = AsyncMock()
+        session._coordinator.send_notification = AsyncMock()
 
         # Act
-        await session.send_notification_to_client(client_id, notification)
+        await session.send_notification(client_id, notification)
 
         # Assert
-        session._coordinator.send_notification_to_client.assert_awaited_once_with(
+        session._coordinator.send_notification.assert_awaited_once_with(
             client_id, notification
         )
 
@@ -48,13 +48,13 @@ class TestSendMessage:
         )
 
         # Mock the coordinator to raise ConnectionError
-        session._coordinator.send_notification_to_client = AsyncMock(
+        session._coordinator.send_notification = AsyncMock(
             side_effect=ConnectionError("Transport is closed")
         )
 
         # Act & Assert - should propagate the exception
         with pytest.raises(ConnectionError, match="Transport is closed"):
-            await session.send_notification_to_client(client_id, notification)
+            await session.send_notification(client_id, notification)
 
     async def test_send_request_to_client_delegates_to_coordinator(self):
         # Arrange
@@ -69,16 +69,14 @@ class TestSendMessage:
 
         # Mock successful coordinator response
         expected_result = EmptyResult()
-        session._coordinator.send_request_to_client = AsyncMock(
-            return_value=expected_result
-        )
+        session._coordinator.send_request = AsyncMock(return_value=expected_result)
 
         # Act
-        result = await session.send_request_to_client(client_id, request)
+        result = await session.send_request(client_id, request)
 
         # Assert
         assert result == expected_result
-        session._coordinator.send_request_to_client.assert_awaited_once_with(
+        session._coordinator.send_request.assert_awaited_once_with(
             client_id, request, 30.0
         )
 
@@ -89,13 +87,13 @@ class TestSendMessage:
         request = PingRequest()
 
         # Mock coordinator to raise error
-        session._coordinator.send_request_to_client = AsyncMock(
+        session._coordinator.send_request = AsyncMock(
             side_effect=ConnectionError("Test error")
         )
 
         # Act & Assert - should propagate the exception
         with pytest.raises(ConnectionError, match="Test error"):
-            await session.send_request_to_client(client_id, request)
+            await session.send_request(client_id, request)
 
     async def test_send_request_to_client_raises_value_error_for_uninitialized_client(
         self,
@@ -113,4 +111,4 @@ class TestSendMessage:
             ValueError,
             match="Cannot send tools/list to uninitialized client test-client",
         ):
-            await session.send_request_to_client(client_id, request)
+            await session.send_request(client_id, request)

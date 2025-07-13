@@ -71,9 +71,7 @@ class TestNotificationHandling:
             Root(uri="file:///home/user/docs", name="Documents"),
         ]
         list_roots_result = ListRootsResult(roots=new_roots)
-        session._coordinator.send_request_to_client = AsyncMock(
-            return_value=list_roots_result
-        )
+        session._coordinator.send_request = AsyncMock(return_value=list_roots_result)
 
         # Mock callback
         session.callbacks.call_roots_changed = AsyncMock()
@@ -100,7 +98,7 @@ class TestNotificationHandling:
         session.client_manager.register_client(client_id)
 
         # Mock coordinator to raise exception
-        session._coordinator.send_request_to_client = AsyncMock(
+        session._coordinator.send_request = AsyncMock(
             side_effect=Exception("Transport error")
         )
 
@@ -127,9 +125,7 @@ class TestNotificationHandling:
         # Mock successful coordinator response
         new_roots = [Root(uri="file:///home/user/project", name="Project")]
         list_roots_result = ListRootsResult(roots=new_roots)
-        session._coordinator.send_request_to_client = AsyncMock(
-            return_value=list_roots_result
-        )
+        session._coordinator.send_request = AsyncMock(return_value=list_roots_result)
 
         # Mock callback to raise exception
         session.callbacks.call_roots_changed = AsyncMock(

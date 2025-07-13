@@ -48,7 +48,7 @@ class MessageCoordinator:
     def __init__(self, transport: ServerTransport, client_manager: ClientManager):
         self.transport = transport
         self.client_manager = client_manager
-        self.parser = MessageParser()  # Add this line
+        self.parser = MessageParser()
         self._request_handlers: dict[str, RequestHandler] = {}
         self._notification_handlers: dict[str, NotificationHandler] = {}
         self._message_loop_task: asyncio.Task[None] | None = None
