@@ -151,7 +151,7 @@ class ClientSession:
 
         await self.start()
         try:
-            await asyncio.wait_for(self._do_initialize(), timeout)
+            await asyncio.wait_for(self._do_initialize(timeout), timeout)
         except asyncio.TimeoutError:
             await self.stop()
             raise TimeoutError(f"Initialization timed out after {timeout}s")
@@ -162,7 +162,7 @@ class ClientSession:
             await self.stop()
             raise ConnectionError(f"Initialization failed: {e}") from e
 
-    async def _do_initialize(self) -> None:
+    async def _do_initialize(self, timeout: float = 30.0) -> None:
         """Executes the three-step MCP initialization handshake.
 
         1. Send InitializeRequest with client info and capabilities
@@ -178,7 +178,7 @@ class ClientSession:
                 protocol version.
         """
         init_request = self._create_init_request()
-        response = await self._coordinator.send_request(init_request)
+        response = await self.send_request(init_request, timeout)
 
         if isinstance(response, Error):
             raise RuntimeError(response.message)
@@ -227,7 +227,7 @@ class ClientSession:
     # ================================
 
     async def _handle_ping(self, request: PingRequest) -> EmptyResult:
-        """Always returns an empty result."""
+        """Returns an empty result."""
 
         return EmptyResult()
 
