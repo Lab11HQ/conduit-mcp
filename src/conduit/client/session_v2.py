@@ -108,7 +108,7 @@ class ClientSession:
     # ================================
 
     async def start(self) -> None:
-        """Starts accepting and processing server messages.
+        """Start accepting and processing server messages.
 
         Starts the background message loop that will handle incoming server
         messages and route them to the appropriate handlers.
@@ -116,7 +116,7 @@ class ClientSession:
         await self._coordinator.start()
 
     async def stop(self) -> None:
-        """Stops accepting and processing server messages and cleans up all state."""
+        """Stop accepting and processing server messages and clean up all state."""
         await self._coordinator.stop()
         self.server_manager.reset_server_state()
 

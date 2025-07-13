@@ -116,7 +116,7 @@ class ServerSession:
         self._register_handlers()
 
     async def start(self) -> None:
-        """Begin accepting and processing client messages.
+        """Start accepting and processing client messages.
 
         Starts the background message loop that will handle incoming client
         messages and route them to the appropriate handlers.
