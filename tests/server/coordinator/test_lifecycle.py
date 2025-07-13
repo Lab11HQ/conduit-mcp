@@ -98,7 +98,7 @@ class TestMessageCoordinatorLifecycle:
         async def tracking_handler(client_message):
             handled_messages.append((client_message.client_id, client_message.payload))
 
-        coordinator._handle_client_message = tracking_handler
+        coordinator._route_client_message = tracking_handler
 
         # Act - Start, process message, stop
         await coordinator.start()

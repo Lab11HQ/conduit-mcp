@@ -16,7 +16,7 @@ class TestMessageLoop:
         async def tracking_handler(client_message):
             handled_messages.append((client_message.client_id, client_message.payload))
 
-        coordinator._handle_client_message = tracking_handler
+        coordinator._route_client_message = tracking_handler
 
         # Act
         await coordinator.start()
@@ -53,7 +53,7 @@ class TestMessageLoop:
             if len(handled_messages) == 2:
                 raise ValueError("Handler crashed!")
 
-        coordinator._handle_client_message = crashing_handler
+        coordinator._route_client_message = crashing_handler
 
         # Act
         await coordinator.start()
@@ -89,7 +89,7 @@ class TestMessageLoop:
         async def tracking_handler(client_message):
             handled_messages.append((client_message.client_id, client_message.payload))
 
-        coordinator._handle_client_message = tracking_handler
+        coordinator._route_client_message = tracking_handler
 
         # Act
         await coordinator.start()
@@ -160,7 +160,7 @@ class TestMessageLoop:
         async def tracking_handler(client_message):
             handled_messages.append((client_message.client_id, client_message.payload))
 
-        coordinator._handle_client_message = tracking_handler
+        coordinator._route_client_message = tracking_handler
 
         # Act
         await coordinator.start()

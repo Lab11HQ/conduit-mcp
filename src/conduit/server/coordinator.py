@@ -115,7 +115,7 @@ class MessageCoordinator:
         try:
             async for client_message in self.transport.client_messages():
                 try:
-                    await self._handle_client_message(client_message)
+                    await self._route_client_message(client_message)
                 except Exception as e:
                     print(
                         f"Error handling message from {client_message.client_id}: {e}"
@@ -139,7 +139,7 @@ class MessageCoordinator:
     # Route messages
     # ================================
 
-    async def _handle_client_message(self, client_message: ClientMessage) -> None:
+    async def _route_client_message(self, client_message: ClientMessage) -> None:
         """Route client message to appropriate handler with client context.
 
         Args:

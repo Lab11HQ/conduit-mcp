@@ -115,7 +115,7 @@ class ClientMessageCoordinator:
         try:
             async for server_message in self.transport.server_messages():
                 try:
-                    await self._handle_server_message(server_message)
+                    await self._route_server_message(server_message)
                 except Exception as e:
                     print(f"Error handling message: {e}")
                     continue
@@ -136,8 +136,8 @@ class ClientMessageCoordinator:
     # Route messages
     # ================================
 
-    async def _handle_server_message(self, payload: dict[str, Any]) -> None:
-        """Route server message to appropriate handler."""
+    async def _route_server_message(self, payload: dict[str, Any]) -> None:
+        """Route server message to the appropriate handler."""
         if self.parser.is_valid_request(payload):
             await self._handle_request(payload)
         elif self.parser.is_valid_notification(payload):
@@ -152,7 +152,7 @@ class ClientMessageCoordinator:
     # ================================
 
     async def _handle_request(self, payload: dict[str, Any]) -> None:
-        """Handle an incoming request from the server."""
+        """Parse and route an incoming request from the server."""
         request_id = payload["id"]
 
         request_or_error = self.parser.parse_request(payload)
@@ -168,7 +168,7 @@ class ClientMessageCoordinator:
         request_id: str | int,
         request: Request,
     ) -> None:
-        """Route request to appropriate handler and execute it."""
+        """Route request to the appropriate handler and execute it."""
         handler = self._request_handlers.get(request.method)
         if not handler:
             error = Error(
@@ -218,7 +218,7 @@ class ClientMessageCoordinator:
     # ================================
 
     async def _handle_notification(self, payload: dict[str, Any]) -> None:
-        """Parse and route typed notification to handler."""
+        """Parse and route a typed notification to the appropriate handler."""
         method = payload["method"]
 
         notification = self.parser.parse_notification(payload)
@@ -240,10 +240,9 @@ class ClientMessageCoordinator:
     # ================================
 
     async def _handle_response(self, payload: dict[str, Any]) -> None:
-        """Matches a response to a pending request.
+        """Matches a response to a pending request and resolves it.
 
-        Fulfills the waiting future if the response is for a known request.
-        Logs an error if the response is for an unknown request.
+        Logs an error if the response ID doesn't match any pending request.
         """
         request_id = payload["id"]
 
@@ -263,11 +262,11 @@ class ClientMessageCoordinator:
     # ================================
 
     async def cancel_request_from_server(self, request_id: str | int) -> bool:
-        """Cancel a request from the server.
+        """Cancel a request from the server if it's still pending.
 
         Returns:
-            True if request was found and successfully cancelled, False if request
-            not found or was already completed/cancelled.
+            True if request was found and successfully cancelled, False if request not
+            found or was already completed/cancelled.
         """
         result = self.server_manager.untrack_request_from_server(request_id)
         if result is None:
