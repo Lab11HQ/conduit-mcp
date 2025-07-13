@@ -108,7 +108,7 @@ class ClientSession:
     # ================================
 
     async def start(self) -> None:
-        """Begin accepting and processing server messages.
+        """Starts accepting and processing server messages.
 
         Starts the background message loop that will handle incoming server
         messages and route them to the appropriate handlers.
@@ -116,7 +116,7 @@ class ClientSession:
         await self._coordinator.start()
 
     async def stop(self) -> None:
-        """Stop the session and clean up all state."""
+        """Stops accepting and processing server messages and cleans up all state."""
         await self._coordinator.stop()
         self.server_manager.reset_server_state()
 
@@ -163,7 +163,7 @@ class ClientSession:
             raise ConnectionError(f"Initialization failed: {e}") from e
 
     async def _do_initialize(self) -> None:
-        """Execute the three-step MCP initialization handshake.
+        """Executes the three-step MCP initialization handshake.
 
         1. Send InitializeRequest with client info and capabilities
         2. Validate the server's InitializeResult response
@@ -197,7 +197,7 @@ class ClientSession:
         self._initialized = True
 
     def _create_init_request(self) -> InitializeRequest:
-        """Create an InitializeRequest with client info and capabilities.
+        """Creates an InitializeRequest with client info and capabilities.
 
         Returns:
             InitializeRequest with client info and capabilities.
@@ -209,7 +209,7 @@ class ClientSession:
         )
 
     def _validate_protocol_version(self, result: InitializeResult) -> None:
-        """Ensure the server's protocol version matches the client's.
+        """Ensures the server's protocol version matches the client's.
 
         Raises:
             InvalidProtocolVersionError: If the server uses an incompatible
@@ -227,10 +227,8 @@ class ClientSession:
     # ================================
 
     async def _handle_ping(self, request: PingRequest) -> EmptyResult:
-        """Always returns an empty result.
+        """Always returns an empty result."""
 
-        Server sends pings to check connection health.
-        """
         return EmptyResult()
 
     # ================================
@@ -240,14 +238,11 @@ class ClientSession:
     async def _handle_list_roots(
         self, request: ListRootsRequest
     ) -> ListRootsResult | Error:
-        """Handle server request for filesystem roots.
-
-        Args:
-            request: Parsed roots/list request from server.
+        """Returns the available roots.
 
         Returns:
             ListRootsResult: The available roots.
-            Error: If the client doesn't support the roots capability.
+            Error: If roots are not supported.
         """
         if self.client_config.capabilities.roots is None:
             return Error(
@@ -263,15 +258,12 @@ class ClientSession:
     async def _handle_sampling(
         self, request: CreateMessageRequest
     ) -> CreateMessageResult | Error:
-        """Handle server request for LLM sampling.
-
-        Args:
-            request: Parsed sampling/createMessage request from server.
+        """Creates a message using the configured sampling handler.
 
         Returns:
             CreateMessageResult: The created message.
-            Error: If the client doesn't support sampling, a handler is not configured,
-                or the handler fails.
+            Error: If sampling is not supported, handler not configured,
+                or handler fails.
         """
         if not self.client_config.capabilities.sampling:
             return Error(
@@ -294,10 +286,7 @@ class ClientSession:
     # ================================
 
     async def _handle_elicitation(self, request: ElicitRequest) -> ElicitResult | Error:
-        """Handle server request for elicitation.
-
-        Args:
-            request: Parsed elicitation/create request from server.
+        """Returns an elicitation result using the configured elicitation handler
 
         Returns:
             ElicitResult: The elicitation result.
@@ -438,7 +427,7 @@ class ClientSession:
     async def send_request(
         self, request: Request, timeout: float = 30.0
     ) -> Result | Error:
-        """Sends a request to the server and waits for a response.
+        """Send a request to the server and wait for a response.
 
         Args:
             request: The request to send.
@@ -465,7 +454,7 @@ class ClientSession:
         return await self._coordinator.send_request(request, timeout)
 
     async def send_notification(self, notification: Notification) -> None:
-        """Sends a notification to the server.
+        """Send a notification to the server.
 
         Args:
             notification: The notification to send.
@@ -480,7 +469,7 @@ class ClientSession:
     # ================================
 
     def _register_handlers(self) -> None:
-        """Registers all message handlers."""
+        """Registers all message handlers with the coordinator."""
 
         # Requests
         self._coordinator.register_request_handler("ping", self._handle_ping)

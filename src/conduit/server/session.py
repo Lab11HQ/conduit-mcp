@@ -510,7 +510,7 @@ class ServerSession:
     async def send_request_to_client(
         self, client_id: str, request: Request, timeout: float = 30.0
     ) -> Result | Error:
-        """Sends a request to a client.
+        """Send a request to a client.
 
         Ensures that the client is initialized before sending non-ping requests.
 
@@ -542,7 +542,7 @@ class ServerSession:
     async def send_notification_to_client(
         self, client_id: str, notification: Notification
     ) -> None:
-        """Sends a notification to a client.
+        """Send a notification to a client.
 
         Args:
             client_id: ID of the client to send the notification to
