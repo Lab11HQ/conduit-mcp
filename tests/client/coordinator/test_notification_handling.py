@@ -10,7 +10,6 @@ class TestNotificationHandling:
         """Test that notifications are parsed and routed to registered handlers."""
         # Arrange
         await coordinator.start()
-        client_id = "test_client"
 
         # Create a mock handler
         mock_handler = AsyncMock()
@@ -29,20 +28,16 @@ class TestNotificationHandling:
         }
 
         # Act
-        await coordinator._handle_notification(client_id, notification_payload)
+        await coordinator._handle_notification(notification_payload)
 
-        # Give the background task time to run
         await yield_loop()
 
         # Assert
         mock_handler.assert_awaited_once()
         call_args = mock_handler.call_args
 
-        # Verify handler was called with correct client_id
-        assert call_args[0][0] == client_id
-
         # Verify handler was called with parsed notification
-        parsed_notification = call_args[0][1]
+        parsed_notification = call_args[0][0]
         assert isinstance(parsed_notification, CancelledNotification)
         assert parsed_notification.request_id == "test-request-123"
         assert parsed_notification.reason == "User cancelled operation"
@@ -50,7 +45,6 @@ class TestNotificationHandling:
     async def test_ignores_notification_with_parse_failure(self, coordinator):
         """Test that notifications with parse failures are ignored gracefully."""
         # Arrange
-        client_id = "test_client"
         invalid_notification = {
             "jsonrpc": "2.0",
             "method": "not/a/real/notification",
@@ -64,7 +58,7 @@ class TestNotificationHandling:
         assert parsed_notification is None
 
         # Act - call handler directly with the payload that we know will fail parsing
-        await coordinator._handle_notification(client_id, invalid_notification)
+        await coordinator._handle_notification(invalid_notification)
 
         # Assert - should handle gracefully (no exceptions raised)
         # The test passes if we get here without exceptions

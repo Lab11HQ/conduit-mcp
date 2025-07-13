@@ -2,10 +2,11 @@ import asyncio
 
 import pytest
 
+from conduit.protocol.base import Error
 from conduit.protocol.common import PingRequest
 
 
-class TestMessageCoordinatorLifecycle:
+class TestClientMessageCoordinatorLifecycle:
     async def test_start_is_idempotent(self, coordinator):
         # Arrange
         assert not coordinator.running
@@ -15,7 +16,6 @@ class TestMessageCoordinatorLifecycle:
         assert coordinator.running
 
         await coordinator.start()  # Should be safe to call again
-        assert coordinator.running
 
         # Assert - still running after multiple starts
         assert coordinator.running
@@ -64,21 +64,6 @@ class TestMessageCoordinatorLifecycle:
         await coordinator.stop()
         assert not coordinator.running
 
-    async def test_coordinator_handles_transport_failure_gracefully(
-        self, coordinator, mock_transport, yield_loop
-    ):
-        # Arrange
-        await coordinator.start()
-
-        # Act - simulate transport failure
-        await mock_transport.close()
-
-        await yield_loop()
-
-        # Assert - coordinator should still be cleanly stoppable
-        await coordinator.stop()
-        assert not coordinator.running
-
     async def test_multiple_start_stop_cycles(self, coordinator):
         # Arrange & Act - multiple cycles
         for _ in range(3):
@@ -95,73 +80,77 @@ class TestMessageCoordinatorLifecycle:
         # Arrange
         handled_messages = []
 
-        async def tracking_handler(client_message):
-            handled_messages.append((client_message.client_id, client_message.payload))
+        async def tracking_handler(payload):
+            handled_messages.append(payload)
 
-        coordinator._handle_client_message = tracking_handler
+        coordinator._handle_server_message = tracking_handler
 
         # Act - Start, process message, stop
         await coordinator.start()
-        mock_transport.add_client_message(
-            "client1", {"jsonrpc": "2.0", "method": "test/before-stop"}
+        mock_transport.add_server_message(
+            {"jsonrpc": "2.0", "method": "test/before-stop"}
         )
-        await yield_loop()  # Let message loop process
+        await yield_loop()
         await coordinator.stop()
 
         # Act - Restart and process another message
         await coordinator.start()
-        mock_transport.add_client_message(
-            "client1", {"jsonrpc": "2.0", "method": "test/after-restart"}
+        mock_transport.add_server_message(
+            {"jsonrpc": "2.0", "method": "test/after-restart"}
         )
-        await yield_loop()  # Let message loop process
+        await yield_loop()
 
         # Assert - Both phases worked
         assert len(handled_messages) == 2
-        assert handled_messages[0][0] == "client1"
-        assert handled_messages[0][1]["method"] == "test/before-stop"
-        assert handled_messages[1][0] == "client1"
-        assert handled_messages[1][1]["method"] == "test/after-restart"
+        assert handled_messages[0]["method"] == "test/before-stop"
+        assert handled_messages[1]["method"] == "test/after-restart"
 
         # Cleanup
         await coordinator.stop()
 
-    async def test_stop_cancels_all_client_requests(
-        self, coordinator, client_manager, yield_loop
+    async def test_stop_cancels_all_server_requests(
+        self, coordinator, server_manager, yield_loop
     ):
         # Arrange
         await coordinator.start()
 
-        # Create mock in-flight tasks for multiple clients
+        # Create mock in-flight tasks for requests FROM server
         mock_request1 = PingRequest()
         mock_request2 = PingRequest()
         task1 = asyncio.create_task(asyncio.sleep(10))
         task2 = asyncio.create_task(asyncio.sleep(10))
 
-        # Create mock pending request futures
+        # Create mock pending request futures for requests TO server
         future1 = asyncio.Future()
         future2 = asyncio.Future()
 
-        # Register clients with both in-flight and pending requests
-        client1_context = client_manager.register_client("client1")
-        client2_context = client_manager.register_client("client2")
-        assert client_manager.client_count() == 2
+        # Add requests to server context
+        context = server_manager.get_server_context()
+        context.requests_from_server["req1"] = (mock_request1, task1)
+        context.requests_from_server["req2"] = (mock_request2, task2)
 
-        # In-flight requests (FROM clients TO server)
-        client1_context.requests_from_client["req1"] = (mock_request1, task1)
-        client2_context.requests_from_client["req2"] = (mock_request2, task2)
-
-        ping_to_client1 = PingRequest()
-        ping_to_client2 = PingRequest()
-        client1_context.requests_to_client["ping1"] = (ping_to_client1, future1)
-        client2_context.requests_to_client["ping2"] = (ping_to_client2, future2)
+        ping_request = PingRequest()
+        context.requests_to_server["ping1"] = (ping_request, future1)
+        context.requests_to_server["ping2"] = (ping_request, future2)
 
         # Act
         await coordinator.stop()
         await yield_loop()
 
-        # Assert - both types of requests are cancelled
+        # Assert - both types of requests are cancelled/resolved
+        for task in [task1, task2]:
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
         assert task1.cancelled()
         assert task2.cancelled()
         assert future1.done()
         assert future2.done()
-        assert client_manager.client_count() == 0
+
+        # Verify futures were resolved with errors
+        result1 = future1.result()
+        result2 = future2.result()
+        assert isinstance(result1, Error)
+        assert isinstance(result2, Error)

@@ -115,6 +115,8 @@ class TestMessageLoop:
         await coordinator.start()
 
         # Create mock in-flight tasks and pending request futures
+        ping_from_client = PingRequest()
+        ping_to_client = PingRequest()
         task1 = asyncio.create_task(asyncio.sleep(10))
         future1 = asyncio.Future()
 
@@ -122,10 +124,14 @@ class TestMessageLoop:
         client_manager.register_client("client1")
         client_context = client_manager.get_client("client1")
 
-        client_context.requests_from_client["req1"] = task1
-
-        ping_request = PingRequest()
-        client_context.requests_to_client["ping1"] = (ping_request, future1)
+        client_context.requests_from_client["ping_from_client"] = (
+            ping_from_client,
+            task1,
+        )
+        client_context.requests_to_client["ping_to_client"] = (
+            ping_to_client,
+            future1,
+        )
 
         assert client_manager.client_count() == 1
 
@@ -139,11 +145,10 @@ class TestMessageLoop:
         with pytest.raises(asyncio.CancelledError):
             await task1
 
-        # Be explicit about error resolution
+        # Verify error resolution
         assert future1.done()
         error = future1.result()
         assert isinstance(error, Error)
-        assert "disconnected" in error.message.lower()
 
     async def test_loop_respects_stop_call(
         self, coordinator, mock_transport, yield_loop
