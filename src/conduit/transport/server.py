@@ -22,7 +22,7 @@ class ServerTransport(Protocol):
     on message passing - client lifecycle is managed by the session layer.
     """
 
-    async def send_to_client(self, client_id: str, message: dict[str, Any]) -> None:
+    async def send(self, client_id: str, message: dict[str, Any]) -> None:
         """Send message to specific client.
 
         Args:

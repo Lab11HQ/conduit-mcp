@@ -20,7 +20,7 @@ class ClientTransport(ABC):
         ...
 
     @abstractmethod
-    async def send_to_server(self, message: dict[str, Any]) -> None:
+    async def send(self, message: dict[str, Any]) -> None:
         """Send message to the server.
 
         Args:

@@ -18,7 +18,7 @@ class MockServerTransport(ServerTransport):
         self._is_open = True
         self._should_raise_error = False
 
-    async def send_to_client(self, client_id: str, message: dict[str, Any]) -> None:
+    async def send(self, client_id: str, message: dict[str, Any]) -> None:
         if client_id not in self.sent_messages:
             self.sent_messages[client_id] = []
         self.sent_messages[client_id].append(message)

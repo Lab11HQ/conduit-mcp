@@ -180,7 +180,7 @@ class TestRequestSending:
         async def failing_send(message):
             raise ConnectionError("Test network failure")
 
-        mock_transport.send_to_server = failing_send
+        mock_transport.send = failing_send
 
         # Act & Assert - should raise the transport error
         with pytest.raises(ConnectionError, match="Test network failure"):
@@ -247,7 +247,7 @@ class TestNotificationSending:
         async def failing_send(message):
             raise ConnectionError("Network failure")
 
-        mock_transport.send_to_server = failing_send
+        mock_transport.send = failing_send
 
         # Act & Assert
         with pytest.raises(ConnectionError, match="Network failure"):

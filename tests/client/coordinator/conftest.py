@@ -21,7 +21,7 @@ class MockClientTransport(ClientTransport):
     def is_open(self) -> bool:
         return self._is_open
 
-    async def send_to_server(self, message: dict[str, Any]) -> None:
+    async def send(self, message: dict[str, Any]) -> None:
         """Record sent messages for test assertions."""
         self.sent_messages.append(message)
 

@@ -33,7 +33,6 @@ TRequest = TypeVar("TRequest", bound=Request)
 TResult = TypeVar("TResult", bound=Result)
 TNotification = TypeVar("TNotification", bound=Notification)
 
-
 RequestHandler = Callable[[TRequest], Awaitable[TResult | Error]]
 NotificationHandler = Callable[[TNotification], Coroutine[Any, Any, None]]
 
@@ -204,7 +203,7 @@ class ClientMessageCoordinator:
             else:
                 response = JSONRPCResponse.from_result(result_or_error, request_id)
 
-            await self.transport.send_to_server(response.to_wire())
+            await self.transport.send(response.to_wire())
 
         except Exception:
             error = Error(
@@ -308,7 +307,7 @@ class ClientMessageCoordinator:
         self.server_manager.track_request_to_server(request_id, request, future)
 
         try:
-            await self.transport.send_to_server(jsonrpc_request.to_wire())
+            await self.transport.send(jsonrpc_request.to_wire())
             return await asyncio.wait_for(future, timeout)
         except asyncio.TimeoutError:
             await self._handle_request_timeout(request_id, request)
@@ -351,7 +350,7 @@ class ClientMessageCoordinator:
         """
         await self._ensure_ready_to_send()
         jsonrpc_notification = JSONRPCNotification.from_notification(notification)
-        await self.transport.send_to_server(jsonrpc_notification.to_wire())
+        await self.transport.send(jsonrpc_notification.to_wire())
 
     # ================================
     # Register handlers
@@ -373,4 +372,4 @@ class ClientMessageCoordinator:
     async def _send_error(self, request_id: str | int, error: Error) -> None:
         """Send error response to server."""
         response = JSONRPCError.from_error(error, request_id)
-        await self.transport.send_to_server(response.to_wire())
+        await self.transport.send(response.to_wire())

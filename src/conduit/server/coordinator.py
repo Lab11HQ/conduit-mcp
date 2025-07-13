@@ -29,12 +29,10 @@ from conduit.server.client_manager import ClientManager
 from conduit.shared.message_parser import MessageParser
 from conduit.transport.server import ClientMessage, ServerTransport
 
-# Type variables
 TRequest = TypeVar("TRequest", bound=Request)
 TResult = TypeVar("TResult", bound=Result)
 TNotification = TypeVar("TNotification", bound=Notification)
 
-# Handler signatures - separate for requests vs notifications
 RequestHandler = Callable[[str, TRequest], Awaitable[TResult | Error]]
 NotificationHandler = Callable[[str, TNotification], Coroutine[Any, Any, None]]
 
@@ -223,7 +221,7 @@ class MessageCoordinator:
             else:
                 response = JSONRPCResponse.from_result(result_or_error, request_id)
 
-            await self.transport.send_to_client(client_id, response.to_wire())
+            await self.transport.send(client_id, response.to_wire())
 
             if isinstance(result_or_error, Error) and self._should_disconnect_for_error(
                 result_or_error
@@ -317,7 +315,7 @@ class MessageCoordinator:
     # Send requests
     # ================================
 
-    async def send_request_to_client(
+    async def send_request(
         self, client_id: str, request: Request, timeout: float = 30.0
     ) -> Result | Error:
         """Send a request to a specific client and wait for response.
@@ -351,7 +349,7 @@ class MessageCoordinator:
         )
 
         try:
-            await self.transport.send_to_client(client_id, jsonrpc_request.to_wire())
+            await self.transport.send(client_id, jsonrpc_request.to_wire())
             return await asyncio.wait_for(future, timeout)
         except asyncio.TimeoutError:
             await self._handle_request_timeout(client_id, request_id)
@@ -375,7 +373,7 @@ class MessageCoordinator:
                 request_id=request_id,
                 reason="Request timed out",
             )
-            await self.send_notification_to_client(client_id, cancelled_notification)
+            await self.send_notification(client_id, cancelled_notification)
         except Exception as e:
             print(f"Error sending cancellation to {client_id}: {e}")
 
@@ -383,13 +381,13 @@ class MessageCoordinator:
     # Send notifications
     # ================================
 
-    async def send_notification_to_client(
+    async def send_notification(
         self, client_id: str, notification: Notification
     ) -> None:
         """Send a notification to a specific client."""
         await self._ensure_ready_to_send()
         jsonrpc_notification = JSONRPCNotification.from_notification(notification)
-        await self.transport.send_to_client(client_id, jsonrpc_notification.to_wire())
+        await self.transport.send(client_id, jsonrpc_notification.to_wire())
 
     # ================================
     # Register handlers
@@ -434,4 +432,4 @@ class MessageCoordinator:
     ) -> None:
         """Send error response to client."""
         response = JSONRPCError.from_error(error, request_id)
-        await self.transport.send_to_client(client_id, response.to_wire())
+        await self.transport.send(client_id, response.to_wire())

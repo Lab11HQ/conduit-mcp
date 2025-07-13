@@ -14,9 +14,7 @@ class TestRequestSending:
         assert not coordinator.running
 
         # Act - send request in background
-        asyncio.create_task(
-            coordinator.send_request_to_client(client_id, request, timeout=1.0)
-        )
+        asyncio.create_task(coordinator.send_request(client_id, request, timeout=1.0))
 
         # Give coordinator time to send the request
         await yield_loop()
@@ -33,7 +31,7 @@ class TestRequestSending:
 
         # Act - send request in background
         request_task = asyncio.create_task(
-            coordinator.send_request_to_client(client_id, request, timeout=1.0)
+            coordinator.send_request(client_id, request, timeout=1.0)
         )
 
         # Give coordinator time to send the request
@@ -74,7 +72,7 @@ class TestRequestSending:
 
         # Act - send request in background
         request_task = asyncio.create_task(
-            coordinator.send_request_to_client(client_id, request, timeout=1.0)
+            coordinator.send_request(client_id, request, timeout=1.0)
         )
 
         # Give coordinator time to send the request
@@ -124,7 +122,7 @@ class TestRequestSending:
 
         # Act & Assert - timeout should raise
         with pytest.raises(asyncio.TimeoutError):
-            await coordinator.send_request_to_client(client_id, request, timeout=0.03)
+            await coordinator.send_request(client_id, request, timeout=0.03)
 
         # Give coordinator time to send cancellation
         await yield_loop()
@@ -155,7 +153,7 @@ class TestRequestSending:
 
         # Act & Assert
         with pytest.raises(ConnectionError):
-            await coordinator.send_request_to_client(client_id, request)
+            await coordinator.send_request(client_id, request)
 
         # Assert - no messages were sent
         sent_messages = mock_transport.sent_messages.get(client_id, [])
@@ -171,11 +169,11 @@ class TestRequestSending:
         async def failing_send(client_id, message):
             raise ConnectionError("Test network failure")
 
-        mock_transport.send_to_client = failing_send
+        mock_transport.send = failing_send
 
         # Act & Assert - should raise the transport error
         with pytest.raises(ConnectionError, match="Test network failure"):
-            await coordinator.send_request_to_client(client_id, request, timeout=1.0)
+            await coordinator.send_request(client_id, request, timeout=1.0)
 
         # Assert - request is no longer tracked
         client_context = client_manager.get_client(client_id)
@@ -193,7 +191,7 @@ class TestNotificationSending:
         assert not coordinator.running
 
         # Act
-        await coordinator.send_notification_to_client(client_id, notification)
+        await coordinator.send_notification(client_id, notification)
 
         # Assert
         assert coordinator.running
@@ -206,7 +204,7 @@ class TestNotificationSending:
         client_id = "test_client"
 
         # Act
-        await coordinator.send_notification_to_client(client_id, notification)
+        await coordinator.send_notification(client_id, notification)
 
         # Assert - notification was sent to transport
         sent_messages = mock_transport.sent_messages.get(client_id, [])
@@ -228,7 +226,7 @@ class TestNotificationSending:
 
         # Act & Assert - should raise ConnectionError
         with pytest.raises(ConnectionError):
-            await coordinator.send_notification_to_client(client_id, notification)
+            await coordinator.send_notification(client_id, notification)
 
         # Assert - no messages were sent
         sent_messages = mock_transport.sent_messages.get(client_id, [])
@@ -244,11 +242,11 @@ class TestNotificationSending:
         async def failing_send(client_id, message):
             raise ConnectionError("Test network failure")
 
-        mock_transport.send_to_client = failing_send
+        mock_transport.send = failing_send
 
         # Act & Assert - should raise the transport error
         with pytest.raises(ConnectionError, match="Test network failure"):
-            await coordinator.send_notification_to_client(client_id, notification)
+            await coordinator.send_notification(client_id, notification)
 
         # Assert - no messages were sent
         sent_messages = mock_transport.sent_messages.get(client_id, [])
