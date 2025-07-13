@@ -186,7 +186,7 @@ class ClientMessageCoordinator:
 
         self.server_manager.track_request_from_server(request_id, request, task)
         task.add_done_callback(
-            lambda t: self.server_manager.remove_request_from_server(request_id)
+            lambda t: self.server_manager.untrack_request_from_server(request_id)
         )
 
     async def _execute_request_handler(
@@ -241,12 +241,12 @@ class ClientMessageCoordinator:
     # ================================
 
     async def _handle_response(self, payload: dict[str, Any]) -> None:
-        """Handle response from server to our outbound request."""
-        request_id = payload.get("id")
-        if not request_id:
-            # Should never happen — router validates IDs
-            # Here for pyright
-            return
+        """Matches a response to a pending request.
+
+        Fulfills the waiting future if the response is for a known request.
+        Logs an error if the response is for an unknown request.
+        """
+        request_id = payload["id"]
 
         request_future_tuple = self.server_manager.get_request_to_server(request_id)
         if not request_future_tuple:
@@ -264,8 +264,13 @@ class ClientMessageCoordinator:
     # ================================
 
     async def cancel_request_from_server(self, request_id: str | int) -> bool:
-        """Cancel a request from the server."""
-        result = self.server_manager.remove_request_from_server(request_id)
+        """Cancel a request from the server.
+
+        Returns:
+            True if request was found and successfully cancelled, False if request
+            not found or was already completed/cancelled.
+        """
+        result = self.server_manager.untrack_request_from_server(request_id)
         if result is None:
             return False
         request, task = result
@@ -296,12 +301,10 @@ class ClientMessageCoordinator:
         """
         await self._ensure_ready_to_send()
 
-        # Prepare the request
         request_id = str(uuid.uuid4())
         jsonrpc_request = JSONRPCRequest.from_request(request, request_id)
         future: asyncio.Future[Result | Error] = asyncio.Future()
 
-        # Set up tracking
         self.server_manager.track_request_to_server(request_id, request, future)
 
         try:
@@ -311,7 +314,7 @@ class ClientMessageCoordinator:
             await self._handle_request_timeout(request_id, request)
             raise
         finally:
-            self.server_manager.remove_request_to_server(request_id)
+            self.server_manager.untrack_request_to_server(request_id)
 
     async def _ensure_ready_to_send(self) -> None:
         """Ensure coordinator is running and transport is open."""

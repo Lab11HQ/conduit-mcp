@@ -202,7 +202,7 @@ class MessageCoordinator:
             client_id, request_id, request, task
         )
         task.add_done_callback(
-            lambda t: self.client_manager.remove_request_from_client(
+            lambda t: self.client_manager.untrack_request_from_client(
                 client_id, request_id
             )
         )
@@ -267,11 +267,16 @@ class MessageCoordinator:
     # ================================
 
     async def _handle_response(self, client_id: str, payload: dict[str, Any]) -> None:
-        """Handle response from client to our outbound request."""
-        request_id = payload.get("id")
-        if not request_id:
-            print(f"Response from {client_id} missing request ID")
-            return
+        """Matches a response to a pending request.
+
+        Fulfills the waiting future if the response is for a known request.
+        Logs an error if the response is for an unknown request.
+
+        Args:
+            client_id: ID of the client that sent the response
+            payload: The response payload
+        """
+        request_id = payload["id"]
 
         request_future_tuple = self.client_manager.get_request_to_client(
             client_id, request_id
@@ -301,7 +306,7 @@ class MessageCoordinator:
             True if request was found and successfully cancelled, False if request
             not found or was already completed/cancelled.
         """
-        result = self.client_manager.remove_request_from_client(client_id, request_id)
+        result = self.client_manager.untrack_request_from_client(client_id, request_id)
         if result is None:
             return False
 
@@ -352,7 +357,7 @@ class MessageCoordinator:
             await self._handle_request_timeout(client_id, request_id)
             raise
         finally:
-            self.client_manager.remove_request_to_client(client_id, request_id)
+            self.client_manager.untrack_request_to_client(client_id, request_id)
 
     async def _ensure_ready_to_send(self) -> None:
         """Ensure coordinator is running and transport is open."""

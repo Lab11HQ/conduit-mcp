@@ -49,7 +49,7 @@ class ServerManager:
     def cleanup_requests(self) -> None:
         """Clean up all request tracking when stopping.
 
-        Cancels in-flight requests the server is waiting on and resolves pending
+        Cancels work for requests the server is waiting on and resolves pending
         requests the server is fulfilling.
         """
         context = self._server_context
@@ -82,16 +82,16 @@ class ServerManager:
         context = self._server_context
         context.requests_from_server[request_id] = (request, task)
 
-    def remove_request_from_server(
+    def untrack_request_from_server(
         self, request_id: str | int
-    ) -> asyncio.Task[None] | None:
-        """Remove and return a request from server.
+    ) -> tuple[Request, asyncio.Task[None]] | None:
+        """Stop tracking a request from the server.
 
         Args:
             request_id: Request identifier to remove
 
         Returns:
-            The task if found, None otherwise
+            Tuple of (request, task) if found, None otherwise
         """
         context = self._server_context
         return context.requests_from_server.pop(request_id, None)
@@ -112,10 +112,10 @@ class ServerManager:
         context = self._server_context
         context.requests_to_server[request_id] = (request, future)
 
-    def remove_request_to_server(
+    def untrack_request_to_server(
         self, request_id: str
     ) -> tuple[Request, asyncio.Future[Result | Error]] | None:
-        """Remove and return a pending request to server.
+        """Stop tracking a request to the server.
 
         Args:
             request_id: Request identifier to remove

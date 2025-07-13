@@ -143,10 +143,10 @@ class ClientManager:
 
         context.requests_to_client[request_id] = (request, future)
 
-    def remove_request_to_client(
+    def untrack_request_to_client(
         self, client_id: str, request_id: str
     ) -> tuple[Request, asyncio.Future[Result | Error]] | None:
-        """Remove and return a pending request.
+        """Stop tracking a request to the client.
 
         Args:
             client_id: ID of the client
@@ -227,10 +227,10 @@ class ClientManager:
 
         context.requests_from_client[request_id] = (request, task)
 
-    def remove_request_from_client(
+    def untrack_request_from_client(
         self, client_id: str, request_id: str | int
     ) -> tuple[Request, asyncio.Task[None]] | None:
-        """Remove and return a request from client.
+        """Stop tracking a request from the client.
 
         Args:
             client_id: ID of the client
