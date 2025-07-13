@@ -82,6 +82,20 @@ class ServerManager:
         context = self._server_context
         context.requests_from_server[request_id] = (request, task)
 
+    def get_request_from_server(
+        self, request_id: str | int
+    ) -> tuple[Request, asyncio.Task[None]] | None:
+        """Get a pending request from the server.
+
+        Args:
+            request_id: Request identifier to get
+
+        Returns:
+            Tuple of (request, task) if found, None otherwise
+        """
+        context = self._server_context
+        return context.requests_from_server.get(request_id, None)
+
     def untrack_request_from_server(
         self, request_id: str | int
     ) -> tuple[Request, asyncio.Task[None]] | None:
