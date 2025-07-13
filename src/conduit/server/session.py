@@ -525,6 +525,7 @@ class ServerSession:
             ConnectionError: If transport is closed
             TimeoutError: If client doesn't respond within timeout
         """
+        await self.start()
         if request.method != "ping" and not self.client_manager.is_client_initialized(
             client_id
         ):
@@ -547,7 +548,7 @@ class ServerSession:
         Raises:
             ConnectionError: If transport is closed
         """
-
+        await self.start()
         await self._coordinator.send_notification(client_id, notification)
 
     # ================================

@@ -441,6 +441,7 @@ class ClientSession:
             ConnectionError: If the transport fails.
             TimeoutError: If server doesn't respond within timeout.
         """
+        await self.start()
 
         if (
             request.method not in ("ping", "initialize")
@@ -462,6 +463,8 @@ class ClientSession:
         Raises:
             ConnectionError: If the transport fails.
         """
+        await self.start()
+
         await self._coordinator.send_notification(notification)
 
     # ================================
