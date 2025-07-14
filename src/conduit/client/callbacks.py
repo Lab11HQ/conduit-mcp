@@ -253,5 +253,3 @@ class CallbackManager:
                 await self._cancelled(notification)
             except Exception as e:
                 print(f"Cancelled callback failed: {e}")
-
-    # Internal notification methods

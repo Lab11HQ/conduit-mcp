@@ -36,7 +36,7 @@ class TestInitializationCallback:
         # Assert - completes without raising (no exception bubbles up)
         # Test passes if we reach this point without exception
 
-    async def test_initialized_callback_handles_user_callback_exceptions(self):
+    async def test_initialized_callback_does_not_raise_user_callback_exceptions(self):
         # Arrange - user registers a buggy callback that throws
         manager = CallbackManager()
         callback = AsyncMock(side_effect=RuntimeError("User callback failed"))
@@ -89,7 +89,7 @@ class TestProgressCallback:
         # Assert - completes without raising (no exception bubbles up)
         # Test passes if we reach this point without exception
 
-    async def test_progress_callback_handles_user_callback_exceptions(self):
+    async def test_progress_callback_does_not_raise_user_callback_exceptions(self):
         # Arrange - user registers a buggy callback that throws
         manager = CallbackManager()
         callback = AsyncMock(side_effect=RuntimeError("User callback failed"))
@@ -141,7 +141,7 @@ class TestCancellationCallback:
         # Assert - completes without raising (no exception bubbles up)
         # Test passes if we reach this point without exception
 
-    async def test_cancelled_callback_handles_user_callback_exceptions(self):
+    async def test_cancelled_callback_does_not_raise_user_callback_exceptions(self):
         # Arrange - user registers a buggy callback that throws
         manager = CallbackManager()
         callback = AsyncMock(side_effect=RuntimeError("User callback failed"))
@@ -191,7 +191,7 @@ class TestRootsChangedCallback:
         # Assert - completes without raising (no exception bubbles up)
         # Test passes if we reach this point without exception
 
-    async def test_roots_changed_callback_handles_user_callback_exceptions(self):
+    async def test_roots_changed_callback_does_not_raise_user_callback_exceptions(self):
         # Arrange - user registers a buggy callback that throws
         manager = CallbackManager()
         callback = AsyncMock(side_effect=RuntimeError("User callback failed"))
