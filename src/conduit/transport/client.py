@@ -1,5 +1,3 @@
-# src/conduit/transport/client.py
-
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any

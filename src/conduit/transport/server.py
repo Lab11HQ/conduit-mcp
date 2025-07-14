@@ -1,7 +1,8 @@
 """Server transport protocol - 1:many communication with clients."""
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, Protocol
+from typing import Any, AsyncIterator
 
 
 @dataclass
@@ -14,7 +15,7 @@ class ClientMessage:
     metadata: dict[str, Any] | None = None
 
 
-class ServerTransport(Protocol):
+class ServerTransport(ABC):
     """Transport for server communicating with multiple clients.
 
     Handles the 1:many connection pattern where one server needs to
@@ -22,6 +23,7 @@ class ServerTransport(Protocol):
     on message passing - client lifecycle is managed by the session layer.
     """
 
+    @abstractmethod
     async def send(self, client_id: str, message: dict[str, Any]) -> None:
         """Send message to specific client.
 
@@ -34,6 +36,7 @@ class ServerTransport(Protocol):
         """
         ...
 
+    @abstractmethod
     def client_messages(self) -> AsyncIterator[ClientMessage]:
         """Stream of messages from all clients with explicit client context.
 
@@ -43,10 +46,12 @@ class ServerTransport(Protocol):
         ...
 
     @property
+    @abstractmethod
     def is_open(self) -> bool:
         """True if server is open and accepting connections."""
         ...
 
+    @abstractmethod
     async def close(self) -> None:
         """Close server and disconnect all clients."""
         ...
