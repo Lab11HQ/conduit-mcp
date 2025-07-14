@@ -1,15 +1,9 @@
 """Client session implementation for MCP.
 
-The ClientSession extends BaseSession with client-specific behavior:
-- Initialization handshake with servers
-- Server capability tracking and state management
-- Request delegation to domain-specific managers
-- Notification handling for server state changes
-
 Key components:
-- Managers: Handle domain logic (tools, resources, prompts, etc.)
+- Managers: Handle domain logic (elicitation, sampling, roots, etc.)
 - State tracking: Server capabilities, available resources/tools
-- Callbacks: Notify application of server state changes
+- Callbacks: Handle server state changes and notifications
 """
 
 import asyncio
