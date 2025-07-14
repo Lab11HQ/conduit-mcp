@@ -3,7 +3,7 @@ from copy import deepcopy
 
 import pytest
 
-from conduit.client.session_v2 import (
+from conduit.client.session import (
     ClientConfig,
     ClientSession,
     InvalidProtocolVersionError,

@@ -15,6 +15,7 @@ Key components:
 import asyncio
 from dataclasses import dataclass
 
+from conduit.client.coordinator import ClientMessageCoordinator
 from conduit.client.managers.callbacks import CallbackManager
 from conduit.client.managers.elicitation import (
     ElicitationManager,
@@ -22,6 +23,7 @@ from conduit.client.managers.elicitation import (
 )
 from conduit.client.managers.roots import RootsManager
 from conduit.client.managers.sampling import SamplingManager, SamplingNotConfiguredError
+from conduit.client.server_manager import ServerManager
 from conduit.protocol.base import (
     INTERNAL_ERROR,
     METHOD_NOT_FOUND,
@@ -44,13 +46,11 @@ from conduit.protocol.initialization import (
     InitializedNotification,
     InitializeRequest,
     InitializeResult,
-    ServerCapabilities,
 )
 from conduit.protocol.logging import LoggingMessageNotification
 from conduit.protocol.prompts import (
     ListPromptsRequest,
     ListPromptsResult,
-    Prompt,
     PromptListChangedNotification,
 )
 from conduit.protocol.resources import (
@@ -70,11 +70,9 @@ from conduit.protocol.sampling import CreateMessageRequest, CreateMessageResult
 from conduit.protocol.tools import (
     ListToolsRequest,
     ListToolsResult,
-    Tool,
     ToolListChangedNotification,
 )
-from conduit.shared.session import BaseSession
-from conduit.transport.base import Transport
+from conduit.transport.client import ClientTransport
 
 
 class InvalidProtocolVersionError(Exception):
@@ -88,24 +86,13 @@ class ClientConfig:
     protocol_version: str = PROTOCOL_VERSION
 
 
-@dataclass
-class ServerState:
-    capabilities: ServerCapabilities | None = None
-    instructions: str | None = None
-    info: Implementation | None = None
-
-    tools: list[Tool] | None = None
-    resources: list[Resource] | None = None
-    resource_templates: list[ResourceTemplate] | None = None
-    prompts: list[Prompt] | None = None
-
-
-class ClientSession(BaseSession):
-    def __init__(self, transport: Transport, config: ClientConfig):
-        super().__init__(transport)
+class ClientSession:
+    def __init__(self, transport: ClientTransport, config: ClientConfig):
+        self.transport = transport
         self.client_config = config
-        self._initialize_result: InitializeResult | None = None
-        self.server_state = ServerState()
+        self._initialized = False
+
+        self.server_manager = ServerManager()
         self.callbacks = CallbackManager()
 
         # Domain managers
@@ -113,15 +100,33 @@ class ClientSession(BaseSession):
         self.sampling = SamplingManager()
         self.elicitation = ElicitationManager()
 
+        self._coordinator = ClientMessageCoordinator(transport, self.server_manager)
+        self._register_handlers()
+
+    # ================================
+    # Lifecycle
+    # ================================
+
+    async def start(self) -> None:
+        """Start accepting and processing server messages.
+
+        Starts the background message loop that will handle incoming server
+        messages and route them to the appropriate handlers.
+        """
+        await self._coordinator.start()
+
+    async def stop(self) -> None:
+        """Stop accepting and processing server messages and clean up all state."""
+        await self._coordinator.stop()
+        self.server_manager.reset_server_state()
+
+        self._initialized = False
+
     # ================================
     # Initialization
     # ================================
 
-    @property
-    def initialized(self) -> bool:
-        return self._initialize_result is not None
-
-    async def initialize(self, timeout: float = 30.0) -> InitializeResult:
+    async def initialize(self, timeout: float = 30.0) -> None:
         """Initialize your MCP session with the server.
 
         Performs the MCP handshake to establish a working connection. This starts
@@ -141,16 +146,12 @@ class ClientSession(BaseSession):
             InvalidProtocolVersionError: Server uses an incompatible protocol version.
             ConnectionError: Network failure or server rejected the handshake.
         """
+        if self._initialized:
+            return
+
         await self.start()
-
-        if self._initialize_result:
-            return self._initialize_result
-
         try:
-            self._initialize_result = await asyncio.wait_for(
-                self._do_initialize(), timeout
-            )
-            return self._initialize_result
+            await asyncio.wait_for(self._do_initialize(timeout), timeout)
         except asyncio.TimeoutError:
             await self.stop()
             raise TimeoutError(f"Initialization timed out after {timeout}s")
@@ -161,14 +162,14 @@ class ClientSession(BaseSession):
             await self.stop()
             raise ConnectionError(f"Initialization failed: {e}") from e
 
-    async def _do_initialize(self) -> InitializeResult:
-        """Execute the three-step MCP initialization handshake.
+    async def _do_initialize(self, timeout: float = 30.0) -> None:
+        """Executes the three-step MCP initialization handshake.
 
         1. Send InitializeRequest with client info and capabilities
         2. Validate the server's InitializeResult response
         3. Send InitializedNotification to complete the handshake
 
-        The server state is updated with the negotiated capabilities and info.
+        Updates the server manager with the negotiated capabilities and info.
 
         Raises:
             RuntimeError: If the server returns an error or unexpected response type
@@ -177,8 +178,7 @@ class ClientSession(BaseSession):
                 protocol version.
         """
         init_request = self._create_init_request()
-        response = await self.send_request(init_request)  # TODO: MAKE SURE WE DON'T
-        # TRY TO CANCEL THE REQUEST IF IT TIMES OUT
+        response = await self.send_request(init_request, timeout)
 
         if isinstance(response, Error):
             raise RuntimeError(response.message)
@@ -187,13 +187,17 @@ class ClientSession(BaseSession):
 
         self._validate_protocol_version(response)
 
-        await self.send_notification(InitializedNotification())
-        self._store_init_result(response)
-
-        return response
+        await self._coordinator.send_notification(InitializedNotification())
+        self.server_manager.initialize_server(
+            capabilities=response.capabilities,
+            info=response.server_info,
+            protocol_version=self.client_config.protocol_version,  # must match client
+            instructions=response.instructions,
+        )
+        self._initialized = True
 
     def _create_init_request(self) -> InitializeRequest:
-        """Create an InitializeRequest with client info and capabilities.
+        """Creates an InitializeRequest with client info and capabilities.
 
         Returns:
             InitializeRequest with client info and capabilities.
@@ -205,7 +209,7 @@ class ClientSession(BaseSession):
         )
 
     def _validate_protocol_version(self, result: InitializeResult) -> None:
-        """Ensure the server's protocol version matches the client's.
+        """Ensures the server's protocol version matches the client's.
 
         Raises:
             InvalidProtocolVersionError: If the server uses an incompatible
@@ -218,63 +222,13 @@ class ClientSession(BaseSession):
                 f"server={result.protocol_version}"
             )
 
-    def _store_init_result(self, result: InitializeResult) -> None:
-        """Store the server's capabilities, instructions, and info in the server state.
-
-        Args:
-            result: InitializeResult from server.
-        """
-        self.server_state.capabilities = result.capabilities
-        self.server_state.instructions = result.instructions
-        self.server_state.info = result.server_info
-
-    # ================================
-    # Request routing
-    # ================================
-
-    async def _handle_session_request(self, request: Request) -> Result | Error:
-        """Routes incoming requests to the appropriate handler.
-
-        Returns an error is there is no handler for the request type.
-
-        Args:
-            request: Typed Request object from the base session.
-
-        Returns:
-            Result from the handler, or Error if handler returns one.
-
-        Note:
-            Handlers are responsible for capability checking and returning
-            appropriate Error objects rather than raising exceptions.
-        """
-        method = request.method
-
-        handlers = self._get_request_handlers()
-        if method not in handlers:
-            return Error(
-                code=METHOD_NOT_FOUND, message=f"Method not supported: {method}"
-            )
-
-        handler = handlers[method]
-        return await handler(request)
-
-    def _get_request_handlers(self):
-        """Get the request handlers for the client session.
-
-        Maps request methods to their corresponding handler functions.
-        """
-        return {
-            "ping": self._handle_ping,
-            "roots/list": self._handle_list_roots,
-            "sampling/createMessage": self._handle_sampling,
-            "elicitation/create": self._handle_elicitation,
-        }
-
     # ================================
     # Ping
     # ================================
 
     async def _handle_ping(self, request: PingRequest) -> EmptyResult:
+        """Returns an empty result."""
+
         return EmptyResult()
 
     # ================================
@@ -284,28 +238,18 @@ class ClientSession(BaseSession):
     async def _handle_list_roots(
         self, request: ListRootsRequest
     ) -> ListRootsResult | Error:
-        """Handle server request for filesystem roots.
-
-        Only processes requests if the client advertised roots capability during
-        initialization. Delegates actual roots logic to the RootsManager.
-
-        Args:
-            request: Parsed roots/list request from server.
+        """Returns the available roots.
 
         Returns:
-            ListRootsResult from the roots manager, or Error if:
-            - Client didn't advertise roots capability (METHOD_NOT_FOUND)
-            - Handler raised unexpected exception (INTERNAL_ERROR)
+            ListRootsResult: The available roots.
+            Error: If roots are not supported.
         """
         if self.client_config.capabilities.roots is None:
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Client does not support roots capability",
             )
-        try:
-            return await self.roots.handle_list_roots(request)
-        except Exception:
-            return Error(code=INTERNAL_ERROR, message="Error in roots handler")
+        return await self.roots.handle_list_roots(request)
 
     # ================================
     # Sampling
@@ -314,19 +258,12 @@ class ClientSession(BaseSession):
     async def _handle_sampling(
         self, request: CreateMessageRequest
     ) -> CreateMessageResult | Error:
-        """Handle server request for LLM sampling.
-
-        Only processes requests if the client advertised sampling capability during
-        initialization. Delegates actual sampling logic to the SamplingManager.
-
-        Args:
-            request: Parsed sampling/createMessage request from server.
+        """Creates a message using the configured sampling handler.
 
         Returns:
-            CreateMessageResult from the configured handler, or Error if:
-            - Client didn't advertise sampling capability (METHOD_NOT_FOUND)
-            - No sampling handler configured (METHOD_NOT_FOUND)
-            - Handler raised unexpected exception (INTERNAL_ERROR)
+            CreateMessageResult: The created message.
+            Error: If sampling is not supported, handler not configured,
+                or handler fails.
         """
         if not self.client_config.capabilities.sampling:
             return Error(
@@ -338,26 +275,23 @@ class ClientSession(BaseSession):
         except SamplingNotConfiguredError as e:
             return Error(code=METHOD_NOT_FOUND, message=str(e))
         except Exception:
-            return Error(code=INTERNAL_ERROR, message="Error in sampling handler")
+            return Error(
+                code=INTERNAL_ERROR,
+                message="Could not fulfill sampling request",
+                data={"request": request},
+            )
 
     # ================================
     # Elicitation
     # ================================
 
     async def _handle_elicitation(self, request: ElicitRequest) -> ElicitResult | Error:
-        """Handle server request for elicitation.
-
-        Only processes requests if the client advertised elicitation capability during
-        initialization. Delegates actual elicitation logic to the ElicitationManager.
-
-        Args:
-            request: Parsed elicitation/create request from server.
+        """Returns an elicitation result using the configured elicitation handler
 
         Returns:
-            ElicitResult from the configured handler, or Error if:
-            - Client didn't advertise elicitation capability (METHOD_NOT_FOUND)
-            - No elicitation handler configured (METHOD_NOT_FOUND)
-            - Handler raised unexpected exception (INTERNAL_ERROR)
+            ElicitResult: The elicitation result.
+            Error: If the client doesn't support elicitation, a handler is not
+                configured, or the handler fails.
         """
         if not self.client_config.capabilities.elicitation:
             return Error(
@@ -369,127 +303,76 @@ class ClientSession(BaseSession):
         except ElicitationNotConfiguredError as e:
             return Error(code=METHOD_NOT_FOUND, message=str(e))
         except Exception:
-            return Error(code=INTERNAL_ERROR, message="Error in elicitation handler")
+            return Error(
+                code=INTERNAL_ERROR,
+                message="Could not fulfill elicitation request",
+                data={"request": request},
+            )
 
     # ================================
-    # Notification handlers
+    # Notifications
     # ================================
-
-    async def _handle_session_notification(self, notification: Notification) -> None:
-        """Route incoming notifications to the appropriate handler.
-
-        Args:
-            notification: Typed Notification object from the base session.
-
-        Note:
-            Only notifications with registered handlers are processed. Unknown
-            notification types are ignored, but missing handlers are silently ignored.
-        """
-        method = notification.method
-        handlers = self._get_notification_handlers()
-
-        if method in handlers:
-            handler = handlers[method]
-            await handler(notification)
-        # Silently ignore notifications without handlers
-
-    def _get_notification_handlers(self):
-        return {
-            "notifications/cancelled": self._handle_cancelled,
-            "notifications/progress": self._handle_progress,
-            "notifications/prompts/list_changed": self._handle_prompts_list_changed,
-            "notifications/resources/list_changed": self._handle_resources_list_changed,
-            "notifications/resources/updated": self._handle_resources_updated,
-            "notifications/tools/list_changed": self._handle_tools_list_changed,
-            "notifications/message": self._handle_logging_message,
-        }
 
     async def _handle_cancelled(self, notification: CancelledNotification) -> None:
-        """Handle server cancellation notifications for in-flight requests.
-
-        Cancels the corresponding request task if it exists and calls the
-        registered callback. Only processes cancellations for requests that
-        are actually in-flight.
-
-        Args:
-            notification: Cancellation notification from server with request ID.
-
-        Note:
-            Request cleanup from _in_flight_requests is handled automatically
-            by the task's done callback when cancellation completes. This handler
-            only initiates cancellation and calls the registered callback.
-        """
-        if notification.request_id in self._in_flight_requests:
-            self._in_flight_requests[notification.request_id].cancel()
+        """Cancels a request from the server and calls the registered callback."""
+        was_cancelled = await self._coordinator.cancel_request_from_server(
+            notification.request_id
+        )
+        if was_cancelled:
             await self.callbacks.call_cancelled(notification)
 
     async def _handle_progress(self, notification: ProgressNotification) -> None:
-        """Handle server progress notifications.
-
-        Delegates progress updates to the callback manager.
-
-        Args:
-            notification: Progress notification from server with progress token.
-        """
+        """Calls the registered callback for progress updates."""
         await self.callbacks.call_progress(notification)
 
     async def _handle_prompts_list_changed(
         self, notification: PromptListChangedNotification
     ) -> None:
-        """Handle server notification that the prompts list has changed.
-
-        Fetches the updated prompts list from the server, updates local server
-        state, and calls the registered callback with the new prompts.
-
-        Args:
-            notification: Notification that prompts have changed (content ignored).
+        """Fetches the updated prompts list and calls the registered callback.
 
         Note:
-            Only updates state and calls callback if the request succeeds with
-            valid results. Failed requests and server errors are silently ignored
-            to avoid disrupting the session.
+            Only calls the callback if the request succeeds with valid results.
+            Failed requests and server errors are silently ignored to avoid
+            disrupting the session.
         """
         try:
-            result = await self.send_request(ListPromptsRequest())
-            if isinstance(result, ListPromptsResult):
-                self.server_state.prompts = result.prompts
-                await self.callbacks.call_prompts_changed(result.prompts)
+            list_prompts_result = await self.send_request(ListPromptsRequest())
+            if isinstance(list_prompts_result, ListPromptsResult):
+                self.server_manager.get_server_context().prompts = (
+                    list_prompts_result.prompts
+                )
+                await self.callbacks.call_prompts_changed(list_prompts_result.prompts)
         except Exception:
             pass
 
     async def _handle_resources_list_changed(
         self, notification: ResourceListChangedNotification
     ) -> None:
-        """Handle server notification that the resources list has changed.
-
-        Fetches both the updated resources and resource templates from the server,
-        updates local server state for successful requests, and calls the registered
-        callback if at least one request succeeds.
-
-        Args:
-            notification: Notification that resources list has changed
-                (content ignored).
+        """Fetches the updated resources/templates and calls the registered callback.
 
         Note:
-            Calls the callback when at least one request succeeds, passing empty
-            lists for failed requests. If both requests fail, no callback is made.
+            Calls the callback when at least one request succeeds. Passes empty lists
+            for failed requests. If both requests fail, the callback is not called.
         """
         resources: list[Resource] = []
         templates: list[ResourceTemplate] = []
+        context = self.server_manager.get_server_context()
 
         try:
-            resources_result = await self.send_request(ListResourcesRequest())
-            if isinstance(resources_result, ListResourcesResult):
-                resources = resources_result.resources
-                self.server_state.resources = resources
+            list_resources_result = await self.send_request(ListResourcesRequest())
+            if isinstance(list_resources_result, ListResourcesResult):
+                resources = list_resources_result.resources
+                context.resources = resources
         except Exception:
             pass
 
         try:
-            templates_result = await self.send_request(ListResourceTemplatesRequest())
-            if isinstance(templates_result, ListResourceTemplatesResult):
-                templates = templates_result.resource_templates
-                self.server_state.resource_templates = templates
+            list_templates_result = await self.send_request(
+                ListResourceTemplatesRequest()
+            )
+            if isinstance(list_templates_result, ListResourceTemplatesResult):
+                templates = list_templates_result.resource_templates
+                context.resource_templates = templates
         except Exception:
             pass
 
@@ -499,57 +382,133 @@ class ClientSession(BaseSession):
     async def _handle_resources_updated(
         self, notification: ResourceUpdatedNotification
     ) -> None:
-        """Handle notification that a specific resource has been updated.
-
-        Reads the updated resource content and calls the registered callback
-        with the URI and fresh resource data.
-
-        Args:
-            notification: Notification with URI of the updated resource.
+        """Reads the updated resource content and calls the registered callback.
 
         Note:
-            Only calls callback if the resource read succeeds. Failed requests
-            are silently ignored.
+            Only calls the callback if the resource read succeeds. Failed requests are
+            silently ignored to avoid disrupting the session.
         """
         try:
-            result = await self.send_request(ReadResourceRequest(uri=notification.uri))
-            if isinstance(result, ReadResourceResult):
-                await self.callbacks.call_resource_updated(notification.uri, result)
+            read_resource_result = await self.send_request(
+                ReadResourceRequest(uri=notification.uri)
+            )
+            if isinstance(read_resource_result, ReadResourceResult):
+                await self.callbacks.call_resource_updated(
+                    notification.uri, read_resource_result
+                )
         except Exception:
             pass
 
     async def _handle_tools_list_changed(
         self, notification: ToolListChangedNotification
     ) -> None:
-        """Handle server notification that the tools list has changed.
-
-        Fetches the updated tools list from the server, updates local server
-        state, and calls the registered callback with the new tools.
-
-        Args:
-            notification: Notification that tools have changed (content ignored).
+        """Fetches the updated tools list and calls the registered callback.
 
         Note:
-            Only updates state and calls the callback if the request succeeds with
-            valid results. Failed requests and server errors are silently ignored
-            to avoid disrupting the session.
+            Only calls the callback if the request succeeds with valid results.
+            Failed requests and server errors are silently ignored to avoid
+            disrupting the session.
         """
         try:
-            tools_result = await self.send_request(ListToolsRequest())
-            if isinstance(tools_result, ListToolsResult):
-                self.server_state.tools = tools_result.tools
-                await self.callbacks.call_tools_changed(tools_result.tools)
+            list_tools_result = await self.send_request(ListToolsRequest())
+            if isinstance(list_tools_result, ListToolsResult):
+                self.server_manager.get_server_context().tools = list_tools_result.tools
+                await self.callbacks.call_tools_changed(list_tools_result.tools)
         except Exception:
             pass
 
     async def _handle_logging_message(
         self, notification: LoggingMessageNotification
     ) -> None:
-        """Handle server logging message notifications.
+        """Calls the registered callback for logging messages."""
+        await self.callbacks.call_logging_message(notification)
 
-        Delegates logging messages to the callback manager.
+    # ================================
+    # Send messages
+    # ================================
+
+    async def send_request(
+        self, request: Request, timeout: float = 30.0
+    ) -> Result | Error:
+        """Send a request to the server and wait for a response.
 
         Args:
-            notification: Logging message notification from server.
+            request: The request to send.
+            timeout: Maximum time to wait for response in seconds (default 30s).
+
+        Returns:
+            Result | Error: The server's response or timeout error.
+
+        Raises:
+            ValueError: If attempting to send non-ping request to uninitialized server.
+            ConnectionError: If the transport fails.
+            TimeoutError: If server doesn't respond within timeout.
         """
-        await self.callbacks.call_logging_message(notification)
+        await self.start()
+
+        if (
+            request.method not in ("ping", "initialize")
+            and not self.server_manager.get_server_context().initialized
+        ):
+            raise ValueError(
+                f"Cannot send {request.method} to uninitialized server. "
+                "Only ping requests are allowed before initialization."
+            )
+
+        return await self._coordinator.send_request(request, timeout)
+
+    async def send_notification(self, notification: Notification) -> None:
+        """Send a notification to the server.
+
+        Args:
+            notification: The notification to send.
+
+        Raises:
+            ConnectionError: If the transport fails.
+        """
+        await self.start()
+
+        await self._coordinator.send_notification(notification)
+
+    # ================================
+    # Register handlers
+    # ================================
+
+    def _register_handlers(self) -> None:
+        """Registers all message handlers with the coordinator."""
+
+        # Requests
+        self._coordinator.register_request_handler("ping", self._handle_ping)
+        self._coordinator.register_request_handler(
+            "roots/list", self._handle_list_roots
+        )
+        self._coordinator.register_request_handler(
+            "sampling/createMessage", self._handle_sampling
+        )
+        self._coordinator.register_request_handler(
+            "elicitation/create", self._handle_elicitation
+        )
+
+        # Notifications
+        self._coordinator.register_notification_handler(
+            "notifications/cancelled", self._handle_cancelled
+        )
+        self._coordinator.register_notification_handler(
+            "notifications/progress", self._handle_progress
+        )
+        self._coordinator.register_notification_handler(
+            "notifications/prompts/list_changed", self._handle_prompts_list_changed
+        )
+        self._coordinator.register_notification_handler(
+            "notifications/resources/list_changed", self._handle_resources_list_changed
+        )
+
+        self._coordinator.register_notification_handler(
+            "notifications/resources/updated", self._handle_resources_updated
+        )
+        self._coordinator.register_notification_handler(
+            "notifications/tools/list_changed", self._handle_tools_list_changed
+        )
+        self._coordinator.register_notification_handler(
+            "notifications/message", self._handle_logging_message
+        )
