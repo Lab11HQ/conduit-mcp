@@ -227,10 +227,11 @@ class CallbackManager:
     def on_cancelled(
         self, callback: Callable[[CancelledNotification], Awaitable[None]]
     ) -> None:
-        """Register your callback for when server cancels a request.
+        """Register your callback for when the server cancels a request.
 
         Your callback receives the complete notification with
-        cancellation details - which request was cancelled and why.
+        cancellation details. Only called if the request was successfully
+        cancelled.
 
         Args:
             callback: Your async function called with each CancelledNotification.

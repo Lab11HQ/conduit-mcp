@@ -318,7 +318,8 @@ class ClientSession:
         was_cancelled = await self._coordinator.cancel_request_from_server(
             notification.request_id
         )
-        await self.callbacks.call_cancelled(notification)
+        if was_cancelled:
+            await self.callbacks.call_cancelled(notification)
 
     async def _handle_progress(self, notification: ProgressNotification) -> None:
         """Calls the registered callback for progress updates."""
@@ -360,7 +361,8 @@ class ClientSession:
         try:
             list_resources_result = await self.send_request(ListResourcesRequest())
             if isinstance(list_resources_result, ListResourcesResult):
-                context.resources = list_resources_result.resources
+                resources = list_resources_result.resources
+                context.resources = resources
         except Exception:
             pass
 
@@ -369,7 +371,8 @@ class ClientSession:
                 ListResourceTemplatesRequest()
             )
             if isinstance(list_templates_result, ListResourceTemplatesResult):
-                context.resource_templates = list_templates_result.resource_templates
+                templates = list_templates_result.resource_templates
+                context.resource_templates = templates
         except Exception:
             pass
 
