@@ -116,7 +116,7 @@ class ServerSession:
         self._register_handlers()
 
     async def start(self) -> None:
-        """Begin accepting and processing client messages.
+        """Start accepting and processing client messages.
 
         Starts the background message loop that will handle incoming client
         messages and route them to the appropriate handlers.
@@ -466,7 +466,7 @@ class ServerSession:
     async def _handle_cancelled(
         self, client_id: str, notification: CancelledNotification
     ) -> None:
-        """Cancel a request from a client and call any registered callbacks."""
+        """Cancels a request from a client and calls the registered callback."""
         was_cancelled = await self._coordinator.cancel_request_from_client(
             client_id, notification.request_id
         )
@@ -475,7 +475,7 @@ class ServerSession:
     async def _handle_progress(
         self, client_id: str, notification: ProgressNotification
     ) -> None:
-        """Call registered callbacks for progress updates."""
+        """Calls the registered callback for progress updates."""
         await self.callbacks.call_progress(client_id, notification)
 
     async def _handle_roots_list_changed(
@@ -487,9 +487,7 @@ class ServerSession:
         and call any registered callbacks.
         """
         try:
-            result = await self._coordinator.send_request_to_client(
-                client_id, ListRootsRequest()
-            )
+            result = await self._coordinator.send_request(client_id, ListRootsRequest())
 
             if isinstance(result, ListRootsResult):
                 context = self.client_manager.get_client(client_id)
@@ -507,7 +505,7 @@ class ServerSession:
     # Send messages
     # ================================
 
-    async def send_request_to_client(
+    async def send_request(
         self, client_id: str, request: Request, timeout: float = 30.0
     ) -> Result | Error:
         """Send a request to a client.
@@ -527,6 +525,7 @@ class ServerSession:
             ConnectionError: If transport is closed
             TimeoutError: If client doesn't respond within timeout
         """
+        await self.start()
         if request.method != "ping" and not self.client_manager.is_client_initialized(
             client_id
         ):
@@ -535,11 +534,9 @@ class ServerSession:
                 "Only ping requests are allowed before initialization."
             )
 
-        return await self._coordinator.send_request_to_client(
-            client_id, request, timeout
-        )
+        return await self._coordinator.send_request(client_id, request, timeout)
 
-    async def send_notification_to_client(
+    async def send_notification(
         self, client_id: str, notification: Notification
     ) -> None:
         """Send a notification to a client.
@@ -551,8 +548,8 @@ class ServerSession:
         Raises:
             ConnectionError: If transport is closed
         """
-
-        await self._coordinator.send_notification_to_client(client_id, notification)
+        await self.start()
+        await self._coordinator.send_notification(client_id, notification)
 
     # ================================
     # Register handlers

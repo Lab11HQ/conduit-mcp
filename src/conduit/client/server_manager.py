@@ -42,9 +42,27 @@ class ServerManager:
     def __init__(self):
         self._server_context = ServerContext()
 
+    def initialize_server(
+        self,
+        capabilities: ServerCapabilities,
+        info: Implementation,
+        protocol_version: str,
+        instructions: str | None = None,
+    ) -> None:
+        """Store the server's initialization data and mark it as initialized."""
+        self._server_context.capabilities = capabilities
+        self._server_context.info = info
+        self._server_context.protocol_version = protocol_version
+        self._server_context.instructions = instructions
+        self._server_context.initialized = True
+
     def get_server_context(self) -> ServerContext:
         """Get the server context."""
         return self._server_context
+
+    def reset_server_state(self) -> None:
+        """Reset the server state to its initial state."""
+        self._server_context = ServerContext()
 
     def cleanup_requests(self) -> None:
         """Clean up all request tracking when stopping.

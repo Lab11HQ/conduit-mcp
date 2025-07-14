@@ -62,26 +62,18 @@ class ClientManager:
     def initialize_client(
         self,
         client_id: str,
-        capabilities: ClientCapabilities | None = None,
-        client_info: Implementation | None = None,
-        protocol_version: str | None = None,
+        capabilities: ClientCapabilities,
+        client_info: Implementation,
+        protocol_version: str,
     ) -> None:
-        """Initialize a client with optional initialization data.
-
-        Registers the client if not already registered, then stores
-        the provided initialization data and marks as initialized.
-        """
+        """Register a client and store its initialization data."""
         context = self.get_client(client_id)
         if context is None:
             context = self.register_client(client_id)
 
-        # Store initialization data if provided
-        if capabilities is not None:
-            context.capabilities = capabilities
-        if client_info is not None:
-            context.info = client_info
-        if protocol_version is not None:
-            context.protocol_version = protocol_version
+        context.capabilities = capabilities
+        context.info = client_info
+        context.protocol_version = protocol_version
 
         context.initialized = True
 

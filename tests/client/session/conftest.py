@@ -3,98 +3,68 @@ from typing import Any
 
 import pytest
 
-from conduit.client.session import ClientConfig, ClientSession
-from conduit.protocol.base import PROTOCOL_VERSION
-from conduit.protocol.initialization import ClientCapabilities, Implementation
-from tests.shared.session.conftest import MockTransport
+from conduit.transport.client import ClientTransport
 
 
-class ClientSessionTest:
-    """Base test class for client session tests."""
+class MockClientTransport(ClientTransport):
+    """Simple mock transport for client session testing."""
 
-    @pytest.fixture(autouse=True)
-    def setup_fixtures(self):
-        self.transport = MockTransport()
-        self.config = ClientConfig(
-            client_info=Implementation(name="test-client", version="1.0.0"),
-            capabilities=ClientCapabilities(),
-        )
-        self.session = ClientSession(self.transport, self.config)
+    def __init__(self):
+        self.sent_messages: list[dict[str, Any]] = []
+        self._incoming_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        self._is_open = True
+        self._should_raise_error = False
 
-    @pytest.fixture(autouse=True)
-    async def teardown_session(self):
-        yield
-        if hasattr(self, "session"):
-            await self.session.stop()
+    async def send(self, payload: dict[str, Any]) -> None:
+        """Record sent messages."""
+        if not self._is_open:
+            raise ConnectionError("Transport closed")
+        if self._should_raise_error:
+            raise ConnectionError("Network error")
+        self.sent_messages.append(payload)
 
-    def create_init_response(
-        self,
-        request_id: str,
-        server_name: str = "test-server",
-        server_version: str = "1.0.0",
-        protocol_version: str = PROTOCOL_VERSION,
-        capabilities: dict[str, Any] | None = None,
-        instructions: str | None = None,
-    ) -> dict[str, Any]:
-        """Create a mock InitializeResult response."""
-        if capabilities is None:
-            capabilities = {}
+    async def server_messages(self):
+        """Stream of incoming messages from server."""
+        while self._is_open:
+            if self._should_raise_error:
+                raise ConnectionError("Network error")
+            try:
+                message = await asyncio.wait_for(
+                    self._incoming_queue.get(), timeout=0.01
+                )
+                yield message
+            except asyncio.TimeoutError:
+                continue
 
-        return {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "result": {
-                "protocolVersion": protocol_version,
-                "capabilities": capabilities,
-                "serverInfo": {
-                    "name": server_name,
-                    "version": server_version,
-                },
-                **({"instructions": instructions} if instructions else {}),
-            },
-        }
+    def receive_message(self, payload: dict[str, Any]) -> None:
+        """Simulate receiving a message from the server."""
+        if self._is_open:
+            self._incoming_queue.put_nowait(payload)
 
-    def create_init_error(
-        self,
-        request_id: str,
-        code: int = -32603,
-        message: str = "Internal error",
-    ) -> dict[str, Any]:
-        """Create a mock initialization error response."""
-        return {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "error": {
-                "code": code,
-                "message": message,
-            },
-        }
+    def simulate_error(self) -> None:
+        """Simulate a network error."""
+        self._should_raise_error = True
 
-    async def wait_for_sent_message(self, method: str | None = None) -> None:
-        """Wait for a message to be sent."""
-        for _ in range(100):  # Max 100ms wait
-            if method is None:
-                if self.transport.sent_messages:
-                    return
-            else:
-                if any(
-                    msg.get("method") == method for msg in self.transport.sent_messages
-                ):
-                    return
-            await asyncio.sleep(0.001)
+    async def close(self) -> None:
+        """Close the transport."""
+        self._is_open = False
 
-        if method:
-            raise AssertionError(f"Message with method '{method}' never sent")
-        else:
-            raise AssertionError("No message was sent")
+    @property
+    def is_open(self) -> bool:
+        return self._is_open
 
-    async def yield_to_event_loop(self, seconds: float | None = None) -> None:
-        """Let the event loop process pending tasks and callbacks.
 
-        Args:
-            seconds: Additional time to wait for async operations to settle.
-                Defaults to 0 (single event loop tick).
-        """
-        if seconds is None:
-            seconds = getattr(self, "_default_yield_time", 0)
-        await asyncio.sleep(seconds)
+async def yield_to_event_loop(seconds: float = 0.01) -> None:
+    """Let the event loop process pending tasks and callbacks.
+
+    Args:
+        seconds: Small delay to ensure async operations settle.
+                Defaults to 10ms - enough for most async operations.
+    """
+    await asyncio.sleep(seconds)
+
+
+@pytest.fixture
+def yield_loop():
+    """Helper to yield to event loop in tests."""
+    return yield_to_event_loop
