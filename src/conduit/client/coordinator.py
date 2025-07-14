@@ -37,7 +37,7 @@ RequestHandler = Callable[[TRequest], Awaitable[TResult | Error]]
 NotificationHandler = Callable[[TNotification], Coroutine[Any, Any, None]]
 
 
-class ClientMessageCoordinator:
+class MessageCoordinator:
     """Coordinates all message flow for client sessions.
 
     Handles bidirectional message coordination: routes inbound requests/notifications

@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from conduit.client.coordinator import ClientMessageCoordinator
+from conduit.client.coordinator import MessageCoordinator
 from conduit.client.server_manager import ServerManager
 from conduit.transport.client import ClientTransport
 
@@ -84,7 +84,7 @@ def server_manager():
 @pytest.fixture
 async def coordinator(mock_transport, server_manager):
     """ClientMessageCoordinator with mock dependencies and automatic cleanup."""
-    coord = ClientMessageCoordinator(mock_transport, server_manager)
+    coord = MessageCoordinator(mock_transport, server_manager)
     yield coord
     # Cleanup - ensure coordinator is stopped
     if coord.running:

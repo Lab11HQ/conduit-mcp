@@ -15,14 +15,14 @@ Key components:
 import asyncio
 from dataclasses import dataclass
 
-from conduit.client.coordinator import ClientMessageCoordinator
-from conduit.client.managers.callbacks import CallbackManager
-from conduit.client.managers.elicitation import (
+from conduit.client.callbacks import CallbackManager
+from conduit.client.coordinator import MessageCoordinator
+from conduit.client.protocol.elicitation import (
     ElicitationManager,
     ElicitationNotConfiguredError,
 )
-from conduit.client.managers.roots import RootsManager
-from conduit.client.managers.sampling import SamplingManager, SamplingNotConfiguredError
+from conduit.client.protocol.roots import RootsManager
+from conduit.client.protocol.sampling import SamplingManager, SamplingNotConfiguredError
 from conduit.client.server_manager import ServerManager
 from conduit.protocol.base import (
     INTERNAL_ERROR,
@@ -100,7 +100,7 @@ class ClientSession:
         self.sampling = SamplingManager()
         self.elicitation = ElicitationManager()
 
-        self._coordinator = ClientMessageCoordinator(transport, self.server_manager)
+        self._coordinator = MessageCoordinator(transport, self.server_manager)
         self._register_handlers()
 
     # ================================

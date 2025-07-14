@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from conduit.client.managers.sampling import SamplingManager, SamplingNotConfiguredError
+from conduit.client.protocol.sampling import SamplingManager, SamplingNotConfiguredError
 from conduit.protocol.content import TextContent
 from conduit.protocol.sampling import CreateMessageRequest, CreateMessageResult
 

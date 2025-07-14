@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from conduit.client.managers.elicitation import (
+from conduit.client.protocol.elicitation import (
     ElicitationManager,
     ElicitationNotConfiguredError,
 )

@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from conduit.client.managers.callbacks import CallbackManager
+from conduit.client.callbacks import CallbackManager
 from conduit.protocol.common import CancelledNotification, ProgressNotification
 from conduit.protocol.logging import LoggingMessageNotification
 from conduit.protocol.prompts import Prompt
