@@ -18,6 +18,10 @@ class MockServerTransport(ServerTransport):
         self._is_open = True
         self._should_raise_error = False
 
+    async def open(self) -> None:
+        """Open the transport."""
+        self._is_open = True
+
     async def send(self, client_id: str, message: dict[str, Any]) -> None:
         if client_id not in self.sent_messages:
             self.sent_messages[client_id] = []

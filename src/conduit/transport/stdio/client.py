@@ -16,8 +16,12 @@ class StdioClientTransport(ClientTransport):
         self._process: asyncio.subprocess.Process | None = None
         self._is_open = False
 
-    async def _start_server(self) -> None:
-        """Start the server subprocess with proper pipe setup."""
+    async def open(self) -> None:
+        """Open transport and start the server subprocess.
+
+        Raises:
+            ConnectionError: If server cannot be started
+        """
         if self._process is not None:
             return  # Already started
 
@@ -220,9 +224,8 @@ class StdioClientTransport(ClientTransport):
             ConnectionError: If transport is closed or connection failed
             ValueError: If message is invalid or contains embedded newlines
         """
-        # Ensure server is started
-        if not self._is_open:
-            await self._start_server()
+        if not self.is_open:
+            raise ConnectionError("Transport is not open")
 
         try:
             # Serialize message to JSON
@@ -251,9 +254,8 @@ class StdioClientTransport(ClientTransport):
 
     async def _server_message_iterator(self) -> AsyncIterator[dict[str, Any]]:
         """Async iterator implementation for server messages."""
-        # Ensure server is started
-        if not self._is_open:
-            await self._start_server()
+        if not self.is_open:
+            raise ConnectionError("Transport is not open")
 
         try:
             while self._is_process_alive():

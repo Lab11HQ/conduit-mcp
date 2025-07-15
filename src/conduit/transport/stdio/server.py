@@ -23,6 +23,14 @@ class StdioServerTransport(ServerTransport):
         self._client_id = "stdio-client"  # Dummy ID for 1:1 relationship
         self._is_open = True
 
+    async def open(self) -> None:
+        """Open transport for communication.
+
+        For stdio, this is a no-op since stdin/stdout are already connected
+        by the client process that launched us as a subprocess.
+        """
+        pass  # Already open via subprocess pipes
+
     @property
     def is_open(self) -> bool:
         """True if server is open and accepting messages."""
