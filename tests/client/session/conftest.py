@@ -15,6 +15,10 @@ class MockClientTransport(ClientTransport):
         self._is_open = True
         self._should_raise_error = False
 
+    async def open(self) -> None:
+        """Open the transport."""
+        self._is_open = True
+
     async def send(self, payload: dict[str, Any]) -> None:
         """Record sent messages."""
         if not self._is_open:

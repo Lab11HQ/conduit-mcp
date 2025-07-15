@@ -24,6 +24,15 @@ class ServerTransport(ABC):
     """
 
     @abstractmethod
+    async def open(self) -> None:
+        """Open transport and begin accepting connections.
+
+        Raises:
+            ConnectionError: If transport cannot be opened
+        """
+        ...
+
+    @abstractmethod
     async def send(self, client_id: str, message: dict[str, Any]) -> None:
         """Send message to specific client.
 

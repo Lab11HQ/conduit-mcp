@@ -11,6 +11,15 @@ class ClientTransport(ABC):
     is managed by the session layer.
     """
 
+    @abstractmethod
+    async def open(self) -> None:
+        """Open transport and establish connection to server.
+
+        Raises:
+            ConnectionError: If connection cannot be established
+        """
+        ...
+
     @property
     @abstractmethod
     def is_open(self) -> bool:

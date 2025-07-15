@@ -18,6 +18,10 @@ class MockClientTransport(ClientTransport):
         self._is_open = True
         self._should_raise_error = False
 
+    async def open(self) -> None:
+        """Open the transport."""
+        self._is_open = True
+
     @property
     def is_open(self) -> bool:
         return self._is_open
