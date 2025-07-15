@@ -106,7 +106,7 @@ class MessageCoordinator:
     # ================================
 
     async def _message_loop(self) -> None:
-        """Process incoming messages until cancelled or transport fails.
+        """Processes incoming messages until cancelled or transport fails.
 
         Runs continuously in the background and hands off messages to the message
         handler. Individual message handling errors are logged and don't interrupt
@@ -137,7 +137,7 @@ class MessageCoordinator:
     # ================================
 
     async def _route_server_message(self, payload: dict[str, Any]) -> None:
-        """Route server message to the appropriate handler."""
+        """Routes server message to the appropriate handler."""
         if self.parser.is_valid_request(payload):
             await self._handle_request(payload)
         elif self.parser.is_valid_notification(payload):
@@ -152,7 +152,7 @@ class MessageCoordinator:
     # ================================
 
     async def _handle_request(self, payload: dict[str, Any]) -> None:
-        """Parse and route an incoming request from the server."""
+        """Parses and routes an incoming request from the server."""
         request_id = payload["id"]
 
         request_or_error = self.parser.parse_request(payload)
@@ -218,7 +218,7 @@ class MessageCoordinator:
     # ================================
 
     async def _handle_notification(self, payload: dict[str, Any]) -> None:
-        """Parse and route a typed notification to the appropriate handler."""
+        """Parses and routes a typed notification to the appropriate handler."""
         method = payload["method"]
 
         notification = self.parser.parse_notification(payload)
@@ -315,7 +315,7 @@ class MessageCoordinator:
             self.server_manager.untrack_request_to_server(request_id)
 
     async def _ensure_ready_to_send(self) -> None:
-        """Ensure coordinator is running and transport is open."""
+        """Ensures coordinator is running and transport is open."""
         if not self.running:
             await self.start()
 
