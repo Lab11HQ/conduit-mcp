@@ -53,6 +53,10 @@ class StdioClientTransport(ClientTransport):
             self._is_open = False
             raise ConnectionError(f"Failed to start server: {e}") from e
 
+    @property
+    def is_open(self) -> bool:
+        return self._is_open and self._is_process_alive()
+
     def _is_process_alive(self) -> bool:
         """Check if subprocess is still running."""
         if self._process is None:
@@ -209,10 +213,6 @@ class StdioClientTransport(ClientTransport):
         except json.JSONDecodeError as e:
             logger.warning(f"Invalid JSON received: {line} - {e}")
             return None
-
-    @property
-    def is_open(self) -> bool:
-        return self._is_open and self._is_process_alive()
 
     async def send(self, message: dict[str, Any]) -> None:
         """Send message to the server.
