@@ -5,8 +5,8 @@ from typing import Any
 import pytest
 
 from conduit.server.client_manager import ClientManager
-from conduit.server.coordinator import MessageCoordinator
-from conduit.transport.server import ClientMessage, ServerTransport
+from conduit.server.coordinator_v2 import MessageCoordinator
+from conduit.transport.server_v2 import ClientMessage, ServerTransport
 
 
 class MockServerTransport(ServerTransport):
@@ -15,17 +15,20 @@ class MockServerTransport(ServerTransport):
     def __init__(self):
         self.sent_messages: dict[str, list[dict[str, Any]]] = {}
         self.client_message_queue: asyncio.Queue[ClientMessage] = asyncio.Queue()
-        self._is_open = True
         self._should_raise_error = False
 
-    async def open(self) -> None:
-        """Open the transport."""
-        self._is_open = True
-
     async def send(self, client_id: str, message: dict[str, Any]) -> None:
+        if self._should_raise_error:
+            raise ConnectionError("Transport error")
         if client_id not in self.sent_messages:
             self.sent_messages[client_id] = []
         self.sent_messages[client_id].append(message)
+
+    async def disconnect_client(self, client_id: str) -> None:
+        """Disconnect specific client."""
+        # For testing, just remove from sent_messages tracking
+        if client_id in self.sent_messages:
+            del self.sent_messages[client_id]
 
     def simulate_error(self) -> None:
         """Simulate a transport error."""
@@ -35,7 +38,7 @@ class MockServerTransport(ServerTransport):
         return self._client_message_iterator()
 
     async def _client_message_iterator(self) -> AsyncIterator[ClientMessage]:
-        while self._is_open:
+        while True:
             if self._should_raise_error:
                 raise ConnectionError("Transport error")
             try:
@@ -44,24 +47,8 @@ class MockServerTransport(ServerTransport):
                 )
                 yield message
             except asyncio.TimeoutError:
-                if not self._is_open:
-                    break
                 continue
             except asyncio.CancelledError:
-                break
-
-    @property
-    def is_open(self) -> bool:
-        return self._is_open
-
-    async def close(self) -> None:
-        """Close the transport and stop the message iterator."""
-        self._is_open = False
-        # Clear the queue to help the iterator exit faster
-        while not self.client_message_queue.empty():
-            try:
-                self.client_message_queue.get_nowait()
-            except asyncio.QueueEmpty:
                 break
 
     # Test helpers
@@ -77,11 +64,10 @@ class MockServerTransport(ServerTransport):
 
 @pytest.fixture
 async def mock_transport():
-    """Mock ServerTransport for testing with automatic cleanup."""
+    """Mock ServerTransport for testing."""
     transport = MockServerTransport()
     yield transport
-    # Cleanup - close the transport to stop the async generator
-    await transport.close()
+    # No cleanup needed - transport has no lifecycle!
 
 
 @pytest.fixture

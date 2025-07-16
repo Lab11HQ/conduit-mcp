@@ -221,7 +221,7 @@ class MessageCoordinator:
             if isinstance(result_or_error, Error) and self._should_disconnect_for_error(
                 result_or_error
             ):
-                self.client_manager.disconnect_client(client_id)
+                self.client_manager.cleanup_client(client_id)
 
         except Exception:
             error = Error(
@@ -327,9 +327,13 @@ class MessageCoordinator:
             Result | Error: The client's response or timeout error
 
         Raises:
+            RuntimeError: If coordinator is not running
             ConnectionError: Transport fails to send request
             TimeoutError: If client doesn't respond within timeout
         """
+        if not self.running:
+            raise RuntimeError("Cannot send request: coordinator is not running")
+
         # Prepare the request
         request_id = str(uuid.uuid4())
         jsonrpc_request = JSONRPCRequest.from_request(request, request_id)
@@ -369,7 +373,14 @@ class MessageCoordinator:
     async def send_notification(
         self, client_id: str, notification: Notification
     ) -> None:
-        """Send a notification to a specific client."""
+        """Send a notification to a specific client.
+
+        Raises:
+            RuntimeError: If coordinator is not running
+        """
+        if not self.running:
+            raise RuntimeError("Cannot send notification: coordinator is not running")
+
         jsonrpc_notification = JSONRPCNotification.from_notification(notification)
         await self.transport.send(client_id, jsonrpc_notification.to_wire())
 

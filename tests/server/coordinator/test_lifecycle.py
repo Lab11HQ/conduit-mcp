@@ -1,7 +1,5 @@
 import asyncio
 
-import pytest
-
 from conduit.protocol.common import PingRequest
 
 
@@ -23,15 +21,6 @@ class TestMessageCoordinatorLifecycle:
         # Cleanup
         await coordinator.stop()
         assert not coordinator.running
-
-    async def test_start_requires_open_transport(self, coordinator, mock_transport):
-        # Arrange
-        await mock_transport.close()
-        assert not mock_transport.is_open
-
-        # Act & Assert
-        with pytest.raises(ConnectionError, match="transport is closed"):
-            await coordinator.start()
 
     async def test_stop_is_idempotent(self, coordinator):
         # Arrange
@@ -61,21 +50,6 @@ class TestMessageCoordinatorLifecycle:
         await coordinator.start()
         assert coordinator.running
 
-        await coordinator.stop()
-        assert not coordinator.running
-
-    async def test_coordinator_handles_transport_failure_gracefully(
-        self, coordinator, mock_transport, yield_loop
-    ):
-        # Arrange
-        await coordinator.start()
-
-        # Act - simulate transport failure
-        await mock_transport.close()
-
-        await yield_loop()
-
-        # Assert - coordinator should still be cleanly stoppable
         await coordinator.stop()
         assert not coordinator.running
 
