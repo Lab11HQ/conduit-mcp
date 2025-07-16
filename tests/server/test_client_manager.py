@@ -34,8 +34,8 @@ class TestClientLifecycle:
         assert manager.client_count() == 1
         assert manager.is_client_initialized(client_id) is False
 
-    async def test_disconnect_client_with_active_or_pending_requests(self):
-        """Test client disconnection properly cleans up active requests."""
+    async def test_cleanup_client_with_active_or_pending_requests(self):
+        """Test client cleanup properly cleans up active requests."""
         # Arrange
         manager = ClientManager()
         client_id = "test-client-123"
@@ -61,7 +61,7 @@ class TestClientLifecycle:
         assert not awaiting_client_response.done()
 
         # Act
-        manager.disconnect_client(client_id)
+        manager.cleanup_client(client_id)
 
         # Wait for cancellation to complete
         try:

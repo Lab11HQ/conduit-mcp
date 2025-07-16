@@ -51,6 +51,10 @@ class ClientManager:
         """Get client context."""
         return self._clients.get(client_id)
 
+    def get_all_client_ids(self) -> list[str]:
+        """Get all client IDs."""
+        return list(self._clients.keys())
+
     def is_client_initialized(self, client_id: str) -> bool:
         """Check if a specific client is initialized."""
         context = self.get_client(client_id)
@@ -81,7 +85,7 @@ class ClientManager:
         """Get number of active clients."""
         return len(self._clients)
 
-    def disconnect_client(self, client_id: str) -> None:
+    def cleanup_client(self, client_id: str) -> None:
         """Clean up all client state for a disconnected client.
 
         Cancels all in-flight requests from the client and resolves all pending
@@ -109,7 +113,7 @@ class ClientManager:
     def cleanup_all_clients(self) -> None:
         """Clean up all client connections and state."""
         for client_id in list(self._clients.keys()):
-            self.disconnect_client(client_id)
+            self.cleanup_client(client_id)
 
     def track_request_to_client(
         self,
