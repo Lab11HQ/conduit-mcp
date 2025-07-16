@@ -1,9 +1,9 @@
 import asyncio
-import json
 import logging
 from typing import Any, AsyncIterator
 
 from conduit.transport.client import ClientTransport
+from conduit.transport.stdio.shared import parse_json_message, serialize_message
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,10 @@ class StdioClientTransport(ClientTransport):
             self._process = None
             self._is_open = False
             raise ConnectionError(f"Failed to start server: {e}") from e
+
+    @property
+    def is_open(self) -> bool:
+        return self._is_open and self._is_process_alive()
 
     def _is_process_alive(self) -> bool:
         """Check if subprocess is still running."""
@@ -113,33 +117,6 @@ class StdioClientTransport(ClientTransport):
             self._process = None
             self._is_open = False
 
-    def _serialize_message(self, message: dict[str, Any]) -> str:
-        """Serialize message to JSON string with validation.
-
-        Args:
-            message: JSON-RPC message to serialize
-
-        Returns:
-            JSON string representation
-
-        Raises:
-            ValueError: If message contains embedded newlines
-        """
-        try:
-            # Serialize to JSON with no extra whitespace
-            json_str = json.dumps(message, separators=(",", ":"), ensure_ascii=False)
-
-            # Validate no embedded newlines (spec requirement)
-            if "\n" in json_str or "\r" in json_str:
-                raise ValueError(
-                    "Message contains embedded newlines, which violates MCP spec"
-                )
-
-            return json_str
-
-        except (TypeError, ValueError) as e:
-            raise ValueError(f"Failed to serialize message to JSON: {e}") from e
-
     async def _write_to_stdin(self, data: bytes) -> None:
         """Write data to subprocess stdin with error handling.
 
@@ -187,33 +164,6 @@ class StdioClientTransport(ClientTransport):
         # Decode to string (asyncio handles encoding, so this should always work)
         return line_bytes.decode("utf-8")
 
-    def _parse_json_message(self, line: str) -> dict[str, Any] | None:
-        """Parse a line as JSON message.
-
-        Args:
-            line: Raw line from server stdout
-
-        Returns:
-            Parsed message dict, or None if invalid/should be ignored
-        """
-        line = line.strip()
-        if not line:
-            return None  # Ignore empty lines
-
-        try:
-            message = json.loads(line)
-            if not isinstance(message, dict):
-                logger.warning(f"Message is not a JSON object: {line}")
-                return None
-            return message
-        except json.JSONDecodeError as e:
-            logger.warning(f"Invalid JSON received: {line} - {e}")
-            return None
-
-    @property
-    def is_open(self) -> bool:
-        return self._is_open and self._is_process_alive()
-
     async def send(self, message: dict[str, Any]) -> None:
         """Send message to the server.
 
@@ -229,7 +179,7 @@ class StdioClientTransport(ClientTransport):
 
         try:
             # Serialize message to JSON
-            json_str = self._serialize_message(message)
+            json_str = serialize_message(message)
 
             # Add newline delimiter and encode to bytes
             message_bytes = (json_str + "\n").encode("utf-8")
@@ -267,11 +217,13 @@ class StdioClientTransport(ClientTransport):
                     break
 
                 # Parse as JSON message
-                message = self._parse_json_message(line)
-                if message is not None:
-                    logger.debug(f"Received message: {line.strip()}")
-                    yield message
-                # If message is None, we just continue (invalid JSON was logged)
+                message = parse_json_message(line)
+                if message is None:
+                    logger.warning(f"Invalid JSON received: {line}")
+                    continue
+
+                logger.debug(f"Received message: {line.strip()}")
+                yield message
 
         except ConnectionError:
             # Process died or connection lost
