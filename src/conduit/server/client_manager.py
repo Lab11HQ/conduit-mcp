@@ -6,7 +6,7 @@ from conduit.protocol.initialization import ClientCapabilities, Implementation
 from conduit.protocol.logging import LoggingLevel
 from conduit.protocol.roots import Root
 
-RequestID = str | int
+RequestId = str | int
 
 
 @dataclass
@@ -27,11 +27,11 @@ class ClientContext:
     subscriptions: set[str] = field(default_factory=set)
 
     # Request tracking
-    requests_from_client: dict[RequestID, tuple[Request, asyncio.Task[None]]] = field(
+    requests_from_client: dict[RequestId, tuple[Request, asyncio.Task[None]]] = field(
         default_factory=dict
     )
     requests_to_client: dict[
-        RequestID, tuple[Request, asyncio.Future[Result | Error]]
+        RequestId, tuple[Request, asyncio.Future[Result | Error]]
     ] = field(default_factory=dict)
 
 
