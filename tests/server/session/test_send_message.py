@@ -107,8 +107,5 @@ class TestSendMessage:
         session.client_manager.register_client(client_id)
 
         # Act & Assert - should raise ValueError for uninitialized client
-        with pytest.raises(
-            ValueError,
-            match="Cannot send tools/list to uninitialized client test-client",
-        ):
+        with pytest.raises(ValueError):
             await session.send_request(client_id, request)

@@ -47,7 +47,7 @@ class TestInitialization:
         assert result.protocol_version == self.config.protocol_version
 
         # Verify client was registered and initialized
-        assert self.session.client_manager.is_client_initialized(client_id)
+        assert self.session.client_manager.is_protocol_initialized(client_id)
         client_context = self.session.client_manager.get_client(client_id)
         assert client_context.capabilities == self.valid_request.capabilities
         assert client_context.info == self.valid_request.client_info
@@ -79,7 +79,7 @@ class TestInitialization:
         # First initialization succeeds
         result1 = await self.session._handle_initialize(client_id, self.valid_request)
         assert isinstance(result1, InitializeResult)
-        assert self.session.client_manager.is_client_initialized(client_id)
+        assert self.session.client_manager.is_protocol_initialized(client_id)
 
         # Act - attempt to initialize again
         result2 = await self.session._handle_initialize(client_id, self.valid_request)
@@ -89,4 +89,4 @@ class TestInitialization:
         assert result2.code == METHOD_NOT_FOUND
 
         # Verify client state unchanged
-        assert self.session.client_manager.is_client_initialized(client_id)
+        assert self.session.client_manager.is_protocol_initialized(client_id)

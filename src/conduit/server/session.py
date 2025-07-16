@@ -165,7 +165,7 @@ class ServerSession:
             )
 
         # Check if client is already initialized
-        if self.client_manager.is_client_initialized(client_id):
+        if self.client_manager.is_protocol_initialized(client_id):
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Client already initialized",
@@ -526,7 +526,7 @@ class ServerSession:
             TimeoutError: If client doesn't respond within timeout
         """
         await self.start()
-        if request.method != "ping" and not self.client_manager.is_client_initialized(
+        if request.method != "ping" and not self.client_manager.is_protocol_initialized(
             client_id
         ):
             raise ValueError(

@@ -55,8 +55,8 @@ class ClientManager:
         """Get all client IDs."""
         return list(self._clients.keys())
 
-    def is_client_initialized(self, client_id: str) -> bool:
-        """Check if a specific client is initialized."""
+    def is_protocol_initialized(self, client_id: str) -> bool:
+        """Check if a specific client has completed MCP protocol initialization."""
         context = self.get_client(client_id)
         if context is None:
             return False

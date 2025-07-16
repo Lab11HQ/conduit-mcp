@@ -519,7 +519,8 @@ class ServerSession:
     ) -> Result | Error:
         """Send a request to a client.
 
-        Ensures that the client is initialized before sending non-ping requests.
+        Ensures that the client has completed MCP initialization before sending
+        non-ping requests.
 
         Args:
             client_id: ID of the client to send the request to
@@ -535,12 +536,12 @@ class ServerSession:
             TimeoutError: If client doesn't respond within timeout
         """
         await self.start()
-        if request.method != "ping" and not self.client_manager.is_client_initialized(
+        if request.method != "ping" and not self.client_manager.is_protocol_initialized(
             client_id
         ):
             raise ValueError(
-                f"Cannot send {request.method} to uninitialized client {client_id}. "
-                "Only ping requests are allowed before initialization."
+                f"Cannot send {request.method} to client {client_id}. "
+                "Client must complete MCP protocol initialization first."
             )
 
         return await self._coordinator.send_request(client_id, request, timeout)

@@ -32,7 +32,7 @@ class TestClientLifecycle:
         # Verify retrieval returns same context
         assert retrieved_context is context
         assert manager.client_count() == 1
-        assert manager.is_client_initialized(client_id) is False
+        assert manager.is_protocol_initialized(client_id) is False
 
     async def test_cleanup_client_with_active_or_pending_requests(self):
         """Test client cleanup properly cleans up active requests."""
