@@ -1,4 +1,4 @@
-"""Server transport protocol - 1:many communication with clients."""
+"""Multi-client server transport protocol - 1:many communication with clients."""
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -24,24 +24,16 @@ class ServerTransport(ABC):
     """
 
     @abstractmethod
-    async def open(self) -> None:
-        """Open transport and begin accepting connections.
-
-        Raises:
-            ConnectionError: If transport cannot be opened
-        """
-        ...
-
-    @abstractmethod
     async def send(self, client_id: str, message: dict[str, Any]) -> None:
         """Send message to specific client.
 
         Args:
-            client_id: Target client session ID
+            client_id: Target client connection ID
             message: JSON-RPC message to send
 
         Raises:
-            ValueError: If client_id is not an active session
+            ValueError: If client_id is not connected
+            ConnectionError: If connection failed during send
         """
         ...
 
@@ -54,13 +46,14 @@ class ServerTransport(ABC):
         """
         ...
 
-    @property
     @abstractmethod
-    def is_open(self) -> bool:
-        """True if server is open and accepting connections."""
-        ...
+    async def disconnect_client(self, client_id: str) -> None:
+        """Disconnect specific client.
 
-    @abstractmethod
-    async def close(self) -> None:
-        """Close server and disconnect all clients."""
+        Args:
+            client_id: Client connection ID to disconnect
+
+        Raises:
+            ValueError: If client_id is not connected
+        """
         ...

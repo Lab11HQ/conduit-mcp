@@ -129,8 +129,17 @@ class ServerSession:
         Gracefully shuts down the server session, ensuring all active
         client connections are properly closed.
         """
+        for client_id in self.client_manager.get_all_client_ids():
+            try:
+                await self.transport.disconnect_client(client_id)
+            except Exception:
+                # Log but don't fail shutdown for individual client errors
+                pass
+
+        # Stop message processing (coordinator-level)
         await self._coordinator.stop()
 
+        # Clean up all client state (manager-level)
         self.client_manager.cleanup_all_clients()
 
     # ================================
@@ -510,7 +519,8 @@ class ServerSession:
     ) -> Result | Error:
         """Send a request to a client.
 
-        Ensures that the client is initialized before sending non-ping requests.
+        Ensures that the client has completed MCP initialization before sending
+        non-ping requests.
 
         Args:
             client_id: ID of the client to send the request to
@@ -530,8 +540,8 @@ class ServerSession:
             client_id
         ):
             raise ValueError(
-                f"Cannot send {request.method} to uninitialized client {client_id}. "
-                "Only ping requests are allowed before initialization."
+                f"Cannot send {request.method} to client {client_id}. "
+                "Client must complete MCP protocol initialization first."
             )
 
         return await self._coordinator.send_request(client_id, request, timeout)

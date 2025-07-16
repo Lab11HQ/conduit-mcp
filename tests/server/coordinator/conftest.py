@@ -5,8 +5,8 @@ from typing import Any
 import pytest
 
 from conduit.server.client_manager import ClientManager
-from conduit.server.coordinator_v2 import MessageCoordinator
-from conduit.transport.server_v2 import ClientMessage, ServerTransport
+from conduit.server.coordinator import MessageCoordinator
+from conduit.transport.server import ClientMessage, ServerTransport
 
 
 class MockServerTransport(ServerTransport):
