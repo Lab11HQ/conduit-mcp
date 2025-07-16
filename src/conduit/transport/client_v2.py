@@ -24,16 +24,15 @@ class ClientTransport(ABC):
     """
 
     @abstractmethod
-    async def connect_server(self, server_id: str, connection_info: Any) -> None:
-        """Connect to a specific server.
+    async def add_server(self, server_id: str, connection_info: dict[str, Any]) -> None:
+        """Register how to reach a server (doesn't connect yet).
 
         Args:
             server_id: Unique identifier for this server connection
             connection_info: Transport-specific connection details
 
         Raises:
-            ConnectionError: If connection cannot be established
-            ValueError: If server_id is already connected
+            ValueError: If server_id is already registered
         """
         ...
 
@@ -41,13 +40,15 @@ class ClientTransport(ABC):
     async def send(self, server_id: str, message: dict[str, Any]) -> None:
         """Send message to specific server.
 
+        Establishes connection if needed, then sends the message.
+
         Args:
             server_id: Target server connection ID
             message: JSON-RPC message to send
 
         Raises:
-            ValueError: If server_id is not connected
-            ConnectionError: If connection failed during send
+            ValueError: If server_id is not registered
+            ConnectionError: If connection cannot be established or send fails
         """
         ...
 
@@ -68,6 +69,6 @@ class ClientTransport(ABC):
             server_id: Server connection ID to disconnect
 
         Raises:
-            ValueError: If server_id is not connected
+            ValueError: If server_id is not registered
         """
         ...
