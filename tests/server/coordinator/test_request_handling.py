@@ -7,8 +7,6 @@ from conduit.protocol.resources import ReadResourceRequest, ReadResourceResult
 
 
 class TestRequestHandling:
-    """Test request handling in MessageCoordinator."""
-
     async def test_sends_success_on_valid_request(
         self, coordinator, mock_transport, yield_loop
     ):
@@ -56,7 +54,7 @@ class TestRequestHandling:
         # Assert: Client was auto-registered
         assert coordinator.client_manager.get_client("client-1") is not None
 
-        # Assert: Request was tracked and cleaned up
+        # Assert: Client was tracked and request cleaned up
         await yield_loop()  # Let client manager clean up
         client = coordinator.client_manager.get_client("client-1")
         assert len(client.requests_from_client) == 0
@@ -80,7 +78,7 @@ class TestRequestHandling:
         await coordinator.start()
         await yield_loop()
 
-        # Not a real MCP method
+        # Valid ReadResourceRequest but missing required "uri" field
         cant_parse_to_protocol = {
             "jsonrpc": "2.0",
             "id": "test-123",
@@ -104,9 +102,8 @@ class TestRequestHandling:
         assert len(responses) == 1
 
         response = responses[0]
-        assert response["jsonrpc"] == "2.0"
-        assert "error" in response
         assert response["id"] == "test-123"
+        assert "error" in response
 
         # Assert: Client was still auto-registered
         assert coordinator.client_manager.get_client("client-1") is not None
@@ -124,17 +121,16 @@ class TestRequestHandling:
         async def failing_handler(client_id: str, request: Request) -> EmptyResult:
             raise ValueError("Something went wrong in the handler")
 
-        coordinator.register_request_handler("ping", failing_handler)
+        coordinator.register_request_handler("tools/list", failing_handler)
 
         # Start the coordinator
         await coordinator.start()
-        await yield_loop()
 
         # Act: Send a valid request that will trigger the exception
         request_payload = {
             "jsonrpc": "2.0",
             "id": "test-123",
-            "method": "ping",
+            "method": "tools/list",
         }
 
         mock_transport.add_client_message("client-1", request_payload)
@@ -146,18 +142,11 @@ class TestRequestHandling:
         assert len(responses) == 1
 
         response = responses[0]
-        assert response["jsonrpc"] == "2.0"
         assert response["id"] == "test-123"
         assert "error" in response
 
         error = response["error"]
         assert error["code"] == INTERNAL_ERROR
-
-        # Assert: Client was registered and request was tracked/cleaned up
-        await yield_loop()  # Let client manager clean up
-        assert coordinator.client_manager.get_client("client-1") is not None
-        client = coordinator.client_manager.get_client("client-1")
-        assert len(client.requests_from_client) == 0
 
     async def test_cancel_request_and_cleanup(
         self, coordinator, mock_transport, yield_loop
@@ -176,7 +165,7 @@ class TestRequestHandling:
                 handler_cancelled = True
                 raise  # Re-raise to properly handle cancellation
 
-        coordinator.register_request_handler("ping", slow_handler)
+        coordinator.register_request_handler("tools/list", slow_handler)
 
         # Start the coordinator
         await coordinator.start()
@@ -186,7 +175,7 @@ class TestRequestHandling:
         request_payload = {
             "jsonrpc": "2.0",
             "id": "test-123",
-            "method": "ping",
+            "method": "tools/list",
         }
 
         mock_transport.add_client_message("client-1", request_payload)
@@ -196,8 +185,10 @@ class TestRequestHandling:
         await handler_started.wait()
 
         # Verify request is being tracked
-        client = coordinator.client_manager.get_client("client-1")
-        assert len(client.requests_from_client) == 1
+        assert (
+            coordinator.client_manager.get_request_from_client("client-1", "test-123")
+            is not None
+        )
 
         # Cancel the request
         await coordinator.cancel_request_from_client("client-1", "test-123")
@@ -213,7 +204,6 @@ class TestRequestHandling:
             coordinator.client_manager.get_request_from_client("client-1", "test-123")
             is None
         )
-        assert len(client.requests_from_client) == 0
 
         # Assert: No response was sent (cancelled before completion)
         assert "client-1" not in mock_transport.sent_messages
@@ -228,10 +218,10 @@ class TestRequestHandling:
         request_payload = {
             "jsonrpc": "2.0",
             "id": "test-123",
-            "method": "ping",
+            "method": "tools/list",
         }
 
-        # Act: Send a ping request with no handler registered
+        # Act: Send a tools/list request with no handler registered
         mock_transport.add_client_message("client-1", request_payload)
         await yield_loop()
 

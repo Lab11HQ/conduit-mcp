@@ -115,25 +115,27 @@ class TestMessageLoop:
         await coordinator.start()
 
         # Create mock in-flight tasks and pending request futures
-        ping_from_client = PingRequest()
-        ping_to_client = PingRequest()
         task1 = asyncio.create_task(asyncio.sleep(10))
         future1 = asyncio.Future()
 
         # Set up clients with both types of requests
         client_manager.register_client("client1")
-        client_context = client_manager.get_client("client1")
-
-        client_context.requests_from_client["ping_from_client"] = (
-            ping_from_client,
-            task1,
+        client_manager.track_request_from_client(
+            "client1", "ping_from_client", PingRequest(), task1
         )
-        client_context.requests_to_client["ping_to_client"] = (
-            ping_to_client,
-            future1,
+        client_manager.track_request_to_client(
+            "client1", "ping_to_client", PingRequest(), future1
         )
 
         assert client_manager.client_count() == 1
+        assert (
+            client_manager.get_request_from_client("client1", "ping_from_client")
+            is not None
+        )
+        assert (
+            client_manager.get_request_to_client("client1", "ping_to_client")
+            is not None
+        )
 
         # Act - simulate transport failure (unexpected exit)
         mock_transport.simulate_error()

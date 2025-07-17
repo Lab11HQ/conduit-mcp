@@ -110,6 +110,9 @@ class ServerManager:
                 future.set_result(error)
         server_state.requests_to_server.clear()
 
+        # Remove from tracking
+        del self._servers[server_id]
+
     def cleanup_all_servers(self) -> None:
         """Clean up all server state."""
         for server_id in list(self._servers.keys()):
@@ -177,7 +180,7 @@ class ServerManager:
         """
         server_state = self.get_server(server_id)
         if server_state is None:
-            raise ValueError(f"Server {server_id} not registered")
+            return
 
         return server_state.requests_to_server.get(request_id, None)
 
@@ -261,6 +264,6 @@ class ServerManager:
         """
         server_state = self.get_server(server_id)
         if server_state is None:
-            raise ValueError(f"Server {server_id} not registered")
+            return
 
         return server_state.requests_from_server.get(request_id, None)

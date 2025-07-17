@@ -9,7 +9,7 @@ import uuid
 from collections.abc import Coroutine
 from typing import Any, Awaitable, Callable, TypeVar
 
-from conduit.client.server_manager import ServerManager
+from conduit.client.server_manager_v2 import ServerManager
 from conduit.protocol.base import (
     INTERNAL_ERROR,
     METHOD_NOT_FOUND,
@@ -97,7 +97,7 @@ class MessageCoordinator:
                 pass
             self._message_loop_task = None
 
-        self.server_manager.cleanup_requests()
+        self.server_manager.cleanup_all_servers()
 
     # ================================
     # Message loop
@@ -130,7 +130,7 @@ class MessageCoordinator:
         of coordinator state.
         """
         self._message_loop_task = None
-        self.server_manager.cleanup_requests()
+        self.server_manager.cleanup_all_servers()
 
     # ================================
     # Route messages
@@ -165,7 +165,7 @@ class MessageCoordinator:
         request_or_error = self.parser.parse_request(payload)
 
         if isinstance(request_or_error, Error):
-            await self._send_error(request_id, request_or_error)
+            await self._send_error(server_id, request_id, request_or_error)
             return
 
         await self._route_request(server_id, request_id, request_or_error)
@@ -183,7 +183,7 @@ class MessageCoordinator:
                 code=METHOD_NOT_FOUND,
                 message=f"No handler for method: {request.method}",
             )
-            await self._send_error(request_id, error)
+            await self._send_error(server_id, request_id, error)
             return
 
         task = asyncio.create_task(
@@ -224,7 +224,7 @@ class MessageCoordinator:
                 message="Problem handling request",
                 data={"request": request},
             )
-            await self._send_error(request_id, error)
+            await self._send_error(server_id, request_id, error)
 
     # ================================
     # Handle notifications

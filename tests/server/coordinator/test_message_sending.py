@@ -18,7 +18,7 @@ class TestRequestSending:
             await coordinator.send_request(client_id, request)
 
     async def test_tracks_request_to_client_and_returns_result(
-        self, coordinator, mock_transport, client_manager, yield_loop
+        self, coordinator, mock_transport, yield_loop
     ):
         # Arrange
         request = PingRequest()
@@ -42,8 +42,11 @@ class TestRequestSending:
         assert sent_request["method"] == "ping"
 
         # Assert - client was registered and request is tracked
-        assert client_manager.get_client(client_id) is not None
-        assert client_manager.get_request_to_client(client_id, request_id) is not None
+        assert coordinator.client_manager.get_client(client_id) is not None
+        assert (
+            coordinator.client_manager.get_request_to_client(client_id, request_id)
+            is not None
+        )
 
         # Act - simulate client response
         response_payload = {"jsonrpc": "2.0", "id": request_id, "result": {}}
@@ -57,10 +60,13 @@ class TestRequestSending:
         assert isinstance(result, Result)
 
         # Assert - request is no longer tracked
-        assert client_manager.get_request_to_client(client_id, request_id) is None
+        assert (
+            coordinator.client_manager.get_request_to_client(client_id, request_id)
+            is None
+        )
 
     async def test_returns_error_response_from_client(
-        self, coordinator, mock_transport, client_manager, yield_loop
+        self, coordinator, mock_transport, yield_loop
     ):
         # Arrange
         request = PingRequest()
@@ -83,7 +89,10 @@ class TestRequestSending:
         request_id = sent_request["id"]
 
         # Assert - request is tracked
-        assert client_manager.get_request_to_client(client_id, request_id) is not None
+        assert (
+            coordinator.client_manager.get_request_to_client(client_id, request_id)
+            is not None
+        )
 
         # Act - simulate client error response
         error_response = {
@@ -108,7 +117,10 @@ class TestRequestSending:
         assert result.data == {"details": "Unknown method"}
 
         # Assert - request is no longer tracked
-        assert client_manager.get_request_to_client(client_id, request_id) is None
+        assert (
+            coordinator.client_manager.get_request_to_client(client_id, request_id)
+            is None
+        )
 
     async def test_timeout_raises_and_cancels(
         self, coordinator, mock_transport, yield_loop
@@ -138,7 +150,7 @@ class TestRequestSending:
         assert "timed out" in cancellation_msg["params"]["reason"]
 
     async def test_cleans_up_tracking_when_transport_send_fails(
-        self, coordinator, mock_transport, client_manager
+        self, coordinator, mock_transport
     ):
         # Arrange
         request = PingRequest()
@@ -153,7 +165,7 @@ class TestRequestSending:
             await coordinator.send_request(client_id, request, timeout=1.0)
 
         # Assert - request is no longer tracked (cleaned up in finally block)
-        client_context = client_manager.get_client(client_id)
+        client_context = coordinator.client_manager.get_client(client_id)
         assert client_context is not None
         assert len(client_context.requests_to_client) == 0
 
@@ -171,7 +183,7 @@ class TestNotificationSending:
         with pytest.raises(RuntimeError):
             await coordinator.send_notification(client_id, notification)
 
-    async def test_sends_successfully(self, coordinator, mock_transport):
+    async def test_sends_successfully_when_running(self, coordinator, mock_transport):
         # Arrange
         notification = CancelledNotification(
             request_id="test-123", reason="user cancelled"
@@ -188,7 +200,7 @@ class TestNotificationSending:
         sent_notification = sent_messages[0]
         assert sent_notification["method"] == "notifications/cancelled"
 
-    async def test_propagates_transport_send_error(self, coordinator, mock_transport):
+    async def test_propagates_transport_error(self, coordinator, mock_transport):
         # Arrange
         notification = CancelledNotification(
             request_id="test-123", reason="user cancelled"

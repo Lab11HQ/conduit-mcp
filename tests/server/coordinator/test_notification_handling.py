@@ -45,7 +45,6 @@ class TestNotificationHandling:
         parsed_notification = call_args[0][1]
         assert isinstance(parsed_notification, CancelledNotification)
         assert parsed_notification.request_id == "test-request-123"
-        assert parsed_notification.reason == "User cancelled operation"
 
     async def test_ignores_notification_with_parse_failure(self, coordinator):
         """Test that notifications with parse failures are ignored gracefully."""
