@@ -105,7 +105,7 @@ class ServerManager:
             if not future.done():
                 error = Error(
                     code=INTERNAL_ERROR,
-                    message="Request failed. Client coordinator stopped.",
+                    message="Cleaned up by server manager.",
                 )
                 future.set_result(error)
         server_state.requests_to_server.clear()

@@ -8,16 +8,17 @@ Key components:
 
 import asyncio
 from dataclasses import dataclass
+from typing import Any, cast
 
 from conduit.client.callbacks import CallbackManager
-from conduit.client.coordinator import MessageCoordinator
+from conduit.client.coordinator_v2 import MessageCoordinator
 from conduit.client.protocol.elicitation import (
     ElicitationManager,
     ElicitationNotConfiguredError,
 )
 from conduit.client.protocol.roots import RootsManager
 from conduit.client.protocol.sampling import SamplingManager, SamplingNotConfiguredError
-from conduit.client.server_manager import ServerManager
+from conduit.client.server_manager_v2 import ServerManager
 from conduit.protocol.base import (
     INTERNAL_ERROR,
     METHOD_NOT_FOUND,
@@ -73,6 +74,15 @@ class InvalidProtocolVersionError(Exception):
     pass
 
 
+class ServerInitializationError(Exception):
+    """Raised when server initialization fails during the MCP handshake."""
+
+    def __init__(self, server_id: str, message: str, error_code: int | None = None):
+        self.server_id = server_id
+        self.error_code = error_code
+        super().__init__(f"Server '{server_id}' initialization failed: {message}")
+
+
 @dataclass
 class ClientConfig:
     client_info: Implementation
@@ -84,7 +94,6 @@ class ClientSession:
     def __init__(self, transport: ClientTransport, config: ClientConfig):
         self.transport = transport
         self.client_config = config
-        self._initialized = False
 
         self.server_manager = ServerManager()
         self.callbacks = CallbackManager()
@@ -101,7 +110,7 @@ class ClientSession:
     # Lifecycle
     # ================================
 
-    async def start(self) -> None:
+    async def _start(self) -> None:
         """Start accepting and processing server messages.
 
         Starts the background message loop that will handle incoming server
@@ -112,83 +121,96 @@ class ClientSession:
     async def stop(self) -> None:
         """Stop accepting and processing server messages and clean up all state."""
         await self._coordinator.stop()
-        self.server_manager.reset_server_state()
-
-        self._initialized = False
+        self.server_manager.cleanup_all_servers()
 
     # ================================
     # Initialization
     # ================================
-
-    async def initialize(self, timeout: float = 30.0) -> None:
-        """Initialize your MCP session with the server.
-
-        Performs the MCP handshake to establish a working connection. This starts
-        the message loop and negotiates capabilities with the server. Call this
-        once after creating your session—it's safe to call multiple times and
-        will return the cached result on subsequent calls.
+    async def connect_server(
+        self, server_id: str, connection_info: dict[str, Any], timeout: float = 30.0
+    ) -> None:
+        """Connect to a server and perform MCP initialization handshake.
 
         Args:
+            server_id: Unique identifier for this server connection
+            connection_info: Transport-specific connection details
             timeout: How long to wait for the server to respond (seconds).
                 Defaults to 30 seconds.
 
-        Returns:
-            Server capabilities, version info, and optional setup instructions.
-
         Raises:
+            ValueError: If server_id is already initialized
             TimeoutError: Server didn't respond within the timeout period.
             InvalidProtocolVersionError: Server uses an incompatible protocol version.
             ConnectionError: Network failure or server rejected the handshake.
         """
-        if self._initialized:
+        # Note: This check doesn't prevent concurrent initialization attempts
+        # for the same server_id. Multiple calls will result in redundant work
+        # but both will succeed and reach the same final state.
+        if self.server_manager.is_protocol_initialized(server_id):
             return
 
-        await self.start()
+        await self._start()
+
         try:
-            await asyncio.wait_for(self._do_initialize(timeout), timeout)
+            # 1. Register server with transport
+            await self.transport.add_server(server_id, connection_info)
+
+            # 2. Register server with server manager
+            self.server_manager.register_server(server_id)
+
+            # 3. Do MCP initialization handshake
+            await asyncio.wait_for(
+                self._do_initialize_server(server_id, timeout), timeout
+            )
+
         except asyncio.TimeoutError:
-            await self.stop()
-            raise TimeoutError(f"Initialization timed out after {timeout}s")
+            await self._cleanup_failed_connection(server_id)
+            raise TimeoutError(f"Connection to {server_id} timed out after {timeout}s")
         except InvalidProtocolVersionError:
-            await self.stop()
+            await self._cleanup_failed_connection(server_id)
             raise
         except Exception as e:
-            await self.stop()
-            raise ConnectionError(f"Initialization failed: {e}") from e
+            await self._cleanup_failed_connection(server_id)
+            raise ConnectionError(f"Connection to {server_id} failed: {e}") from e
 
-    async def _do_initialize(self, timeout: float = 30.0) -> None:
+    async def _do_initialize_server(
+        self, server_id: str, timeout: float = 30.0
+    ) -> None:
         """Executes the three-step MCP initialization handshake.
 
         1. Send InitializeRequest with client info and capabilities
         2. Validate the server's InitializeResult response
         3. Send InitializedNotification to complete the handshake
 
-        Updates the server manager with the negotiated capabilities and info.
+        Stores server capabilities and marks the server as initialized.
 
         Raises:
-            RuntimeError: If the server returns an error or unexpected response type
-                during initialization.
+            ServerInitializationError: If the server returns an error during
+                initialization.
             InvalidProtocolVersionError: If the server uses an incompatible
                 protocol version.
         """
         init_request = self._create_init_request()
-        response = await self.send_request(init_request, timeout)
+        response = await self.send_request(server_id, init_request, timeout)
 
         if isinstance(response, Error):
-            raise RuntimeError(response.message)
-        if not isinstance(response, InitializeResult):
-            raise RuntimeError("Server returned unexpected response type")
+            raise ServerInitializationError(
+                server_id,
+                f"Server returned error: {response.message}",
+                response.code,
+            )
+        response = cast(InitializeResult, response)
 
         self._validate_protocol_version(response)
 
-        await self._coordinator.send_notification(InitializedNotification())
+        await self._coordinator.send_notification(server_id, InitializedNotification())
         self.server_manager.initialize_server(
+            server_id=server_id,
             capabilities=response.capabilities,
             info=response.server_info,
             protocol_version=self.client_config.protocol_version,  # must match client
             instructions=response.instructions,
         )
-        self._initialized = True
 
     def _create_init_request(self) -> InitializeRequest:
         """Creates an InitializeRequest with client info and capabilities.
@@ -216,11 +238,19 @@ class ClientSession:
                 f"server={result.protocol_version}"
             )
 
+    async def _cleanup_failed_connection(self, server_id: str) -> None:
+        """Clean up both transport and server manager state."""
+        self.server_manager.cleanup_server(server_id)
+        try:
+            await self.transport.disconnect_server(server_id)
+        except Exception:
+            pass  # Don't let transport cleanup failure mask original error
+
     # ================================
     # Ping
     # ================================
 
-    async def _handle_ping(self, request: PingRequest) -> EmptyResult:
+    async def _handle_ping(self, server_id: str, request: PingRequest) -> EmptyResult:
         """Returns an empty result."""
 
         return EmptyResult()
@@ -422,11 +452,12 @@ class ClientSession:
     # ================================
 
     async def send_request(
-        self, request: Request, timeout: float = 30.0
+        self, server_id: str, request: Request, timeout: float = 30.0
     ) -> Result | Error:
-        """Send a request to the server and wait for a response.
+        """Send a request to a server and wait for a response.
 
         Args:
+            server_id: The server to send the request to.
             request: The request to send.
             timeout: Maximum time to wait for response in seconds (default 30s).
 
@@ -434,35 +465,39 @@ class ClientSession:
             Result | Error: The server's response or timeout error.
 
         Raises:
-            ValueError: If attempting to send non-ping request to uninitialized server.
+            ValueError: If attempting to send non-ping/initialize request to
+                uninitialized server.
             ConnectionError: If the transport fails.
             TimeoutError: If server doesn't respond within timeout.
         """
-        await self.start()
+        await self._start()
 
-        if (
-            request.method not in ("ping", "initialize")
-            and not self.server_manager.get_server_context().initialized
-        ):
+        if request.method not in (
+            "ping",
+            "initialize",
+        ) and not self.server_manager.is_protocol_initialized(server_id):
             raise ValueError(
                 f"Cannot send {request.method} to uninitialized server. "
                 "Only ping requests are allowed before initialization."
             )
 
-        return await self._coordinator.send_request(request, timeout)
+        return await self._coordinator.send_request(server_id, request, timeout)
 
-    async def send_notification(self, notification: Notification) -> None:
-        """Send a notification to the server.
+    async def send_notification(
+        self, server_id: str, notification: Notification
+    ) -> None:
+        """Send a notification to a server.
 
         Args:
+            server_id: The server to send the notification to.
             notification: The notification to send.
 
         Raises:
             ConnectionError: If the transport fails.
         """
-        await self.start()
+        await self._start()
 
-        await self._coordinator.send_notification(notification)
+        await self._coordinator.send_notification(server_id, notification)
 
     # ================================
     # Register handlers
