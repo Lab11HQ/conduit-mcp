@@ -64,8 +64,8 @@ class TestSendMessage:
 
         # Register and initialize client
         session.client_manager.register_client(client_id)
-        client_context = session.client_manager.get_client(client_id)
-        client_context.initialized = True
+        state = session.client_manager.get_client(client_id)
+        state.initialized = True
 
         # Mock successful coordinator response
         expected_result = EmptyResult()

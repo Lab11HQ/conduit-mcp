@@ -11,7 +11,9 @@ class TestInitializationCallback:
         # Arrange - consistent client ID for all tests
         self.client_id = "test-client-123"
 
-    async def test_initialized_callback_receives_client_context(self):
+    async def test_initialized_callback_receives_client_id_and_initialization_details(
+        self,
+    ):
         # Arrange - user registers an initialization callback
         manager = CallbackManager()
         callback = AsyncMock()
@@ -57,7 +59,7 @@ class TestProgressCallback:
         # Arrange - consistent client ID for all tests
         self.client_id = "test-client-123"
 
-    async def test_progress_callback_receives_client_context(self):
+    async def test_progress_callback_receives_client_id_and_progress_details(self):
         # Arrange - user registers a progress callback
         manager = CallbackManager()
         callback = AsyncMock()
@@ -112,7 +114,7 @@ class TestCancellationCallback:
         # Arrange - consistent client ID for all tests
         self.client_id = "test-client-123"
 
-    async def test_cancelled_callback_receives_client_context(self):
+    async def test_cancelled_callback_receives_client_id_and_cancellation_details(self):
         # Arrange - user registers a cancellation callback
         manager = CallbackManager()
         callback = AsyncMock()
@@ -164,7 +166,7 @@ class TestRootsChangedCallback:
         # Arrange - consistent client ID for all tests
         self.client_id = "test-client-123"
 
-    async def test_roots_changed_callback_receives_client_context(self):
+    async def test_roots_changed_callback_receives_client_id_and_roots_list(self):
         # Arrange - user registers a roots changed callback
         manager = CallbackManager()
         callback = AsyncMock()

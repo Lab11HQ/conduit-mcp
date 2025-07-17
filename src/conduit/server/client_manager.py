@@ -10,7 +10,7 @@ RequestId = str | int
 
 
 @dataclass
-class ClientContext:
+class ClientState:
     """Complete client state in one place."""
 
     id: str
@@ -39,16 +39,16 @@ class ClientManager:
     """Owns all client state and lifecycle."""
 
     def __init__(self):
-        self._clients: dict[str, ClientContext] = {}
+        self._clients: dict[str, ClientState] = {}
 
-    def register_client(self, client_id: str) -> ClientContext:
+    def register_client(self, client_id: str) -> ClientState:
         """Register new client connection."""
-        context = ClientContext(id=client_id)
-        self._clients[client_id] = context
-        return context
+        state = ClientState(id=client_id)
+        self._clients[client_id] = state
+        return state
 
-    def get_client(self, client_id: str) -> ClientContext | None:
-        """Get client context."""
+    def get_client(self, client_id: str) -> ClientState | None:
+        """Get client state."""
         return self._clients.get(client_id)
 
     def get_all_client_ids(self) -> list[str]:
@@ -57,11 +57,11 @@ class ClientManager:
 
     def is_protocol_initialized(self, client_id: str) -> bool:
         """Check if a specific client has completed MCP protocol initialization."""
-        context = self.get_client(client_id)
-        if context is None:
+        state = self.get_client(client_id)
+        if state is None:
             return False
 
-        return context.initialized
+        return state.initialized
 
     def initialize_client(
         self,
@@ -71,15 +71,15 @@ class ClientManager:
         protocol_version: str,
     ) -> None:
         """Register a client and store its initialization data."""
-        context = self.get_client(client_id)
-        if context is None:
-            context = self.register_client(client_id)
+        state = self.get_client(client_id)
+        if state is None:
+            state = self.register_client(client_id)
 
-        context.capabilities = capabilities
-        context.info = client_info
-        context.protocol_version = protocol_version
+        state.capabilities = capabilities
+        state.info = client_info
+        state.protocol_version = protocol_version
 
-        context.initialized = True
+        state.initialized = True
 
     def client_count(self) -> int:
         """Get number of active clients."""
@@ -91,22 +91,22 @@ class ClientManager:
         Cancels all in-flight requests from the client and resolves all pending
         requests to the client with an error.
         """
-        context = self.get_client(client_id)
-        if context is None:
+        state = self.get_client(client_id)
+        if state is None:
             return
 
-        for request, task in context.requests_from_client.values():
+        for request, task in state.requests_from_client.values():
             task.cancel()
-        context.requests_from_client.clear()
+        state.requests_from_client.clear()
 
-        for _, future in context.requests_to_client.values():
+        for _, future in state.requests_to_client.values():
             if not future.done():
                 error = Error(
                     code=INTERNAL_ERROR,
                     message="Request failed. Client disconnected.",
                 )
                 future.set_result(error)
-        context.requests_to_client.clear()
+        state.requests_to_client.clear()
 
         del self._clients[client_id]
 
@@ -133,11 +133,11 @@ class ClientManager:
         Raises:
             ValueError: If client doesn't exist
         """
-        context = self.get_client(client_id)
-        if context is None:
+        state = self.get_client(client_id)
+        if state is None:
             raise ValueError(f"Client {client_id} not registered")
 
-        context.requests_to_client[request_id] = (request, future)
+        state.requests_to_client[request_id] = (request, future)
 
     def untrack_request_to_client(
         self, client_id: str, request_id: str
@@ -151,11 +151,11 @@ class ClientManager:
         Returns:
             Tuple of (request, future) if found, None otherwise
         """
-        context = self.get_client(client_id)
-        if context is None:
+        state = self.get_client(client_id)
+        if state is None:
             return None
 
-        return context.requests_to_client.pop(request_id, None)
+        return state.requests_to_client.pop(request_id, None)
 
     def get_request_to_client(
         self, client_id: str, request_id: str
@@ -169,11 +169,11 @@ class ClientManager:
         Returns:
             Tuple of (request, future) if found, None otherwise
         """
-        context = self.get_client(client_id)
-        if context is None:
+        state = self.get_client(client_id)
+        if state is None:
             return None
 
-        return context.requests_to_client.get(request_id)
+        return state.requests_to_client.get(request_id)
 
     def resolve_request_to_client(
         self, client_id: str, request_id: str, result_or_error: Result | Error
@@ -188,11 +188,11 @@ class ClientManager:
         Returns:
             True if request was found and resolved, False otherwise
         """
-        context = self.get_client(client_id)
-        if context is None:
+        state = self.get_client(client_id)
+        if state is None:
             return False
 
-        request_future_tuple = context.requests_to_client.pop(request_id, None)
+        request_future_tuple = state.requests_to_client.pop(request_id, None)
         if not request_future_tuple:
             return False
 
@@ -217,11 +217,11 @@ class ClientManager:
         Raises:
             ValueError: If client doesn't exist
         """
-        context = self.get_client(client_id)
-        if context is None:
+        state = self.get_client(client_id)
+        if state is None:
             raise ValueError(f"Client {client_id} not registered")
 
-        context.requests_from_client[request_id] = (request, task)
+        state.requests_from_client[request_id] = (request, task)
 
     def untrack_request_from_client(
         self, client_id: str, request_id: str | int
@@ -235,11 +235,11 @@ class ClientManager:
         Returns:
             Tuple of (request, task) if found, None otherwise
         """
-        context = self.get_client(client_id)
-        if context is None:
+        state = self.get_client(client_id)
+        if state is None:
             return None
 
-        return context.requests_from_client.pop(request_id, None)
+        return state.requests_from_client.pop(request_id, None)
 
     def get_request_from_client(
         self, client_id: str, request_id: str | int
@@ -253,8 +253,8 @@ class ClientManager:
         Returns:
             Tuple of (request, task) if found, None otherwise
         """
-        context = self.get_client(client_id)
-        if context is None:
+        state = self.get_client(client_id)
+        if state is None:
             return None
 
-        return context.requests_from_client.get(request_id)
+        return state.requests_from_client.get(request_id)

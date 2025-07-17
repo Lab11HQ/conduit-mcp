@@ -48,9 +48,9 @@ class TestInitialization:
 
         # Verify client was registered and initialized
         assert self.session.client_manager.is_protocol_initialized(client_id)
-        client_context = self.session.client_manager.get_client(client_id)
-        assert client_context.capabilities == self.valid_request.capabilities
-        assert client_context.info == self.valid_request.client_info
+        state = self.session.client_manager.get_client(client_id)
+        assert state.capabilities == self.valid_request.capabilities
+        assert state.info == self.valid_request.client_info
 
     async def test_does_not_register_client_when_protocol_version_does_not_match(self):
         # Arrange
@@ -68,9 +68,9 @@ class TestInitialization:
         assert isinstance(result, Error)
         assert result.code == PROTOCOL_VERSION_MISMATCH
 
-        # Verify no client context was created (since initialization failed)
-        client_context = self.session.client_manager.get_client(client_id)
-        assert client_context is None
+        # Verify no client state was created (since initialization failed)
+        state = self.session.client_manager.get_client(client_id)
+        assert state is None
 
     async def test_cannot_reinitialize_client(self):
         # Arrange

@@ -26,7 +26,7 @@ class TestResourceManager:
         # Arrange - Create client manager and register a test client
         self.client_manager = ClientManager()
         self.client_id = "test-client-123"
-        self.client_context = self.client_manager.register_client(self.client_id)
+        self.client_state = self.client_manager.register_client(self.client_id)
 
     def test_register_resource_stores_resource_and_handler(self):
         # Arrange
@@ -129,7 +129,7 @@ class TestResourceManager:
         result = await manager.handle_subscribe(self.client_id, request)
 
         # Assert
-        assert "file://test.txt" in self.client_context.subscriptions
+        assert "file://test.txt" in self.client_state.subscriptions
         assert isinstance(result, EmptyResult)
 
     async def test_handle_subscribe_calls_callback_if_registered(self):
@@ -164,23 +164,23 @@ class TestResourceManager:
         resource = Resource(uri="file://test.txt", name="Test File")
         handler = AsyncMock()
         manager.register(resource, handler)
-        self.client_context.subscriptions.add("file://test.txt")
-        assert "file://test.txt" in self.client_context.subscriptions
+        self.client_state.subscriptions.add("file://test.txt")
+        assert "file://test.txt" in self.client_state.subscriptions
         request = UnsubscribeRequest(uri="file://test.txt")
 
         # Act
         result = await manager.handle_unsubscribe(self.client_id, request)
 
         # Assert
-        assert "file://test.txt" not in self.client_context.subscriptions
+        assert "file://test.txt" not in self.client_state.subscriptions
         assert isinstance(result, EmptyResult)
 
     async def test_handle_unsubscribe_calls_callback_if_registered(self):
         # Arrange
         manager = ResourceManager(self.client_manager)
         callback = AsyncMock()
-        self.client_context.subscriptions.add("file://test.txt")
-        assert "file://test.txt" in self.client_context.subscriptions
+        self.client_state.subscriptions.add("file://test.txt")
+        assert "file://test.txt" in self.client_state.subscriptions
         manager.on_unsubscribe(callback)
         request = UnsubscribeRequest(uri="file://test.txt")
 
@@ -242,7 +242,7 @@ class TestResourceManager:
         result = await manager.handle_subscribe(self.client_id, request)
 
         # Assert
-        assert "file://logs/2024-01-15.log" in self.client_context.subscriptions
+        assert "file://logs/2024-01-15.log" in self.client_state.subscriptions
         await asyncio.sleep(0)  # Yield to let the callback run
         callback.assert_awaited_once_with(self.client_id, "file://logs/2024-01-15.log")
         assert isinstance(result, EmptyResult)

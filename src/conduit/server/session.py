@@ -202,9 +202,9 @@ class ServerSession:
         Marks the client as fully initialized and calls any registered callbacks.
         After this point, the client is ready for normal operation.
         """
-        context = self.client_manager.get_client(client_id)
-        if context:
-            context.initialized = True
+        state = self.client_manager.get_client(client_id)
+        if state:
+            state.initialized = True
 
         await self.callbacks.call_initialized(client_id, notification)
 
@@ -492,16 +492,16 @@ class ServerSession:
     ) -> None:
         """Handle roots/list_changed notification.
 
-        Fetch the updated list of roots from the client, update the client context,
+        Fetch the updated list of roots from the client, update the client state,
         and call any registered callbacks.
         """
         try:
             result = await self._coordinator.send_request(client_id, ListRootsRequest())
 
             if isinstance(result, ListRootsResult):
-                context = self.client_manager.get_client(client_id)
-                if context:
-                    context.roots = result.roots
+                state = self.client_manager.get_client(client_id)
+                if state:
+                    state.roots = result.roots
 
                 await self.callbacks.call_roots_changed(client_id, result.roots)
             else:
