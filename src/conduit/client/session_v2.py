@@ -241,10 +241,7 @@ class ClientSession:
     async def _cleanup_failed_connection(self, server_id: str) -> None:
         """Clean up both transport and server manager state."""
         self.server_manager.cleanup_server(server_id)
-        try:
-            await self.transport.disconnect_server(server_id)
-        except Exception:
-            pass  # Don't let transport cleanup failure mask original error
+        await self.transport.disconnect_server(server_id)
 
     # ================================
     # Ping

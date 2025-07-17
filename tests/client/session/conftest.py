@@ -53,7 +53,7 @@ class MockClientTransport(ClientTransport):
     async def disconnect_server(self, server_id: str) -> None:
         """Disconnect from specific server."""
         if server_id not in self.registered_servers:
-            raise ValueError(f"Server {server_id} not registered")
+            return  # Already disconnected - mission accomplished
 
         # Clean up server state
         self.registered_servers.pop(server_id, None)

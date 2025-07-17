@@ -65,10 +65,9 @@ class ClientTransport(ABC):
     async def disconnect_server(self, server_id: str) -> None:
         """Disconnect from specific server.
 
+        Safe to call multiple times - no-op if server is not registered.
+
         Args:
             server_id: Server connection ID to disconnect
-
-        Raises:
-            ValueError: If server_id is not registered
         """
         ...

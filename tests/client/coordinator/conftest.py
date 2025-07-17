@@ -29,7 +29,7 @@ class MockClientTransport(ClientTransport):
         if self._should_raise_error:
             raise ConnectionError("Transport error")
         if server_id not in self.registered_servers:
-            raise ValueError(f"Server {server_id} not registered")
+            return  # Already disconnected - mission accomplished
 
         if server_id not in self.sent_messages:
             self.sent_messages[server_id] = []
