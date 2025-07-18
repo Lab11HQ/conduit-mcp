@@ -129,7 +129,7 @@ class ServerSession:
         Gracefully shuts down the server session, ensuring all active
         client connections are properly closed.
         """
-        for client_id in self.client_manager.get_all_client_ids():
+        for client_id in self.client_manager.get_client_ids():
             try:
                 await self.transport.disconnect_client(client_id)
             except Exception:

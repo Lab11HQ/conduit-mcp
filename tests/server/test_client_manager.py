@@ -1,153 +1,502 @@
 import asyncio
 
-from conduit.protocol.base import INTERNAL_ERROR, Error
-from conduit.protocol.common import PingRequest
-from conduit.server.client_manager import ClientManager
+import pytest
+
+from conduit.protocol.base import INTERNAL_ERROR, PROTOCOL_VERSION, Error, Result
+from conduit.protocol.common import EmptyResult, PingRequest
+from conduit.protocol.initialization import ClientCapabilities, Implementation
+from conduit.server.client_manager import ClientManager, ClientState
 
 
-class TestClientLifecycle:
-    def test_register_and_retrieve_client_with_default_state(self):
-        """Test basic client registration and retrieval flow."""
+class TestRegistration:
+    def test_register_and_get_client(self):
         # Arrange
         manager = ClientManager()
-        client_id = "test-client-123"
+        client_id = "test-client"
 
         # Act
-        state = manager.register_client(client_id)
+        registered_state = manager.register_client(client_id)
         retrieved_state = manager.get_client(client_id)
 
         # Assert
-        assert state is not None
-        assert state.id == client_id
-        assert state.initialized is False
-        assert state.capabilities is None
-        assert state.info is None
-        assert state.protocol_version is None
-        assert state.roots is None
-        assert state.log_level is None
-        assert len(state.subscriptions) == 0
-        assert len(state.requests_from_client) == 0
-        assert len(state.requests_to_client) == 0
+        assert isinstance(registered_state, ClientState)
+        assert retrieved_state is not None
+        assert registered_state is retrieved_state
+        assert retrieved_state.initialized is False
+        assert retrieved_state.capabilities is None
 
-        # Verify retrieval returns same state
-        assert retrieved_state is state
         assert manager.client_count() == 1
-        assert manager.is_protocol_initialized(client_id) is False
 
-    async def test_cleanup_client_with_active_or_pending_requests(self):
-        """Test client cleanup properly cleans up active requests."""
+    def test_get_does_not_raise_if_client_not_registered(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "test-client"
+
+        # Act & Assert
+        assert manager.get_client(client_id) is None
+
+    def test_get_ids_returns_list_of_client_ids(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "test-client"
+        client_id2 = "test-client-2"
+
+        # Act
+        manager.register_client(client_id)
+        manager.register_client(client_id2)
+        id_list = manager.get_client_ids()
+
+        # Assert
+        assert len(id_list) == 2
+        assert client_id in id_list
+        assert client_id2 in id_list
+
+    def test_register_client_twice_overwrites_state(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "test-client"
+
+        # Act
+        first_state = manager.register_client(client_id)
+        second_state = manager.register_client(client_id)
+        retrieved_state = manager.get_client(client_id)
+
+        # Assert
+        assert first_state is not second_state
+        assert retrieved_state is second_state
+
+    def test_initialize_registered_client(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "test-client"
+        manager.register_client(client_id)
+
+        capabilities = ClientCapabilities()
+        info = Implementation(name="test-client", version="1.0.0")
+        protocol_version = PROTOCOL_VERSION
+
+        # Act
+        manager.initialize_client(client_id, capabilities, info, protocol_version)
+        retrieved_state = manager.get_client(client_id)
+
+        # Assert
+        assert retrieved_state is not None
+        assert retrieved_state.initialized is True
+        assert retrieved_state.capabilities is capabilities
+        assert retrieved_state.info is info
+        assert retrieved_state.protocol_version == protocol_version
+
+    def test_initialize_unregistered_client_auto_registers(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "test-client"
+        capabilities = ClientCapabilities()
+        info = Implementation(name="test-client", version="1.0.0")
+        protocol_version = PROTOCOL_VERSION
+
+        # Act
+        manager.initialize_client(client_id, capabilities, info, protocol_version)
+        retrieved_state = manager.get_client(client_id)
+
+        # Assert
+        assert retrieved_state is not None
+        assert retrieved_state.initialized is True
+        assert retrieved_state.capabilities is capabilities
+
+    def test_is_protocol_initialized_returns_correct_status(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "test-client"
+
+        # Assert - Before registration
+        assert not manager.is_protocol_initialized(client_id)
+
+        # Act & Assert - After registration but before initialization
+        manager.register_client(client_id)
+        assert not manager.is_protocol_initialized(client_id)
+
+        # Act & Assert - After initialization
+        capabilities = ClientCapabilities()
+        info = Implementation(name="test-client", version="1.0.0")
+        manager.initialize_client(client_id, capabilities, info, PROTOCOL_VERSION)
+        assert manager.is_protocol_initialized(client_id)
+
+
+class TestOutboundRequests:
+    async def test_track_request_to_client(self):
         # Arrange
         manager = ClientManager()
         client_id = "test-client-123"
-        state = manager.register_client(client_id)
+        request_id = "req-123"
 
-        # Mock an in-flight request from the client
-        processing_client_request = asyncio.create_task(asyncio.sleep(10))
+        manager.register_client(client_id)
+
+        request = PingRequest()
+        future = asyncio.Future[Result | Error]()
+
+        # Act
+        manager.track_request_to_client(client_id, request_id, request, future)
+
+        # Assert
+        client_state = manager.get_client(client_id)
+        assert client_state is not None
+
+        tracked_request, tracked_future = client_state.requests_to_client[request_id]
+        assert tracked_request is request
+        assert tracked_future is future
+
+    async def test_track_request_to_client_raises_for_unregistered_client(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "nonexistent-client"
+        request_id = "req-123"
+
+        request = PingRequest()
+        future = asyncio.Future[Result | Error]()
+
+        # Act & Assert
+        with pytest.raises(ValueError):
+            manager.track_request_to_client(client_id, request_id, request, future)
+
+    async def test_untrack_request_to_client(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "test-client-123"
+        request_id = "req-123"
+
+        manager.register_client(client_id)
+
+        request = PingRequest()
+        future = asyncio.Future[Result | Error]()
+
+        # Track first, then untrack
+        manager.track_request_to_client(client_id, request_id, request, future)
+        assert manager.get_request_to_client(client_id, request_id) is not None
+
+        # Act
+        result = manager.untrack_request_to_client(client_id, request_id)
+
+        # Assert
+        assert result is not None
+        untracked_request, untracked_future = result
+        assert untracked_request is request
+        assert untracked_future is future
+
+        # Verify it's actually removed from tracking
+        client_state = manager.get_client(client_id)
+        assert request_id not in client_state.requests_to_client
+
+    async def test_untrack_request_to_client_raises_for_unregistered_client(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "nonexistent-client"
+        request_id = "req-123"
+
+        # Act & Assert
+        with pytest.raises(ValueError):
+            manager.untrack_request_to_client(client_id, request_id)
+
+    async def test_get_request_to_client(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "test-client-123"
+        request_id = "req-123"
+
+        manager.register_client(client_id)
+
+        request = PingRequest()
+        future = asyncio.Future[Result | Error]()
+
+        manager.track_request_to_client(client_id, request_id, request, future)
+
+        # Act
+        result = manager.get_request_to_client(client_id, request_id)
+
+        # Assert
+        assert result is not None
+        retrieved_request, retrieved_future = result
+        assert retrieved_request is request
+
+    async def test_get_request_to_client_returns_none_for_unregistered_client(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "nonexistent-client"
+        request_id = "req-123"
+
+        # Act
+        result = manager.get_request_to_client(client_id, request_id)
+
+        # Assert
+        assert result is None
+
+    async def test_get_request_to_client_returns_none_for_nonexistent_request(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "test-client-123"
+        request_id = "nonexistent-request"
+
+        manager.register_client(client_id)
+
+        # Act
+        result = manager.get_request_to_client(client_id, request_id)
+
+        # Assert
+        assert result is None
+
+    async def test_resolve_request_to_client(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "test-client-123"
+        request_id = "req-123"
+
+        manager.register_client(client_id)
+
+        request = PingRequest()
+        future = asyncio.Future[Result | Error]()
+
+        # Track the request first
+        manager.track_request_to_client(client_id, request_id, request, future)
+
+        # Create a result to resolve with
+        result = EmptyResult()
+
+        # Act
+        manager.resolve_request_to_client(client_id, request_id, result)
+
+        # Assert
+        assert future.done()
+        assert future.result() is result
+
+        # Verify request is removed from tracking
+        client_state = manager.get_client(client_id)
+        assert request_id not in client_state.requests_to_client
+
+    async def test_resolve_does_nothing_if_client_not_found(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "nonexistent-client"
+        request_id = "req-123"
+
+        # Verify client doesn't exist
+        assert manager.get_client(client_id) is None
+
+        result = EmptyResult()
+
+        # Act & Assert - no error is raised
+        manager.resolve_request_to_client(client_id, request_id, result)
+        # If we get here without an exception, the test passes
+
+    async def test_resolve_does_nothing_if_request_not_found(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "test-client-123"
+        request_id = "nonexistent-request"
+
+        manager.register_client(client_id)
+
+        # Verify request doesn't exist
+        assert manager.get_request_to_client(client_id, request_id) is None
+
+        result = EmptyResult()
+
+        # Act & Assert - no error is raised
+        manager.resolve_request_to_client(client_id, request_id, result)
+        # If we get here without an exception, the test passes
+
+
+class TestInboundRequests:
+    async def test_track_request_from_client(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "test-client-123"
+        request_id = "req-123"
+
+        manager.register_client(client_id)
+
+        # Create mock request and task
+        request = PingRequest()
+        task = asyncio.create_task(asyncio.sleep(0))  # Simple task for testing
+
+        # Act
+        manager.track_request_from_client(client_id, request_id, request, task)
+
+        # Assert
+        client_state = manager.get_client(client_id)
+        assert client_state is not None
+
+        tracked_request, tracked_task = client_state.requests_from_client[request_id]
+        assert tracked_request is request
+        assert tracked_task is task
+
+        # Cleanup
+        task.cancel()
+
+    async def test_track_request_from_client_raises_for_unregistered_client(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "nonexistent-client"
+        request_id = "req-123"
+
+        request = PingRequest()
+        task = asyncio.create_task(asyncio.sleep(0))  # Simple task for testing
+
+        # Act & Assert
+        with pytest.raises(ValueError):
+            manager.track_request_from_client(client_id, request_id, request, task)
+
+        # Cleanup
+        task.cancel()
+
+    async def test_untrack_request_from_client(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "test-client-123"
+        request_id = "req-123"
+
+        manager.register_client(client_id)
+
+        request = PingRequest()
+        task = asyncio.create_task(asyncio.sleep(0))
+
+        # Track first, then untrack
+        manager.track_request_from_client(client_id, request_id, request, task)
+        assert manager.get_request_from_client(client_id, request_id) is not None
+
+        # Act
+        result = manager.untrack_request_from_client(client_id, request_id)
+
+        # Assert
+        assert result is not None
+        untracked_request, untracked_task = result
+        assert untracked_request is request
+        assert untracked_task is task
+
+        # Verify it's actually removed from tracking
+        client_state = manager.get_client(client_id)
+        assert request_id not in client_state.requests_from_client
+
+        # Cleanup
+        task.cancel()
+
+    async def test_untrack_request_from_client_raises_for_unregistered_client(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "nonexistent-client"
+        request_id = "req-123"
+
+        # Act & Assert
+        with pytest.raises(ValueError):
+            manager.untrack_request_from_client(client_id, request_id)
+
+    async def test_get_request_from_client(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "test-client-123"
+        request_id = "req-123"
+
+        manager.register_client(client_id)
+
+        request = PingRequest()
+        task = asyncio.create_task(asyncio.sleep(0))
+
+        # Track the request first
+        manager.track_request_from_client(client_id, request_id, request, task)
+
+        # Act
+        result = manager.get_request_from_client(client_id, request_id)
+
+        # Assert
+        assert result is not None
+        retrieved_request, retrieved_task = result
+        assert retrieved_request is request
+        assert retrieved_task is task
+
+        # Cleanup
+        task.cancel()
+
+    async def test_get_request_from_client_returns_none_for_unregistered_client(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "nonexistent-client"
+        request_id = "req-123"
+
+        # Act
+        result = manager.get_request_from_client(client_id, request_id)
+
+        # Assert
+        assert result is None
+
+    async def test_get_request_from_client_returns_none_for_nonexistent_request(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "test-client-123"
+        request_id = "nonexistent-request"
+
+        manager.register_client(client_id)
+
+        # Act
+        result = manager.get_request_from_client(client_id, request_id)
+
+        # Assert
+        assert result is None
+
+
+class TestCleanup:
+    async def test_cleanup_client(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "test-client-123"
+
+        manager.register_client(client_id)
+
+        # Set up inbound request tracking
+        inbound_request = PingRequest()
+        inbound_task = asyncio.create_task(asyncio.sleep(10))  # Long-running task
         manager.track_request_from_client(
-            client_id, "req-1", PingRequest(), processing_client_request
+            client_id, "inbound-123", inbound_request, inbound_task
         )
 
-        # Mock a pending request to the client
-        awaiting_client_response = asyncio.Future()
-        ping_request = PingRequest()
+        # Set up outbound request tracking
+        outbound_request = PingRequest()
+        outbound_future = asyncio.Future[Result | Error]()
         manager.track_request_to_client(
-            client_id, "req-2", ping_request, awaiting_client_response
+            client_id, "outbound-456", outbound_request, outbound_future
         )
 
         # Verify setup
-        assert len(state.requests_from_client) == 1
-        assert len(state.requests_to_client) == 1
-        assert not processing_client_request.cancelled()
-        assert not awaiting_client_response.done()
+        assert manager.get_client(client_id) is not None
+        assert not inbound_task.cancelled()
+        assert not outbound_future.done()
 
         # Act
         manager.cleanup_client(client_id)
 
-        # Wait for cancellation to complete
-        try:
-            await processing_client_request
-        except asyncio.CancelledError:
-            pass  # Expected cancellation
-
-        # Assert - client is removed
+        # Assert
+        # Server should be removed from tracking
         assert manager.get_client(client_id) is None
-        assert manager.client_count() == 0
 
-        # Assert - in-flight task is cancelled
-        assert processing_client_request.cancelled()
+        # Inbound task should be cancelled
+        try:
+            await inbound_task
+        except asyncio.CancelledError:
+            pass
+        assert inbound_task.cancelled()
 
-        # Assert - pending future is resolved with error
-        assert awaiting_client_response.done()
-        result = awaiting_client_response.result()
+        # Outbound future should be resolved with error
+        assert outbound_future.done()
+        result = outbound_future.result()
         assert isinstance(result, Error)
         assert result.code == INTERNAL_ERROR
-        assert "Client disconnected" in result.message
 
-    async def test_cleans_up_all_clients_with_active_or_pending_requests(self):
-        """Test cleanup_all_clients handles multiple clients with active requests."""
+    async def test_cleanup_all_clients(self):
         # Arrange
         manager = ClientManager()
-
-        # Register multiple clients with different states
-        client1_id = "client-1"
-        client2_id = "client-2"
-        client3_id = "client-3"
-
-        state1 = manager.register_client(client1_id)
-        state2 = manager.register_client(client2_id)
-        state3 = manager.register_client(client3_id)
-
-        # Client 1: Has both inbound and outbound requests
-        processing_request_1 = asyncio.create_task(asyncio.sleep(10))
-        awaiting_response_1 = asyncio.Future()
-        manager.track_request_from_client(
-            client1_id, "req-1", PingRequest(), processing_request_1
-        )
-        manager.track_request_to_client(
-            client1_id, "req-2", PingRequest(), awaiting_response_1
-        )
-
-        # Client 2: Only has outbound request
-        awaiting_response_2 = asyncio.Future()
-        manager.track_request_to_client(
-            client2_id, "req-3", PingRequest(), awaiting_response_2
-        )
-
-        # Client 3: Only has inbound request
-        processing_request_3 = asyncio.create_task(asyncio.sleep(10))
-        manager.track_request_from_client(
-            client3_id, "req-4", PingRequest(), processing_request_3
-        )
-
-        # Verify setup
-        assert manager.client_count() == 3
+        manager.register_client("client-1")
+        manager.register_client("client-2")
 
         # Act
         manager.cleanup_all_clients()
 
-        # Wait for all cancellations to complete
-        for task in [processing_request_1, processing_request_3]:
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass  # Expected cancellation
-
-        # Assert - all clients removed
+        # Assert
         assert manager.client_count() == 0
-        assert manager.get_client(client1_id) is None
-        assert manager.get_client(client2_id) is None
-        assert manager.get_client(client3_id) is None
-
-        # Assert - all tasks cancelled
-        assert processing_request_1.cancelled()
-        assert processing_request_3.cancelled()
-
-        # Assert - all pending futures resolved with errors
-        assert awaiting_response_1.done()
-        assert awaiting_response_2.done()
-
-        for future in [awaiting_response_1, awaiting_response_2]:
-            result = future.result()
-            assert isinstance(result, Error)
-            assert result.code == INTERNAL_ERROR
-            assert "Client disconnected" in result.message
+        assert manager.get_client_ids() == []

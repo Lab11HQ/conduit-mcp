@@ -43,30 +43,55 @@ class ServerManager:
         self._servers: dict[str, ServerState] = {}
 
     def register_server(self, server_id: str) -> ServerState:
-        """Register a new server."""
+        """Register a new server.
+
+        Args:
+            server_id: Server identifier
+
+        Returns:
+            The ServerState object for the registered server.
+        """
         server_state = ServerState()
         self._servers[server_id] = server_state
         return server_state
 
     def get_server(self, server_id: str) -> ServerState | None:
-        """Get a server state."""
+        """Get a server state.
+
+        Args:
+            server_id: Server identifier
+
+        Returns:
+            The server state or None if server is not registered.
+        """
         return self._servers.get(server_id)
 
     def get_server_ids(self) -> list[str]:
-        """Get all server IDs."""
+        """Get all server IDs.
+
+        Returns:
+            List of server IDs.
+        """
         return list(self._servers.keys())
 
+    def server_count(self) -> int:
+        """Get number of active servers."""
+        return len(self._servers)
+
     def is_protocol_initialized(self, server_id: str) -> bool:
-        """Check if a specific server has completed MCP protocol initialization."""
+        """Check if a specific server has completed MCP initialization.
+
+        Args:
+            server_id: Server identifier
+
+        Returns:
+            True if server is initialized, False otherwise.
+        """
         server_state = self.get_server(server_id)
         if server_state is None:
             return False
 
         return server_state.initialized
-
-    def server_count(self) -> int:
-        """Get number of active servers."""
-        return len(self._servers)
 
     def initialize_server(
         self,
@@ -86,37 +111,6 @@ class ServerManager:
         server_state.protocol_version = protocol_version
         server_state.instructions = instructions
         server_state.initialized = True
-
-    def cleanup_server(self, server_id: str) -> None:
-        """Clean up all request tracking when stopping.
-
-        Cancels work for requests the server is waiting on and resolves pending
-        requests the server is fulfilling.
-        """
-        server_state = self.get_server(server_id)
-        if server_state is None:
-            return
-
-        for request, task in server_state.requests_from_server.values():
-            task.cancel()
-        server_state.requests_from_server.clear()
-
-        for _, future in server_state.requests_to_server.values():
-            if not future.done():
-                error = Error(
-                    code=INTERNAL_ERROR,
-                    message="Cleaned up by server manager.",
-                )
-                future.set_result(error)
-        server_state.requests_to_server.clear()
-
-        # Remove from tracking
-        del self._servers[server_id]
-
-    def cleanup_all_servers(self) -> None:
-        """Clean up all server state."""
-        for server_id in list(self._servers.keys()):
-            self.cleanup_server(server_id)
 
     def track_request_to_server(
         self,
@@ -195,17 +189,14 @@ class ServerManager:
             server_id: Server identifier
             request_id: Request identifier to resolve
             result_or_error: Result or error to resolve the request with
-
-        Raises:
-            ValueError: If server is not registered
         """
         server_state = self.get_server(server_id)
         if server_state is None:
-            raise ValueError(f"Server {server_id} not registered")
+            return
 
         request_future_tuple = server_state.requests_to_server.pop(request_id, None)
         if request_future_tuple:
-            request, future = request_future_tuple
+            _, future = request_future_tuple
             future.set_result(result_or_error)
 
     def track_request_from_server(
@@ -243,6 +234,9 @@ class ServerManager:
 
         Returns:
             Tuple of (request, task) if found, None otherwise
+
+        Raises:
+            ValueError: If server is not registered
         """
         server_state = self.get_server(server_id)
         if server_state is None:
@@ -267,3 +261,34 @@ class ServerManager:
             return
 
         return server_state.requests_from_server.get(request_id, None)
+
+    def cleanup_server(self, server_id: str) -> None:
+        """Clean up all request tracking when stopping.
+
+        Cancels work for requests the server is waiting on and resolves pending
+        requests the server is fulfilling.
+        """
+        server_state = self.get_server(server_id)
+        if server_state is None:
+            return
+
+        for request, task in server_state.requests_from_server.values():
+            task.cancel()
+        server_state.requests_from_server.clear()
+
+        for _, future in server_state.requests_to_server.values():
+            if not future.done():
+                error = Error(
+                    code=INTERNAL_ERROR,
+                    message="Cleaned up by server manager.",
+                )
+                future.set_result(error)
+        server_state.requests_to_server.clear()
+
+        # Remove from tracking
+        del self._servers[server_id]
+
+    def cleanup_all_servers(self) -> None:
+        """Clean up all server state."""
+        for server_id in list(self._servers.keys()):
+            self.cleanup_server(server_id)

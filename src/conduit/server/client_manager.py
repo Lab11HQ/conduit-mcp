@@ -51,7 +51,7 @@ class ClientManager:
         """Get client state."""
         return self._clients.get(client_id)
 
-    def get_all_client_ids(self) -> list[str]:
+    def get_client_ids(self) -> list[str]:
         """Get all client IDs."""
         return list(self._clients.keys())
 
@@ -153,7 +153,7 @@ class ClientManager:
         """
         state = self.get_client(client_id)
         if state is None:
-            return None
+            raise ValueError(f"Client {client_id} not registered")
 
         return state.requests_to_client.pop(request_id, None)
 
@@ -177,28 +177,22 @@ class ClientManager:
 
     def resolve_request_to_client(
         self, client_id: str, request_id: str, result_or_error: Result | Error
-    ) -> bool:
+    ) -> None:
         """Resolve a pending request with a result or error.
 
         Args:
             client_id: ID of the client
             request_id: Request identifier to resolve
             result_or_error: Result or error to resolve the request with
-
-        Returns:
-            True if request was found and resolved, False otherwise
         """
-        state = self.get_client(client_id)
-        if state is None:
-            return False
+        client_state = self.get_client(client_id)
+        if client_state is None:
+            return
 
-        request_future_tuple = state.requests_to_client.pop(request_id, None)
-        if not request_future_tuple:
-            return False
-
-        original_request, future = request_future_tuple
-        future.set_result(result_or_error)
-        return True
+        request_future_tuple = client_state.requests_to_client.pop(request_id, None)
+        if request_future_tuple:
+            _, future = request_future_tuple
+            future.set_result(result_or_error)
 
     def track_request_from_client(
         self,
@@ -237,7 +231,7 @@ class ClientManager:
         """
         state = self.get_client(client_id)
         if state is None:
-            return None
+            raise ValueError(f"Client {client_id} not registered")
 
         return state.requests_from_client.pop(request_id, None)
 
