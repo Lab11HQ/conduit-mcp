@@ -211,7 +211,7 @@ class CallbackManager:
         """
         self._prompts_changed = callback
 
-    async def call_prompts_changed(self, prompts: list[Prompt]) -> None:
+    async def call_prompts_changed(self, server_id: str, prompts: list[Prompt]) -> None:
         """Invoke your registered prompts changed callback with the updated prompts.
 
         Calls your prompts callback if you've registered one. Logs any errors

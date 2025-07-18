@@ -128,7 +128,7 @@ class TestPromptsChangedCallback:
         manager.on_prompts_changed(callback)
 
         # Act
-        await manager.call_prompts_changed(prompts)
+        await manager.call_prompts_changed("server_id", prompts)
 
         # Assert
         callback.assert_awaited_once_with(prompts)
@@ -139,7 +139,7 @@ class TestPromptsChangedCallback:
         prompts = [Prompt(name="test", description="test")]
 
         # Act
-        await manager.call_prompts_changed(prompts)
+        await manager.call_prompts_changed("server_id", prompts)
 
         # Assert - Test passes if we reach this point without exception
         assert True

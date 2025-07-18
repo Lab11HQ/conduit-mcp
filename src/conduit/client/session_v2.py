@@ -370,7 +370,7 @@ class ClientSession:
         await self.callbacks.call_progress(server_id, notification)
 
     async def _handle_prompts_list_changed(
-        self, notification: PromptListChangedNotification
+        self, server_id: str, notification: PromptListChangedNotification
     ) -> None:
         """Fetches the updated prompts list and calls the registered callback.
 
@@ -380,12 +380,16 @@ class ClientSession:
             disrupting the session.
         """
         try:
-            list_prompts_result = await self.send_request(ListPromptsRequest())
+            list_prompts_result = await self.send_request(
+                server_id, ListPromptsRequest()
+            )
             if isinstance(list_prompts_result, ListPromptsResult):
-                self.server_manager.get_server_context().prompts = (
-                    list_prompts_result.prompts
+                self.server_manager.get_server(
+                    server_id
+                ).prompts = list_prompts_result.prompts
+                await self.callbacks.call_prompts_changed(
+                    server_id, list_prompts_result.prompts
                 )
-                await self.callbacks.call_prompts_changed(list_prompts_result.prompts)
         except Exception:
             pass
 
