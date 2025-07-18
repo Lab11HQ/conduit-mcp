@@ -234,6 +234,9 @@ class ServerManager:
 
         Returns:
             Tuple of (request, task) if found, None otherwise
+
+        Raises:
+            ValueError: If server is not registered
         """
         server_state = self.get_server(server_id)
         if server_state is None:

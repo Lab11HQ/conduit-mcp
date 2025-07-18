@@ -51,7 +51,7 @@ class ClientManager:
         """Get client state."""
         return self._clients.get(client_id)
 
-    def get_all_client_ids(self) -> list[str]:
+    def get_client_ids(self) -> list[str]:
         """Get all client IDs."""
         return list(self._clients.keys())
 
