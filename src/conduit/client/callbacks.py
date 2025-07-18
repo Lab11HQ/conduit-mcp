@@ -115,7 +115,7 @@ class CallbackManager:
         """
         self._tools_changed = callback
 
-    async def call_tools_changed(self, tools: list[Tool]) -> None:
+    async def call_tools_changed(self, server_id: str, tools: list[Tool]) -> None:
         """Invoke your registered tools changed callback with the updated tools.
 
         Calls your tools callback if you've registered one. Logs any errors
@@ -183,7 +183,9 @@ class CallbackManager:
         """
         self._resource_updated = callback
 
-    async def call_resource_updated(self, uri: str, result: ReadResourceResult) -> None:
+    async def call_resource_updated(
+        self, server_id: str, uri: str, result: ReadResourceResult
+    ) -> None:
         """Invoke your registered resource updated callback with URI and result.
 
         Calls your resource updated callback if you've registered one. Logs any

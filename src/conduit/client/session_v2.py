@@ -430,7 +430,7 @@ class ClientSession:
             await self.callbacks.call_resources_changed(server_id, resources, templates)
 
     async def _handle_resources_updated(
-        self, notification: ResourceUpdatedNotification
+        self, server_id: str, notification: ResourceUpdatedNotification
     ) -> None:
         """Reads the updated resource content and calls the registered callback.
 
@@ -440,17 +440,17 @@ class ClientSession:
         """
         try:
             read_resource_result = await self.send_request(
-                ReadResourceRequest(uri=notification.uri)
+                server_id, ReadResourceRequest(uri=notification.uri)
             )
             if isinstance(read_resource_result, ReadResourceResult):
                 await self.callbacks.call_resource_updated(
-                    notification.uri, read_resource_result
+                    server_id, notification.uri, read_resource_result
                 )
         except Exception:
             pass
 
     async def _handle_tools_list_changed(
-        self, notification: ToolListChangedNotification
+        self, server_id: str, notification: ToolListChangedNotification
     ) -> None:
         """Fetches the updated tools list and calls the registered callback.
 
@@ -460,10 +460,14 @@ class ClientSession:
             disrupting the session.
         """
         try:
-            list_tools_result = await self.send_request(ListToolsRequest())
+            list_tools_result = await self.send_request(server_id, ListToolsRequest())
             if isinstance(list_tools_result, ListToolsResult):
-                self.server_manager.get_server_context().tools = list_tools_result.tools
-                await self.callbacks.call_tools_changed(list_tools_result.tools)
+                self.server_manager.get_server(
+                    server_id
+                ).tools = list_tools_result.tools
+                await self.callbacks.call_tools_changed(
+                    server_id, list_tools_result.tools
+                )
         except Exception:
             pass
 

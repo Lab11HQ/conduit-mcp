@@ -42,7 +42,7 @@ class TestToolsChangedCallback:
         tools = [Tool(name="test", input_schema=JSONSchema())]
         callback = AsyncMock(side_effect=RuntimeError("User callback failed"))
         manager.on_tools_changed(callback)
-        await manager.call_tools_changed(tools)
+        await manager.call_tools_changed("server_id", tools)
 
         # Assert
         callback.assert_awaited_once_with(tools)
@@ -53,7 +53,7 @@ class TestToolsChangedCallback:
         tools = [Tool(name="test", input_schema=JSONSchema())]
 
         # Act
-        await manager.call_tools_changed(tools)
+        await manager.call_tools_changed("server_id", tools)
 
         # Assert - Test passes if we reach this point without exception
         assert True
@@ -99,7 +99,7 @@ class TestResourceUpdatedCallback:
         manager.on_resource_updated(callback)
 
         # Act
-        await manager.call_resource_updated(resource.uri, result)
+        await manager.call_resource_updated("server_id", resource.uri, result)
 
         # Assert
         callback.assert_awaited_once_with(resource.uri, result)
@@ -113,7 +113,7 @@ class TestResourceUpdatedCallback:
         )
 
         # Act
-        await manager.call_resource_updated(resource.uri, result)
+        await manager.call_resource_updated("server_id", resource.uri, result)
 
         # Assert - Test passes if we reach this point without exception
         assert True
