@@ -472,10 +472,10 @@ class ClientSession:
             pass
 
     async def _handle_logging_message(
-        self, notification: LoggingMessageNotification
+        self, server_id: str, notification: LoggingMessageNotification
     ) -> None:
         """Calls the registered callback for logging messages."""
-        await self.callbacks.call_logging_message(notification)
+        await self.callbacks.call_logging_message(server_id, notification)
 
     # ================================
     # Send messages

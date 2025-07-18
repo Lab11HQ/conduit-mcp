@@ -154,7 +154,7 @@ class TestLoggingMessageCallback:
         manager.on_logging_message(callback)
 
         # Act
-        await manager.call_logging_message(logging_message)
+        await manager.call_logging_message("server_id", logging_message)
 
         # Assert
         callback.assert_awaited_once_with(logging_message)
@@ -165,7 +165,7 @@ class TestLoggingMessageCallback:
         logging_message = LoggingMessageNotification(level="info", data="test")
 
         # Act
-        await manager.call_logging_message(logging_message)
+        await manager.call_logging_message("server_id", logging_message)
 
         # Assert - Test passes if we reach this point without exception
         assert True

@@ -247,7 +247,7 @@ class CallbackManager:
         self._logging_message = callback
 
     async def call_logging_message(
-        self, notification: LoggingMessageNotification
+        self, server_id: str, notification: LoggingMessageNotification
     ) -> None:
         """Invoke your registered logging message callback with the notification.
 
