@@ -13,33 +13,33 @@ class TestClientLifecycle:
         client_id = "test-client-123"
 
         # Act
-        context = manager.register_client(client_id)
-        retrieved_context = manager.get_client(client_id)
+        state = manager.register_client(client_id)
+        retrieved_state = manager.get_client(client_id)
 
         # Assert
-        assert context is not None
-        assert context.id == client_id
-        assert context.initialized is False
-        assert context.capabilities is None
-        assert context.info is None
-        assert context.protocol_version is None
-        assert context.roots is None
-        assert context.log_level is None
-        assert len(context.subscriptions) == 0
-        assert len(context.requests_from_client) == 0
-        assert len(context.requests_to_client) == 0
+        assert state is not None
+        assert state.id == client_id
+        assert state.initialized is False
+        assert state.capabilities is None
+        assert state.info is None
+        assert state.protocol_version is None
+        assert state.roots is None
+        assert state.log_level is None
+        assert len(state.subscriptions) == 0
+        assert len(state.requests_from_client) == 0
+        assert len(state.requests_to_client) == 0
 
-        # Verify retrieval returns same context
-        assert retrieved_context is context
+        # Verify retrieval returns same state
+        assert retrieved_state is state
         assert manager.client_count() == 1
-        assert manager.is_client_initialized(client_id) is False
+        assert manager.is_protocol_initialized(client_id) is False
 
-    async def test_disconnect_client_with_active_or_pending_requests(self):
-        """Test client disconnection properly cleans up active requests."""
+    async def test_cleanup_client_with_active_or_pending_requests(self):
+        """Test client cleanup properly cleans up active requests."""
         # Arrange
         manager = ClientManager()
         client_id = "test-client-123"
-        context = manager.register_client(client_id)
+        state = manager.register_client(client_id)
 
         # Mock an in-flight request from the client
         processing_client_request = asyncio.create_task(asyncio.sleep(10))
@@ -55,13 +55,13 @@ class TestClientLifecycle:
         )
 
         # Verify setup
-        assert len(context.requests_from_client) == 1
-        assert len(context.requests_to_client) == 1
+        assert len(state.requests_from_client) == 1
+        assert len(state.requests_to_client) == 1
         assert not processing_client_request.cancelled()
         assert not awaiting_client_response.done()
 
         # Act
-        manager.disconnect_client(client_id)
+        manager.cleanup_client(client_id)
 
         # Wait for cancellation to complete
         try:
@@ -93,9 +93,9 @@ class TestClientLifecycle:
         client2_id = "client-2"
         client3_id = "client-3"
 
-        context1 = manager.register_client(client1_id)
-        context2 = manager.register_client(client2_id)
-        context3 = manager.register_client(client3_id)
+        state1 = manager.register_client(client1_id)
+        state2 = manager.register_client(client2_id)
+        state3 = manager.register_client(client3_id)
 
         # Client 1: Has both inbound and outbound requests
         processing_request_1 = asyncio.create_task(asyncio.sleep(10))

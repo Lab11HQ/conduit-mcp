@@ -49,7 +49,9 @@ class TestElicitationRequestHandling:
         )
 
         # Act
-        result = await self.session._handle_elicitation(self.elicitation_request)
+        result = await self.session._handle_elicitation(
+            "server_id", self.elicitation_request
+        )
 
         # Assert
         assert result == mock_result
@@ -60,7 +62,9 @@ class TestElicitationRequestHandling:
         self.session = ClientSession(self.transport, self.config_without_elicitation)
 
         # Act
-        result = await self.session._handle_elicitation(self.elicitation_request)
+        result = await self.session._handle_elicitation(
+            "server_id", self.elicitation_request
+        )
 
         # Assert
         assert isinstance(result, Error)
@@ -76,7 +80,9 @@ class TestElicitationRequestHandling:
         )
 
         # Act
-        result = await self.session._handle_elicitation(self.elicitation_request)
+        result = await self.session._handle_elicitation(
+            "server_id", self.elicitation_request
+        )
 
         # Assert
         assert isinstance(result, Error)
@@ -92,7 +98,9 @@ class TestElicitationRequestHandling:
         )
 
         # Act
-        result = await self.session._handle_elicitation(self.elicitation_request)
+        result = await self.session._handle_elicitation(
+            "server_id", self.elicitation_request
+        )
 
         # Assert
         assert isinstance(result, Error)

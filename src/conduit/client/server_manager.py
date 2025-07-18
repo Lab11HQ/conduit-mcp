@@ -11,7 +11,7 @@ RequestID = str | int
 
 
 @dataclass
-class ServerContext:
+class ServerState:
     """Complete server state in one place."""
 
     # Protocol state
@@ -40,96 +40,87 @@ class ServerManager:
     """Owns all server state and lifecycle."""
 
     def __init__(self):
-        self._server_context = ServerContext()
+        self._servers: dict[str, ServerState] = {}
+
+    def register_server(self, server_id: str) -> ServerState:
+        """Register a new server."""
+        server_state = ServerState()
+        self._servers[server_id] = server_state
+        return server_state
+
+    def get_server(self, server_id: str) -> ServerState | None:
+        """Get a server state."""
+        return self._servers.get(server_id)
+
+    def get_server_ids(self) -> list[str]:
+        """Get all server IDs."""
+        return list(self._servers.keys())
+
+    def is_protocol_initialized(self, server_id: str) -> bool:
+        """Check if a specific server has completed MCP protocol initialization."""
+        server_state = self.get_server(server_id)
+        if server_state is None:
+            return False
+
+        return server_state.initialized
+
+    def server_count(self) -> int:
+        """Get number of active servers."""
+        return len(self._servers)
 
     def initialize_server(
         self,
+        server_id: str,
         capabilities: ServerCapabilities,
         info: Implementation,
         protocol_version: str,
         instructions: str | None = None,
     ) -> None:
         """Store the server's initialization data and mark it as initialized."""
-        self._server_context.capabilities = capabilities
-        self._server_context.info = info
-        self._server_context.protocol_version = protocol_version
-        self._server_context.instructions = instructions
-        self._server_context.initialized = True
+        server_state = self.get_server(server_id)
+        if server_state is None:
+            server_state = self.register_server(server_id)
 
-    def get_server_context(self) -> ServerContext:
-        """Get the server context."""
-        return self._server_context
+        server_state.capabilities = capabilities
+        server_state.info = info
+        server_state.protocol_version = protocol_version
+        server_state.instructions = instructions
+        server_state.initialized = True
 
-    def reset_server_state(self) -> None:
-        """Reset the server state to its initial state."""
-        self._server_context = ServerContext()
-
-    def cleanup_requests(self) -> None:
+    def cleanup_server(self, server_id: str) -> None:
         """Clean up all request tracking when stopping.
 
         Cancels work for requests the server is waiting on and resolves pending
         requests the server is fulfilling.
         """
-        context = self._server_context
+        server_state = self.get_server(server_id)
+        if server_state is None:
+            return
 
-        for request, task in context.requests_from_server.values():
+        for request, task in server_state.requests_from_server.values():
             task.cancel()
-        context.requests_from_server.clear()
+        server_state.requests_from_server.clear()
 
-        for _, future in context.requests_to_server.values():
+        for _, future in server_state.requests_to_server.values():
             if not future.done():
                 error = Error(
                     code=INTERNAL_ERROR,
-                    message="Request failed. Client coordinator stopped.",
+                    message="Cleaned up by server manager.",
                 )
                 future.set_result(error)
-        context.requests_to_server.clear()
+        server_state.requests_to_server.clear()
 
-    def track_request_from_server(
-        self,
-        request_id: str | int,
-        request: Request,
-        task: asyncio.Task[None],
-    ) -> None:
-        """Track a request from the server.
+        # Remove from tracking
+        del self._servers[server_id]
 
-        Args:
-            request_id: Unique request identifier
-            task: The task handling the request
-        """
-        context = self._server_context
-        context.requests_from_server[request_id] = (request, task)
-
-    def get_request_from_server(
-        self, request_id: str | int
-    ) -> tuple[Request, asyncio.Task[None]] | None:
-        """Get a pending request from the server.
-
-        Args:
-            request_id: Request identifier to get
-
-        Returns:
-            Tuple of (request, task) if found, None otherwise
-        """
-        context = self._server_context
-        return context.requests_from_server.get(request_id, None)
-
-    def untrack_request_from_server(
-        self, request_id: str | int
-    ) -> tuple[Request, asyncio.Task[None]] | None:
-        """Stop tracking a request from the server.
-
-        Args:
-            request_id: Request identifier to remove
-
-        Returns:
-            Tuple of (request, task) if found, None otherwise
-        """
-        context = self._server_context
-        return context.requests_from_server.pop(request_id, None)
+    def cleanup_all_servers(self) -> None:
+        """Clean up all server state."""
+        for server_id in list(self._servers.keys()):
+            self.cleanup_server(server_id)
 
     def track_request_to_server(
         self,
+        server_id: str,
         request_id: str,
         request: Request,
         future: asyncio.Future[Result | Error],
@@ -137,54 +128,142 @@ class ServerManager:
         """Track a pending request to the server.
 
         Args:
+            server_id: Server identifier
             request_id: Unique request identifier
             request: The original request object
             future: Future that will be resolved with the response
+
+        Raises:
+            ValueError: If server is not registered
         """
-        context = self._server_context
-        context.requests_to_server[request_id] = (request, future)
+        server_state = self.get_server(server_id)
+        if server_state is None:
+            raise ValueError(f"Server {server_id} not registered")
+
+        server_state.requests_to_server[request_id] = (request, future)
 
     def untrack_request_to_server(
-        self, request_id: str
+        self, server_id: str, request_id: str
     ) -> tuple[Request, asyncio.Future[Result | Error]] | None:
         """Stop tracking a request to the server.
 
         Args:
+            server_id: Server identifier
             request_id: Request identifier to remove
 
         Returns:
             Tuple of (request, future) if found, None otherwise
+
+        Raises:
+            ValueError: If server is not registered
         """
-        context = self._server_context
-        return context.requests_to_server.pop(request_id, None)
+        server_state = self.get_server(server_id)
+        if server_state is None:
+            raise ValueError(f"Server {server_id} not registered")
+
+        return server_state.requests_to_server.pop(request_id, None)
 
     def get_request_to_server(
-        self, request_id: str | int
+        self, server_id: str, request_id: str
     ) -> tuple[Request, asyncio.Future[Result | Error]] | None:
         """Get a pending request to the server.
 
         Args:
-            request_id: Request identifier to get
+            server_id: Server identifier
+            request_id: Request identifier
 
         Returns:
             Tuple of (request, future) if found, None otherwise
+
+        Raises:
+            ValueError: If server is not registered
         """
-        context = self._server_context
-        return context.requests_to_server.get(request_id, None)
+        server_state = self.get_server(server_id)
+        if server_state is None:
+            return
+
+        return server_state.requests_to_server.get(request_id, None)
 
     def resolve_request_to_server(
-        self, request_id: str | int, result_or_error: Result | Error
+        self, server_id: str, request_id: str, result_or_error: Result | Error
     ) -> None:
         """Resolve a pending request to the server.
 
         Sets the future and clears the request from the server context.
 
         Args:
+            server_id: Server identifier
             request_id: Request identifier to resolve
             result_or_error: Result or error to resolve the request with
+
+        Raises:
+            ValueError: If server is not registered
         """
-        context = self._server_context
-        request_future_tuple = context.requests_to_server.pop(request_id, None)
+        server_state = self.get_server(server_id)
+        if server_state is None:
+            raise ValueError(f"Server {server_id} not registered")
+
+        request_future_tuple = server_state.requests_to_server.pop(request_id, None)
         if request_future_tuple:
             request, future = request_future_tuple
             future.set_result(result_or_error)
+
+    def track_request_from_server(
+        self,
+        server_id: str,
+        request_id: str | int,
+        request: Request,
+        task: asyncio.Task[None],
+    ) -> None:
+        """Track a request from the server.
+
+        Args:
+            server_id: Server identifier
+            request_id: Unique request identifier
+            request: The original request object
+            task: The task handling the request
+
+        Raises:
+            ValueError: If server is not registered
+        """
+        server_state = self.get_server(server_id)
+        if server_state is None:
+            raise ValueError(f"Server {server_id} not registered")
+
+        server_state.requests_from_server[request_id] = (request, task)
+
+    def untrack_request_from_server(
+        self, server_id: str, request_id: str | int
+    ) -> tuple[Request, asyncio.Task[None]] | None:
+        """Stop tracking a request from the server.
+
+        Args:
+            server_id: Server identifier
+            request_id: Request identifier to remove
+
+        Returns:
+            Tuple of (request, task) if found, None otherwise
+        """
+        server_state = self.get_server(server_id)
+        if server_state is None:
+            raise ValueError(f"Server {server_id} not registered")
+
+        return server_state.requests_from_server.pop(request_id, None)
+
+    def get_request_from_server(
+        self, server_id: str, request_id: str | int
+    ) -> tuple[Request, asyncio.Task[None]] | None:
+        """Get a pending request from the server.
+
+        Args:
+            server_id: Server identifier
+            request_id: Request identifier to get
+
+        Returns:
+            Tuple of (request, task) if found, None otherwise
+        """
+        server_state = self.get_server(server_id)
+        if server_state is None:
+            return
+
+        return server_state.requests_from_server.get(request_id, None)

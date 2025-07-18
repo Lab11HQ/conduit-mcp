@@ -1,12 +1,10 @@
 import asyncio
 
-import pytest
-
 from conduit.protocol.base import Error
 from conduit.protocol.common import PingRequest
 
 
-class TestClientMessageCoordinatorLifecycle:
+class TestMessageCoordinatorLifecycle:
     async def test_start_is_idempotent(self, coordinator):
         # Arrange
         assert not coordinator.running
@@ -23,15 +21,6 @@ class TestClientMessageCoordinatorLifecycle:
         # Cleanup
         await coordinator.stop()
         assert not coordinator.running
-
-    async def test_start_requires_open_transport(self, coordinator, mock_transport):
-        # Arrange
-        await mock_transport.close()
-        assert not mock_transport.is_open
-
-        # Act & Assert
-        with pytest.raises(ConnectionError, match="transport is closed"):
-            await coordinator.start()
 
     async def test_stop_is_idempotent(self, coordinator):
         # Arrange
@@ -80,15 +69,15 @@ class TestClientMessageCoordinatorLifecycle:
         # Arrange
         handled_messages = []
 
-        async def tracking_handler(payload):
-            handled_messages.append(payload)
+        async def tracking_handler(server_message):
+            handled_messages.append((server_message.server_id, server_message.payload))
 
         coordinator._route_server_message = tracking_handler
 
         # Act - Start, process message, stop
         await coordinator.start()
         mock_transport.add_server_message(
-            {"jsonrpc": "2.0", "method": "test/before-stop"}
+            "server1", {"jsonrpc": "2.0", "method": "test/before-stop"}
         )
         await yield_loop()
         await coordinator.stop()
@@ -96,14 +85,14 @@ class TestClientMessageCoordinatorLifecycle:
         # Act - Restart and process another message
         await coordinator.start()
         mock_transport.add_server_message(
-            {"jsonrpc": "2.0", "method": "test/after-restart"}
+            "server1", {"jsonrpc": "2.0", "method": "test/after-restart"}
         )
         await yield_loop()
 
         # Assert - Both phases worked
         assert len(handled_messages) == 2
-        assert handled_messages[0]["method"] == "test/before-stop"
-        assert handled_messages[1]["method"] == "test/after-restart"
+        assert handled_messages[0][1]["method"] == "test/before-stop"
+        assert handled_messages[1][1]["method"] == "test/after-restart"
 
         # Cleanup
         await coordinator.stop()
@@ -124,14 +113,25 @@ class TestClientMessageCoordinatorLifecycle:
         future1 = asyncio.Future()
         future2 = asyncio.Future()
 
-        # Add requests to server context
-        context = server_manager.get_server_context()
-        context.requests_from_server["req1"] = (mock_request1, task1)
-        context.requests_from_server["req2"] = (mock_request2, task2)
+        # Register servers
+        server_manager.register_server("server1")
+        server_manager.register_server("server2")
+        assert server_manager.server_count() == 2
 
-        ping_request = PingRequest()
-        context.requests_to_server["ping1"] = (ping_request, future1)
-        context.requests_to_server["ping2"] = (ping_request, future2)
+        # Track requests
+        server_manager.track_request_from_server(
+            "server1", "req1", mock_request1, task1
+        )
+        server_manager.track_request_from_server(
+            "server2", "req2", mock_request2, task2
+        )
+
+        server_manager.track_request_to_server(
+            "server1", "ping1", PingRequest(), future1
+        )
+        server_manager.track_request_to_server(
+            "server2", "ping2", PingRequest(), future2
+        )
 
         # Act
         await coordinator.stop()
@@ -154,3 +154,6 @@ class TestClientMessageCoordinatorLifecycle:
         result2 = future2.result()
         assert isinstance(result1, Error)
         assert isinstance(result2, Error)
+
+        # Assert - servers are cleaned up
+        assert server_manager.server_count() == 0

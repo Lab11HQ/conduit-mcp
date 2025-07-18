@@ -30,7 +30,7 @@ class TestNotificationHandling:
         # Act
         await session._handle_cancelled(client_id, notification)
 
-        # Assert - focus on what we can observe
+        # Assert
         session.callbacks.call_cancelled.assert_awaited_once_with(
             client_id, notification
         )
@@ -54,7 +54,7 @@ class TestNotificationHandling:
             client_id, notification
         )
 
-    async def test_handle_roots_list_changed_updates_client_context_and_calls_callback(
+    async def test_handle_roots_list_changed_updates_client_state_and_calls_callback(
         self,
     ):
         # Arrange
@@ -62,7 +62,7 @@ class TestNotificationHandling:
         client_id = "test-client"
         notification = RootsListChangedNotification()
 
-        # Register client to create context
+        # Register client to create state
         session.client_manager.register_client(client_id)
 
         # Mock successful coordinator response
@@ -79,11 +79,11 @@ class TestNotificationHandling:
         # Act
         await session._handle_roots_list_changed(client_id, notification)
 
-        # Assert - verify client context was updated
-        client_context = session.client_manager.get_client(client_id)
-        assert client_context.roots == new_roots
+        # Assert - verify client state was updated
+        state = session.client_manager.get_client(client_id)
+        assert state.roots == new_roots
 
-        # Assert - verify callback was called with client context
+        # Assert - verify callback was called with client state
         session.callbacks.call_roots_changed.assert_awaited_once_with(
             client_id, new_roots
         )
@@ -94,7 +94,7 @@ class TestNotificationHandling:
         client_id = "test-client"
         notification = RootsListChangedNotification()
 
-        # Register client to create context
+        # Register client to create state
         session.client_manager.register_client(client_id)
 
         # Mock coordinator to raise exception
@@ -119,7 +119,7 @@ class TestNotificationHandling:
         client_id = "test-client"
         notification = RootsListChangedNotification()
 
-        # Register client to create context
+        # Register client to create state
         session.client_manager.register_client(client_id)
 
         # Mock successful coordinator response
@@ -135,9 +135,9 @@ class TestNotificationHandling:
         # Act - should not raise exception despite callback failure
         await session._handle_roots_list_changed(client_id, notification)
 
-        # Assert - client context should still be updated despite callback failure
-        client_context = session.client_manager.get_client(client_id)
-        assert client_context.roots == new_roots
+        # Assert - client state should still be updated despite callback failure
+        state = session.client_manager.get_client(client_id)
+        assert state.roots == new_roots
 
         # Assert - callback was attempted
         session.callbacks.call_roots_changed.assert_awaited_once_with(

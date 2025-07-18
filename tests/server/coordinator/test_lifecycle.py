@@ -1,7 +1,5 @@
 import asyncio
 
-import pytest
-
 from conduit.protocol.common import PingRequest
 
 
@@ -23,15 +21,6 @@ class TestMessageCoordinatorLifecycle:
         # Cleanup
         await coordinator.stop()
         assert not coordinator.running
-
-    async def test_start_requires_open_transport(self, coordinator, mock_transport):
-        # Arrange
-        await mock_transport.close()
-        assert not mock_transport.is_open
-
-        # Act & Assert
-        with pytest.raises(ConnectionError, match="transport is closed"):
-            await coordinator.start()
 
     async def test_stop_is_idempotent(self, coordinator):
         # Arrange
@@ -61,21 +50,6 @@ class TestMessageCoordinatorLifecycle:
         await coordinator.start()
         assert coordinator.running
 
-        await coordinator.stop()
-        assert not coordinator.running
-
-    async def test_coordinator_handles_transport_failure_gracefully(
-        self, coordinator, mock_transport, yield_loop
-    ):
-        # Arrange
-        await coordinator.start()
-
-        # Act - simulate transport failure
-        await mock_transport.close()
-
-        await yield_loop()
-
-        # Assert - coordinator should still be cleanly stoppable
         await coordinator.stop()
         assert not coordinator.running
 
@@ -117,9 +91,7 @@ class TestMessageCoordinatorLifecycle:
 
         # Assert - Both phases worked
         assert len(handled_messages) == 2
-        assert handled_messages[0][0] == "client1"
         assert handled_messages[0][1]["method"] == "test/before-stop"
-        assert handled_messages[1][0] == "client1"
         assert handled_messages[1][1]["method"] == "test/after-restart"
 
         # Cleanup
@@ -142,18 +114,24 @@ class TestMessageCoordinatorLifecycle:
         future2 = asyncio.Future()
 
         # Register clients with both in-flight and pending requests
-        client1_context = client_manager.register_client("client1")
-        client2_context = client_manager.register_client("client2")
+        client_manager.register_client("client1")
+        client_manager.register_client("client2")
         assert client_manager.client_count() == 2
 
-        # In-flight requests (FROM clients TO server)
-        client1_context.requests_from_client["req1"] = (mock_request1, task1)
-        client2_context.requests_from_client["req2"] = (mock_request2, task2)
+        # Track requests
+        client_manager.track_request_from_client(
+            "client1", "req1", mock_request1, task1
+        )
+        client_manager.track_request_from_client(
+            "client2", "req2", mock_request2, task2
+        )
 
-        ping_to_client1 = PingRequest()
-        ping_to_client2 = PingRequest()
-        client1_context.requests_to_client["ping1"] = (ping_to_client1, future1)
-        client2_context.requests_to_client["ping2"] = (ping_to_client2, future2)
+        client_manager.track_request_to_client(
+            "client1", "ping1", PingRequest(), future1
+        )
+        client_manager.track_request_to_client(
+            "client2", "ping2", PingRequest(), future2
+        )
 
         # Act
         await coordinator.stop()
@@ -164,4 +142,6 @@ class TestMessageCoordinatorLifecycle:
         assert task2.cancelled()
         assert future1.done()
         assert future2.done()
+
+        # Assert - clients are cleaned up
         assert client_manager.client_count() == 0

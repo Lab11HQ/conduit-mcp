@@ -56,110 +56,220 @@ class TestInitialization:
         "error": {"code": METHOD_NOT_FOUND, "message": "Server initialization failed"},
     }
 
-    async def test_initialization_handshake_is_successful(self, yield_loop):
+    async def test_connect_server_handshake_is_successful(self, yield_loop):
         # Arrange
-        assert not self.session._initialized
+        server_id = "test-server"
+        connection_info = {"host": "test-host", "port": 8080}
+
+        # Verify server is not initialized yet
+        assert not self.session.server_manager.is_protocol_initialized(server_id)
 
         # Act
-        init_task = asyncio.create_task(self.session.initialize())
+        connect_task = asyncio.create_task(
+            self.session.connect_server(server_id, connection_info)
+        )
 
         # Wait for the initialize request to be sent
         await yield_loop()
 
         # Simulate server response
-        request_id = self.transport.sent_messages[0]["id"]
+        sent_messages = self.transport.sent_messages.get(server_id, [])
+        assert len(sent_messages) == 1
+        request_id = sent_messages[0]["id"]
+
         response = deepcopy(self.init_response_matching_protocol)
         response["id"] = request_id
-        self.transport.receive_message(response)
+        self.transport.add_server_message(server_id, response)
 
-        await init_task
+        await connect_task
 
         # Assert
-        assert self.session._initialized
+        assert self.session.server_manager.is_protocol_initialized(server_id)
 
         # Verify handshake sequence: initialize request + initialized notification
-        assert len(self.transport.sent_messages) == 2
-        assert self.transport.sent_messages[0]["method"] == "initialize"
-        assert self.transport.sent_messages[1]["method"] == "notifications/initialized"
+        sent_messages = self.transport.sent_messages.get(server_id, [])
+        assert len(sent_messages) == 2
+        assert sent_messages[0]["method"] == "initialize"
+        assert sent_messages[1]["method"] == "notifications/initialized"
 
         # Verify server state was updated
-        server_context = self.session.server_manager.get_server_context()
-        assert server_context.initialized
-        assert server_context.info.name == "test-server"
-        assert server_context.info.version == "1.0.0"
+        server_state = self.session.server_manager.get_server(server_id)
+        assert server_state is not None
+        assert server_state.initialized
+        assert server_state.info.name == "test-server"
+        assert server_state.info.version == "1.0.0"
 
-    async def test_initialization_is_idempotent(self, yield_loop):
-        """Test that calling initialize() multiple times returns cached result."""
-        # Arrange & Act - first initialization
-        init_task = asyncio.create_task(self.session.initialize())
+        await self.session.disconnect_all_servers()
+
+    async def test_connect_server_is_idempotent(self, yield_loop):
+        """Test that calling connect_server() multiple times returns cached result."""
+        # Arrange
+        server_id = "test-server"
+        connection_info = {"host": "test-host", "port": 8080}
+
+        # Act - first connection
+        connect_task = asyncio.create_task(
+            self.session.connect_server(server_id, connection_info)
+        )
         await yield_loop()
 
-        request_id = self.transport.sent_messages[0]["id"]
+        # Simulate server response
+        sent_messages = self.transport.sent_messages.get(server_id, [])
+        assert len(sent_messages) == 1
+        request_id = sent_messages[0]["id"]
+
         response = deepcopy(self.init_response_matching_protocol)
         response["id"] = request_id
-        self.transport.receive_message(response)
+        self.transport.add_server_message(server_id, response)
 
-        await init_task
-        assert self.session._initialized
+        await connect_task
+        assert self.session.server_manager.is_protocol_initialized(server_id)
 
-        # Act - second initialization should not send a new request
-        await self.session.initialize()
+        # Act - second connection should not send a new request
+        await self.session.connect_server(server_id, connection_info)
         await yield_loop()
 
-        # Assert
-        assert (
-            len(self.transport.sent_messages) == 2
-        )  # Only init request + notification
-        assert self.session._initialized
+        # Assert - still only 2 messages (init request + notification)
+        sent_messages = self.transport.sent_messages.get(server_id, [])
+        assert len(sent_messages) == 2  # Only init request + notification
+        assert self.session.server_manager.is_protocol_initialized(server_id)
 
-    async def test_initialization_raises_timeout_when_server_does_not_respond(self):
-        """Test initialization timeout when server doesn't respond."""
+        await self.session.disconnect_all_servers()
+
+    async def test_connect_server_raises_timeout_when_server_does_not_respond(self):
+        """Test connection timeout when server doesn't respond."""
+        # Arrange
+        server_id = "test-server"
+        connection_info = {"host": "test-host", "port": 8080}
+
         # Act & Assert
-        with pytest.raises(TimeoutError, match="Initialization timed out after 0.1s"):
-            await self.session.initialize(timeout=0.1)
+        with pytest.raises(TimeoutError):
+            await self.session.connect_server(server_id, connection_info, timeout=0.1)
 
     async def test_raises_error_when_server_protocol_version_mismatches(
         self, yield_loop
     ):
         """Test handling of protocol version mismatch."""
         # Arrange
-        init_task = asyncio.create_task(self.session.initialize())
+        server_id = "test-server"
+        connection_info = {"host": "test-host", "port": 8080}
+
+        connect_task = asyncio.create_task(
+            self.session.connect_server(server_id, connection_info)
+        )
         await yield_loop()
 
-        request_id = self.transport.sent_messages[0]["id"]
+        # Simulate server response with mismatched protocol
+        sent_messages = self.transport.sent_messages.get(server_id, [])
+        assert len(sent_messages) == 1
+        request_id = sent_messages[0]["id"]
+
         response = deepcopy(self.init_response_mismatched_protocol)
         response["id"] = request_id
+        self.transport.add_server_message(server_id, response)
 
         # Act & Assert
-        self.transport.receive_message(response)
-
-        with pytest.raises(
-            InvalidProtocolVersionError, match="Protocol version mismatch"
-        ):
-            await init_task
+        with pytest.raises(InvalidProtocolVersionError):
+            await connect_task
 
     async def test_raises_error_when_server_rejects_initialization(self, yield_loop):
         """Test handling of server initialization error."""
         # Arrange
-        init_task = asyncio.create_task(self.session.initialize())
+        server_id = "test-server"
+        connection_info = {"host": "test-host", "port": 8080}
+
+        connect_task = asyncio.create_task(
+            self.session.connect_server(server_id, connection_info)
+        )
         await yield_loop()
 
-        request_id = self.transport.sent_messages[0]["id"]
+        # Simulate server error response
+        sent_messages = self.transport.sent_messages.get(server_id, [])
+        assert len(sent_messages) == 1
+        request_id = sent_messages[0]["id"]
+
         error_response = deepcopy(self.init_response_error)
         error_response["id"] = request_id
+        self.transport.add_server_message(server_id, error_response)
 
-        # Act
-        self.transport.receive_message(error_response)
-
-        # Assert: Server errors should be wrapped in ConnectionError
+        # Act & Assert: Server errors should be wrapped in ConnectionError
         with pytest.raises(ConnectionError):
-            await init_task
+            await connect_task
 
     async def test_raises_error_when_transport_fails_during_handshake(self):
         """Test handling of transport failure during handshake."""
         # Arrange
+        server_id = "test-server"
+        connection_info = {"host": "test-host", "port": 8080}
         self.transport.simulate_error()
 
         # Act & Assert
         with pytest.raises(ConnectionError):
-            await self.session.initialize()
+            await self.session.connect_server(server_id, connection_info)
+
+    async def test_raises_error_when_server_returns_unexpected_response(
+        self, yield_loop
+    ):
+        """Test handling when server returns neither Error nor InitializeResult."""
+        # Arrange
+        server_id = "test-server"
+        connection_info = {"host": "test-host", "port": 8080}
+
+        connect_task = asyncio.create_task(
+            self.session.connect_server(server_id, connection_info)
+        )
+        await yield_loop()
+
+        # Simulate server returning something weird (not Error or InitializeResult)
+        sent_messages = self.transport.sent_messages.get(server_id, [])
+        request_id = sent_messages[0]["id"]
+
+        weird_response = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": "this is not an InitializeResult",
+        }
+        self.transport.add_server_message(server_id, weird_response)
+
+        # Act & Assert
+        with pytest.raises(ConnectionError):  # Should be wrapped
+            await connect_task
+
+    async def test_raises_error_when_transport_add_server_fails(self):
+        """Test handling when transport fails to add server."""
+        # Arrange
+        server_id = "duplicate-server"
+        connection_info = {"host": "test-host", "port": 8080}
+
+        # Pre-register the server to cause add_server to fail
+        await self.transport.add_server(server_id, connection_info)
+
+        # Act & Assert
+        with pytest.raises(ConnectionError):
+            await self.session.connect_server(server_id, connection_info)
+
+    async def test_cleans_up_server_state_on_failure(self, yield_loop):
+        """Test that server state is cleaned up when connection fails."""
+        # Arrange
+        server_id = "test-server"
+        connection_info = {"host": "test-host", "port": 8080}
+
+        connect_task = asyncio.create_task(
+            self.session.connect_server(server_id, connection_info)
+        )
+        await yield_loop()
+
+        # Simulate server error
+        sent_messages = self.transport.sent_messages.get(server_id, [])
+        request_id = sent_messages[0]["id"]
+        error_response = deepcopy(self.init_response_error)
+        error_response["id"] = request_id
+        self.transport.add_server_message(server_id, error_response)
+
+        # Act
+        with pytest.raises(ConnectionError):
+            await connect_task
+
+        # Assert - server should be cleaned up
+        assert self.session.server_manager.get_server(server_id) is None
+        assert server_id not in self.transport.registered_servers

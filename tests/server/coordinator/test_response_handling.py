@@ -6,9 +6,7 @@ from conduit.protocol.roots import ListRootsRequest
 
 
 class TestResponseHandling:
-    async def test_resolves_pending_request_with_result(
-        self, coordinator, client_manager, yield_loop
-    ):
+    async def test_resolves_pending_request_with_result(self, coordinator, yield_loop):
         """Test that successful responses are parsed and resolved correctly."""
         # Arrange
         await coordinator.start()
@@ -19,8 +17,8 @@ class TestResponseHandling:
         original_request = PingRequest()
         future: asyncio.Future[Result | Error] = asyncio.Future()
 
-        client_manager.register_client(client_id)
-        client_manager.track_request_to_client(
+        coordinator.client_manager.register_client(client_id)
+        coordinator.client_manager.track_request_to_client(
             client_id, request_id, original_request, future
         )
 
@@ -37,11 +35,12 @@ class TestResponseHandling:
         assert isinstance(result, EmptyResult)
 
         # Verify the request was cleaned up
-        assert client_manager.get_request_to_client(client_id, request_id) is None
+        assert (
+            coordinator.client_manager.get_request_to_client(client_id, request_id)
+            is None
+        )
 
-    async def test_resolves_pending_request_with_error(
-        self, coordinator, client_manager, yield_loop
-    ):
+    async def test_resolves_pending_request_with_error(self, coordinator, yield_loop):
         """Test that error responses are parsed and resolved correctly."""
         # Arrange
         await coordinator.start()
@@ -52,8 +51,8 @@ class TestResponseHandling:
         original_request = ListRootsRequest()
         future: asyncio.Future[Result | Error] = asyncio.Future()
 
-        client_manager.register_client(client_id)
-        client_manager.track_request_to_client(
+        coordinator.client_manager.register_client(client_id)
+        coordinator.client_manager.track_request_to_client(
             client_id, request_id, original_request, future
         )
 
@@ -79,7 +78,10 @@ class TestResponseHandling:
         assert result.code == -32601
 
         # Verify the request was cleaned up
-        assert client_manager.get_request_to_client(client_id, request_id) is None
+        assert (
+            coordinator.client_manager.get_request_to_client(client_id, request_id)
+            is None
+        )
 
     async def test_ignores_response_for_unknown_client(self, coordinator):
         """Test that responses from unknown clients are ignored gracefully."""
@@ -95,9 +97,7 @@ class TestResponseHandling:
         await coordinator._handle_response(unknown_client_id, response_payload)
         # If we get here, the test passed
 
-    async def test_ignores_response_for_unknown_request(
-        self, coordinator, client_manager
-    ):
+    async def test_ignores_response_for_unknown_request(self, coordinator):
         """Test that responses for unknown requests are ignored gracefully."""
         # Arrange
         await coordinator.start()
@@ -105,7 +105,7 @@ class TestResponseHandling:
         unknown_request_id = "unknown-request-999"
 
         # Register client but don't track any requests
-        client_manager.register_client(client_id)
+        coordinator.client_manager.register_client(client_id)
 
         # Create response payload
         response_payload = {"jsonrpc": "2.0", "id": unknown_request_id, "result": {}}

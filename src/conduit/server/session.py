@@ -129,8 +129,17 @@ class ServerSession:
         Gracefully shuts down the server session, ensuring all active
         client connections are properly closed.
         """
+        for client_id in self.client_manager.get_all_client_ids():
+            try:
+                await self.transport.disconnect_client(client_id)
+            except Exception:
+                # Log but don't fail shutdown for individual client errors
+                pass
+
+        # Stop message processing (coordinator-level)
         await self._coordinator.stop()
 
+        # Clean up all client state (manager-level)
         self.client_manager.cleanup_all_clients()
 
     # ================================
@@ -165,7 +174,7 @@ class ServerSession:
             )
 
         # Check if client is already initialized
-        if self.client_manager.is_client_initialized(client_id):
+        if self.client_manager.is_protocol_initialized(client_id):
             return Error(
                 code=METHOD_NOT_FOUND,
                 message="Client already initialized",
@@ -193,9 +202,9 @@ class ServerSession:
         Marks the client as fully initialized and calls any registered callbacks.
         After this point, the client is ready for normal operation.
         """
-        context = self.client_manager.get_client(client_id)
-        if context:
-            context.initialized = True
+        state = self.client_manager.get_client(client_id)
+        if state:
+            state.initialized = True
 
         await self.callbacks.call_initialized(client_id, notification)
 
@@ -483,16 +492,16 @@ class ServerSession:
     ) -> None:
         """Handle roots/list_changed notification.
 
-        Fetch the updated list of roots from the client, update the client context,
+        Fetch the updated list of roots from the client, update the client state,
         and call any registered callbacks.
         """
         try:
             result = await self._coordinator.send_request(client_id, ListRootsRequest())
 
             if isinstance(result, ListRootsResult):
-                context = self.client_manager.get_client(client_id)
-                if context:
-                    context.roots = result.roots
+                state = self.client_manager.get_client(client_id)
+                if state:
+                    state.roots = result.roots
 
                 await self.callbacks.call_roots_changed(client_id, result.roots)
             else:
@@ -510,7 +519,8 @@ class ServerSession:
     ) -> Result | Error:
         """Send a request to a client.
 
-        Ensures that the client is initialized before sending non-ping requests.
+        Ensures that the client has completed MCP initialization before sending
+        non-ping requests.
 
         Args:
             client_id: ID of the client to send the request to
@@ -526,12 +536,12 @@ class ServerSession:
             TimeoutError: If client doesn't respond within timeout
         """
         await self.start()
-        if request.method != "ping" and not self.client_manager.is_client_initialized(
+        if request.method != "ping" and not self.client_manager.is_protocol_initialized(
             client_id
         ):
             raise ValueError(
-                f"Cannot send {request.method} to uninitialized client {client_id}. "
-                "Only ping requests are allowed before initialization."
+                f"Cannot send {request.method} to client {client_id}. "
+                "Client must complete MCP protocol initialization first."
             )
 
         return await self._coordinator.send_request(client_id, request, timeout)

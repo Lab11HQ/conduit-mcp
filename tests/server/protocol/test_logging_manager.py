@@ -12,7 +12,7 @@ class TestLoggingManager:
         # Arrange - Create client manager and register a test client
         self.client_manager = ClientManager()
         self.client_id = "test-client-123"
-        self.client_context = self.client_manager.register_client(self.client_id)
+        self.client_state = self.client_manager.register_client(self.client_id)
 
     async def test_handle_set_level_updates_client_level(self):
         # Arrange
@@ -20,13 +20,13 @@ class TestLoggingManager:
         request = SetLevelRequest(level="info")
 
         # Verify initial state
-        assert self.client_context.log_level is None
+        assert self.client_state.log_level is None
 
         # Act
         result = await manager.handle_set_level(self.client_id, request)
 
         # Assert
-        assert self.client_context.log_level == "info"
+        assert self.client_state.log_level == "info"
         assert isinstance(result, EmptyResult)
 
     async def test_handle_set_level_calls_callback_if_registered(self):

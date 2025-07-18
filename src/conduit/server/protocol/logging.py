@@ -29,9 +29,9 @@ class LoggingManager:
         self, client_id: str, request: SetLevelRequest
     ) -> EmptyResult:
         """Set the MCP protocol logging level for specific client."""
-        context = self.client_manager.get_client(client_id)
-        if context:
-            context.log_level = request.level
+        state = self.client_manager.get_client(client_id)
+        if state:
+            state.log_level = request.level
 
         if self._on_level_change:
             try:
@@ -42,5 +42,5 @@ class LoggingManager:
 
     def get_client_level(self, client_id: str) -> LoggingLevel | None:
         """Get the current logging level for a specific client."""
-        context = self.client_manager.get_client(client_id)
-        return context.log_level if context else None
+        state = self.client_manager.get_client(client_id)
+        return state.log_level if state else None

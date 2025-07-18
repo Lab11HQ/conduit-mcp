@@ -18,7 +18,7 @@ class TestProgressCallback:
         manager.on_progress(callback)
 
         # Act
-        await manager.call_progress(progress_notification)
+        await manager.call_progress("server_id", progress_notification)
 
         # Assert
         callback.assert_awaited_once_with(progress_notification)
@@ -29,7 +29,7 @@ class TestProgressCallback:
         progress_notification = ProgressNotification(progress_token="123", progress=50)
 
         # Act
-        await manager.call_progress(progress_notification)
+        await manager.call_progress("server_id", progress_notification)
 
         # Assert - Test passes if we reach this point without exception
         assert True
@@ -42,7 +42,7 @@ class TestToolsChangedCallback:
         tools = [Tool(name="test", input_schema=JSONSchema())]
         callback = AsyncMock(side_effect=RuntimeError("User callback failed"))
         manager.on_tools_changed(callback)
-        await manager.call_tools_changed(tools)
+        await manager.call_tools_changed("server_id", tools)
 
         # Assert
         callback.assert_awaited_once_with(tools)
@@ -53,7 +53,7 @@ class TestToolsChangedCallback:
         tools = [Tool(name="test", input_schema=JSONSchema())]
 
         # Act
-        await manager.call_tools_changed(tools)
+        await manager.call_tools_changed("server_id", tools)
 
         # Assert - Test passes if we reach this point without exception
         assert True
@@ -69,7 +69,7 @@ class TestResourcesChangedCallback:
         manager.on_resources_changed(callback)
 
         # Act
-        await manager.call_resources_changed(resources, templates)
+        await manager.call_resources_changed("server_id", resources, templates)
 
         # Assert
         callback.assert_awaited_once_with(resources, templates)
@@ -81,7 +81,7 @@ class TestResourcesChangedCallback:
         templates = [ResourceTemplate(name="test", uri_template="test://test")]
 
         # Act
-        await manager.call_resources_changed(resources, templates)
+        await manager.call_resources_changed("server_id", resources, templates)
 
         # Assert - Test passes if we reach this point without exception
         assert True
@@ -99,7 +99,7 @@ class TestResourceUpdatedCallback:
         manager.on_resource_updated(callback)
 
         # Act
-        await manager.call_resource_updated(resource.uri, result)
+        await manager.call_resource_updated("server_id", resource.uri, result)
 
         # Assert
         callback.assert_awaited_once_with(resource.uri, result)
@@ -113,7 +113,7 @@ class TestResourceUpdatedCallback:
         )
 
         # Act
-        await manager.call_resource_updated(resource.uri, result)
+        await manager.call_resource_updated("server_id", resource.uri, result)
 
         # Assert - Test passes if we reach this point without exception
         assert True
@@ -128,7 +128,7 @@ class TestPromptsChangedCallback:
         manager.on_prompts_changed(callback)
 
         # Act
-        await manager.call_prompts_changed(prompts)
+        await manager.call_prompts_changed("server_id", prompts)
 
         # Assert
         callback.assert_awaited_once_with(prompts)
@@ -139,7 +139,7 @@ class TestPromptsChangedCallback:
         prompts = [Prompt(name="test", description="test")]
 
         # Act
-        await manager.call_prompts_changed(prompts)
+        await manager.call_prompts_changed("server_id", prompts)
 
         # Assert - Test passes if we reach this point without exception
         assert True
@@ -154,7 +154,7 @@ class TestLoggingMessageCallback:
         manager.on_logging_message(callback)
 
         # Act
-        await manager.call_logging_message(logging_message)
+        await manager.call_logging_message("server_id", logging_message)
 
         # Assert
         callback.assert_awaited_once_with(logging_message)
@@ -165,7 +165,7 @@ class TestLoggingMessageCallback:
         logging_message = LoggingMessageNotification(level="info", data="test")
 
         # Act
-        await manager.call_logging_message(logging_message)
+        await manager.call_logging_message("server_id", logging_message)
 
         # Assert - Test passes if we reach this point without exception
         assert True
@@ -180,7 +180,7 @@ class TestCancelledCallback:
         manager.on_cancelled(callback)
 
         # Act
-        await manager.call_cancelled(cancelled_notification)
+        await manager.call_cancelled("server_id", cancelled_notification)
 
         # Assert
         callback.assert_awaited_once_with(cancelled_notification)
@@ -191,7 +191,7 @@ class TestCancelledCallback:
         cancelled_notification = CancelledNotification(request_id="123", reason="test")
 
         # Act
-        await manager.call_cancelled(cancelled_notification)
+        await manager.call_cancelled("server_id", cancelled_notification)
 
         # Assert - Test passes if we reach this point without exception
         assert True

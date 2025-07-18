@@ -71,14 +71,9 @@ class MessageCoordinator:
         messages until stop() is called.
 
         Safe to call multiple times - subsequent calls are ignored if already running.
-
-        Raises:
-            ConnectionError: If the transport is closed or unavailable.
         """
         if self.running:
             return
-        if not self.transport.is_open:
-            raise ConnectionError("Cannot start processor: transport is closed")
 
         self._message_loop_task = asyncio.create_task(self._message_loop())
         self._message_loop_task.add_done_callback(self._on_message_loop_done)
@@ -226,7 +221,7 @@ class MessageCoordinator:
             if isinstance(result_or_error, Error) and self._should_disconnect_for_error(
                 result_or_error
             ):
-                self.client_manager.disconnect_client(client_id)
+                self.client_manager.cleanup_client(client_id)
 
         except Exception:
             error = Error(
@@ -332,10 +327,12 @@ class MessageCoordinator:
             Result | Error: The client's response or timeout error
 
         Raises:
+            RuntimeError: If coordinator is not running
             ConnectionError: Transport fails to send request
             TimeoutError: If client doesn't respond within timeout
         """
-        await self._ensure_ready_to_send()
+        if not self.running:
+            raise RuntimeError("Cannot send request: coordinator is not running")
 
         # Prepare the request
         request_id = str(uuid.uuid4())
@@ -357,14 +354,6 @@ class MessageCoordinator:
         finally:
             self.client_manager.untrack_request_to_client(client_id, request_id)
 
-    async def _ensure_ready_to_send(self) -> None:
-        """Ensure coordinator is running and transport is open."""
-        if not self.running:
-            await self.start()
-
-        if not self.transport.is_open:
-            raise ConnectionError("Cannot send request: transport is closed")
-
     async def _handle_request_timeout(self, client_id: str, request_id: str) -> None:
         """Clean up and notify client when request times out."""
 
@@ -384,8 +373,14 @@ class MessageCoordinator:
     async def send_notification(
         self, client_id: str, notification: Notification
     ) -> None:
-        """Send a notification to a specific client."""
-        await self._ensure_ready_to_send()
+        """Send a notification to a specific client.
+
+        Raises:
+            RuntimeError: If coordinator is not running
+        """
+        if not self.running:
+            raise RuntimeError("Cannot send notification: coordinator is not running")
+
         jsonrpc_notification = JSONRPCNotification.from_notification(notification)
         await self.transport.send(client_id, jsonrpc_notification.to_wire())
 

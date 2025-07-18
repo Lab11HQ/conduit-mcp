@@ -36,7 +36,9 @@ class TestRootsRequestHandling:
         self.session.roots.handle_list_roots = AsyncMock(return_value=mock_result)
 
         # Act
-        result = await self.session._handle_list_roots(self.list_roots_request)
+        result = await self.session._handle_list_roots(
+            "server_id", self.list_roots_request
+        )
 
         # Assert
         assert result == mock_result
@@ -48,7 +50,9 @@ class TestRootsRequestHandling:
         self.session = ClientSession(self.transport, self.config_without_roots)
 
         # Act
-        result = await self.session._handle_list_roots(self.list_roots_request)
+        result = await self.session._handle_list_roots(
+            "server_id", self.list_roots_request
+        )
 
         # Assert
         assert isinstance(result, Error)
