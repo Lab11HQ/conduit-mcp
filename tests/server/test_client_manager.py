@@ -1,7 +1,9 @@
 import asyncio
 
-from conduit.protocol.base import INTERNAL_ERROR, Error
-from conduit.protocol.common import PingRequest
+import pytest
+
+from conduit.protocol.base import INTERNAL_ERROR, Error, Result
+from conduit.protocol.common import EmptyResult, PingRequest
 from conduit.server.client_manager import ClientManager
 
 
@@ -151,3 +153,164 @@ class TestClientLifecycle:
             assert isinstance(result, Error)
             assert result.code == INTERNAL_ERROR
             assert "Client disconnected" in result.message
+
+
+class TestOutboundRequests:
+    async def test_track_request_to_client(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "test-client-123"
+        request_id = "req-123"
+
+        manager.register_client(client_id)
+
+        request = PingRequest()
+        future = asyncio.Future[Result | Error]()
+
+        # Act
+        manager.track_request_to_client(client_id, request_id, request, future)
+
+        # Assert
+        client_state = manager.get_client(client_id)
+        assert client_state is not None
+
+        tracked_request, tracked_future = client_state.requests_to_client[request_id]
+        assert tracked_request is request
+        assert tracked_future is future
+
+    async def test_track_request_to_client_raises_for_unregistered_client(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "nonexistent-client"
+        request_id = "req-123"
+
+        request = PingRequest()
+        future = asyncio.Future[Result | Error]()
+
+        # Act & Assert
+        with pytest.raises(ValueError):
+            manager.track_request_to_client(client_id, request_id, request, future)
+
+    async def test_untrack_request_to_client(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "test-client-123"
+        request_id = "req-123"
+
+        manager.register_client(client_id)
+
+        request = PingRequest()
+        future = asyncio.Future[Result | Error]()
+
+        # Track first, then untrack
+        manager.track_request_to_client(client_id, request_id, request, future)
+        assert manager.get_request_to_client(client_id, request_id) is not None
+
+        # Act
+        result = manager.untrack_request_to_client(client_id, request_id)
+
+        # Assert
+        assert result is not None
+        untracked_request, untracked_future = result
+        assert untracked_request is request
+        assert untracked_future is future
+
+        # Verify it's actually removed from tracking
+        client_state = manager.get_client(client_id)
+        assert request_id not in client_state.requests_to_client
+
+    async def test_untrack_request_to_client_raises_for_unregistered_client(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "nonexistent-client"
+        request_id = "req-123"
+
+        # Act & Assert
+        with pytest.raises(ValueError):
+            manager.untrack_request_to_client(client_id, request_id)
+
+    async def test_get_request_to_client_returns_none_for_unregistered_client(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "nonexistent-client"
+        request_id = "req-123"
+
+        # Act
+        result = manager.get_request_to_client(client_id, request_id)
+
+        # Assert
+        assert result is None
+
+    async def test_get_request_to_client_returns_none_for_nonexistent_request(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "test-client-123"
+        request_id = "nonexistent-request"
+
+        manager.register_client(client_id)
+
+        # Act
+        result = manager.get_request_to_client(client_id, request_id)
+
+        # Assert
+        assert result is None
+
+    async def test_resolve_request_to_client(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "test-client-123"
+        request_id = "req-123"
+
+        manager.register_client(client_id)
+
+        request = PingRequest()
+        future = asyncio.Future[Result | Error]()
+
+        # Track the request first
+        manager.track_request_to_client(client_id, request_id, request, future)
+
+        # Create a result to resolve with
+        result = EmptyResult()
+
+        # Act
+        manager.resolve_request_to_client(client_id, request_id, result)
+
+        # Assert
+        assert future.done()
+        assert future.result() is result
+
+        # Verify request is removed from tracking
+        client_state = manager.get_client(client_id)
+        assert request_id not in client_state.requests_to_client
+
+    async def test_resolve_does_nothing_if_client_not_found(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "nonexistent-client"
+        request_id = "req-123"
+
+        # Verify client doesn't exist
+        assert manager.get_client(client_id) is None
+
+        result = EmptyResult()
+
+        # Act & Assert - no error is raised
+        manager.resolve_request_to_client(client_id, request_id, result)
+        # If we get here without an exception, the test passes
+
+    async def test_resolve_does_nothing_if_request_not_found(self):
+        # Arrange
+        manager = ClientManager()
+        client_id = "test-client-123"
+        request_id = "nonexistent-request"
+
+        manager.register_client(client_id)
+
+        # Verify request doesn't exist
+        assert manager.get_request_to_client(client_id, request_id) is None
+
+        result = EmptyResult()
+
+        # Act & Assert - no error is raised
+        manager.resolve_request_to_client(client_id, request_id, result)
+        # If we get here without an exception, the test passes

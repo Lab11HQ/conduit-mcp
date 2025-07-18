@@ -22,6 +22,9 @@ class TestNotificationHandling:
         # Arrange
         session = ServerSession(self.transport, self.config)
         client_id = "test-client"
+        # Need to register client to untrack request. Otherwise we'll get a ValueError
+        # for trying to untrack a request with an unregistered client.
+        session.client_manager.register_client(client_id)
         notification = CancelledNotification(request_id="req-123")
 
         # Mock only the callback (the observable behavior)
