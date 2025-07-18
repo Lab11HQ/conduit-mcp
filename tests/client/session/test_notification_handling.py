@@ -1,6 +1,6 @@
 from unittest.mock import AsyncMock, Mock
 
-from conduit.client.session import ClientConfig, ClientSession
+from conduit.client.session_v2 import ClientConfig, ClientSession
 from conduit.protocol.base import METHOD_NOT_FOUND, Error, Request
 from conduit.protocol.common import (
     CancelledNotification,
@@ -44,6 +44,7 @@ class TestNotificationHandling:
             capabilities=ClientCapabilities(),
         )
         self.session = ClientSession(self.transport, self.config)
+        self.session.server_manager.register_server("server_id")
 
 
 class TestCancellationNotificationHandling(TestNotificationHandling):
@@ -53,10 +54,9 @@ class TestCancellationNotificationHandling(TestNotificationHandling):
         mock_task = Mock()
         mock_task.cancel = Mock(return_value=True)
 
-        # Use the new ServerManager.requests_from_server structure
         mock_request = Mock()
         self.session.server_manager.track_request_from_server(
-            request_id, mock_request, mock_task
+            "server_id", request_id, mock_request, mock_task
         )
 
         cancellation = CancelledNotification(
@@ -67,11 +67,13 @@ class TestCancellationNotificationHandling(TestNotificationHandling):
         self.session.callbacks.call_cancelled = AsyncMock()
 
         # Act
-        await self.session._handle_cancelled(cancellation)
+        await self.session._handle_cancelled("server_id", cancellation)
 
         # Assert
         mock_task.cancel.assert_called_once()
-        self.session.callbacks.call_cancelled.assert_awaited_once_with(cancellation)
+        self.session.callbacks.call_cancelled.assert_awaited_once_with(
+            "server_id", cancellation
+        )
 
     async def test_does_not_call_callback_when_request_id_not_found(self):
         # Arrange
@@ -83,7 +85,7 @@ class TestCancellationNotificationHandling(TestNotificationHandling):
         self.session.callbacks.call_cancelled = AsyncMock()
 
         # Act
-        await self.session._handle_cancelled(cancellation)
+        await self.session._handle_cancelled("server_id", cancellation)
 
         # Assert
         # No callback should be called since no request was actually cancelled
@@ -100,11 +102,11 @@ class TestProgressNotificationHandling(TestNotificationHandling):
         self.session.callbacks.call_progress = AsyncMock()
 
         # Act
-        await self.session._handle_progress(progress_notification)
+        await self.session._handle_progress("server_id", progress_notification)
 
         # Assert
         self.session.callbacks.call_progress.assert_awaited_once_with(
-            progress_notification
+            "server_id", progress_notification
         )
 
 
@@ -119,11 +121,11 @@ class TestLoggingNotificationHandling(TestNotificationHandling):
         self.session.callbacks.call_logging_message = AsyncMock()
 
         # Act
-        await self.session._handle_logging_message(logging_notification)
+        await self.session._handle_logging_message("server_id", logging_notification)
 
         # Assert
         self.session.callbacks.call_logging_message.assert_awaited_once_with(
-            logging_notification
+            "server_id", logging_notification
         )
 
 
@@ -140,16 +142,18 @@ class TestPromptsListChangedHandling(TestNotificationHandling):
         self.session.callbacks.call_prompts_changed = AsyncMock()
 
         # Act
-        await self.session._handle_prompts_list_changed(notification)
+        await self.session._handle_prompts_list_changed("server_id", notification)
 
         # Assert
         self.session.send_request.assert_awaited_once()
-        sent_request = self.session.send_request.call_args[0][0]
+        sent_request = self.session.send_request.call_args[0][1]
         assert isinstance(sent_request, ListPromptsRequest)
 
-        assert self.session.server_manager.get_server_context().prompts == prompts
+        assert self.session.server_manager.get_server("server_id").prompts == prompts
 
-        self.session.callbacks.call_prompts_changed.assert_awaited_once_with(prompts)
+        self.session.callbacks.call_prompts_changed.assert_awaited_once_with(
+            "server_id", prompts
+        )
 
     async def test_ignores_server_error_response_silently(self):
         # Arrange
@@ -157,15 +161,16 @@ class TestPromptsListChangedHandling(TestNotificationHandling):
         error_result = Error(code=METHOD_NOT_FOUND, message="Prompts not supported")
         self.session.send_request = AsyncMock(return_value=error_result)
         self.session.callbacks.call_prompts_changed = AsyncMock()
-        initial_prompts = self.session.server_manager.get_server_context().prompts
+        initial_prompts = self.session.server_manager.get_server("server_id").prompts
 
         # Act
-        await self.session._handle_prompts_list_changed(notification)
+        await self.session._handle_prompts_list_changed("server_id", notification)
 
         # Assert
         self.session.send_request.assert_awaited_once()
         assert (
-            self.session.server_manager.get_server_context().prompts == initial_prompts
+            self.session.server_manager.get_server("server_id").prompts
+            == initial_prompts
         )
         self.session.callbacks.call_prompts_changed.assert_not_awaited()
 
@@ -176,15 +181,16 @@ class TestPromptsListChangedHandling(TestNotificationHandling):
             side_effect=ConnectionError("Network failure")
         )
         self.session.callbacks.call_prompts_changed = AsyncMock()
-        initial_prompts = self.session.server_manager.get_server_context().prompts
+        initial_prompts = self.session.server_manager.get_server("server_id").prompts
 
         # Act
-        await self.session._handle_prompts_list_changed(notification)
+        await self.session._handle_prompts_list_changed("server_id", notification)
 
         # Assert
         self.session.send_request.assert_awaited_once()
         assert (
-            self.session.server_manager.get_server_context().prompts == initial_prompts
+            self.session.server_manager.get_server("server_id").prompts
+            == initial_prompts
         )
         self.session.callbacks.call_prompts_changed.assert_not_awaited()
 
@@ -210,15 +216,17 @@ class TestToolsListChangedHandling(TestNotificationHandling):
         self.session.callbacks.call_tools_changed = AsyncMock()
 
         # Act
-        await self.session._handle_tools_list_changed(notification)
+        await self.session._handle_tools_list_changed("server_id", notification)
 
         # Assert
         self.session.send_request.assert_awaited_once()
-        sent_request = self.session.send_request.call_args[0][0]
+        sent_request = self.session.send_request.call_args[0][1]
         assert isinstance(sent_request, ListToolsRequest)
 
-        assert self.session.server_manager.get_server_context().tools == tools
-        self.session.callbacks.call_tools_changed.assert_awaited_once_with(tools)
+        assert self.session.server_manager.get_server("server_id").tools == tools
+        self.session.callbacks.call_tools_changed.assert_awaited_once_with(
+            "server_id", tools
+        )
 
     async def test_ignores_server_error_response_silently(self):
         # Arrange
@@ -227,14 +235,16 @@ class TestToolsListChangedHandling(TestNotificationHandling):
 
         self.session.send_request = AsyncMock(return_value=error_result)
         self.session.callbacks.call_tools_changed = AsyncMock()
-        initial_tools = self.session.server_manager.get_server_context().tools
+        initial_tools = self.session.server_manager.get_server("server_id").tools
 
         # Act
-        await self.session._handle_tools_list_changed(notification)
+        await self.session._handle_tools_list_changed("server_id", notification)
 
         # Assert
         self.session.send_request.assert_awaited_once()
-        assert self.session.server_manager.get_server_context().tools == initial_tools
+        assert (
+            self.session.server_manager.get_server("server_id").tools == initial_tools
+        )
         self.session.callbacks.call_tools_changed.assert_not_awaited()
 
     async def test_ignores_request_failure_silently(self):
@@ -245,14 +255,16 @@ class TestToolsListChangedHandling(TestNotificationHandling):
             side_effect=ConnectionError("Network failure")
         )
         self.session.callbacks.call_tools_changed = AsyncMock()
-        initial_tools = self.session.server_manager.get_server_context().tools
+        initial_tools = self.session.server_manager.get_server("server_id").tools
 
         # Act
-        await self.session._handle_tools_list_changed(notification)
+        await self.session._handle_tools_list_changed("server_id", notification)
 
         # Assert
         self.session.send_request.assert_awaited_once()
-        assert self.session.server_manager.get_server_context().tools == initial_tools
+        assert (
+            self.session.server_manager.get_server("server_id").tools == initial_tools
+        )
         self.session.callbacks.call_tools_changed.assert_not_awaited()
 
 
@@ -270,16 +282,16 @@ class TestResourcesUpdatedHandling(TestNotificationHandling):
         self.session.callbacks.call_resource_updated = AsyncMock()
 
         # Act
-        await self.session._handle_resources_updated(notification)
+        await self.session._handle_resources_updated("server_id", notification)
 
         # Assert
         self.session.send_request.assert_awaited_once()
-        sent_request = self.session.send_request.call_args[0][0]
+        sent_request = self.session.send_request.call_args[0][1]
         assert isinstance(sent_request, ReadResourceRequest)
         assert sent_request.uri == resource_uri
 
         self.session.callbacks.call_resource_updated.assert_awaited_once_with(
-            resource_uri, read_result
+            "server_id", resource_uri, read_result
         )
 
     async def test_ignores_server_error_response_silently(self):
@@ -292,7 +304,7 @@ class TestResourcesUpdatedHandling(TestNotificationHandling):
         self.session.callbacks.call_resource_updated = AsyncMock()
 
         # Act
-        await self.session._handle_resources_updated(notification)
+        await self.session._handle_resources_updated("server_id", notification)
 
         # Assert
         self.session.send_request.assert_awaited_once()
@@ -309,7 +321,7 @@ class TestResourcesUpdatedHandling(TestNotificationHandling):
         self.session.callbacks.call_resource_updated = AsyncMock()
 
         # Act
-        await self.session._handle_resources_updated(notification)
+        await self.session._handle_resources_updated("server_id", notification)
 
         # Assert
         self.session.send_request.assert_awaited_once()
@@ -332,7 +344,7 @@ class TestResourcesListChangedHandling(TestNotificationHandling):
         resources_result = ListResourcesResult(resources=resources)
         templates_result = ListResourceTemplatesResult(resource_templates=templates)
 
-        def mock_send_request(request: Request):
+        def mock_send_request(server_id: str, request: Request):
             if isinstance(request, ListResourcesRequest):
                 return resources_result
             elif isinstance(request, ListResourceTemplatesRequest):
@@ -342,20 +354,21 @@ class TestResourcesListChangedHandling(TestNotificationHandling):
         self.session.callbacks.call_resources_changed = AsyncMock()
 
         # Act
-        await self.session._handle_resources_list_changed(notification)
+        await self.session._handle_resources_list_changed("server_id", notification)
 
         # Assert
         assert self.session.send_request.await_count == 2
 
-        assert self.session.server_manager.get_server_context().resources == resources
         assert (
-            self.session.server_manager.get_server_context().resource_templates
+            self.session.server_manager.get_server("server_id").resources == resources
+        )
+        assert (
+            self.session.server_manager.get_server("server_id").resource_templates
             == templates
         )
 
         self.session.callbacks.call_resources_changed.assert_awaited_once_with(
-            resources,
-            templates,
+            "server_id", resources, templates
         )
 
     async def test_handles_partial_failure_gracefully(self):
@@ -366,7 +379,7 @@ class TestResourcesListChangedHandling(TestNotificationHandling):
         resources_result = ListResourcesResult(resources=resources)
         templates_error = Error(code=METHOD_NOT_FOUND, message="No templates here!")
 
-        def mock_send_request(request: Request):
+        def mock_send_request(server_id: str, request: Request):
             if isinstance(request, ListResourcesRequest):
                 return resources_result
             elif isinstance(request, ListResourceTemplatesRequest):
@@ -376,19 +389,21 @@ class TestResourcesListChangedHandling(TestNotificationHandling):
         self.session.callbacks.call_resources_changed = AsyncMock()
 
         # Act
-        await self.session._handle_resources_list_changed(notification)
+        await self.session._handle_resources_list_changed("server_id", notification)
 
         # Assert
         assert self.session.send_request.await_count == 2
 
         # Resources should be updated, templates should remain unchanged
-        assert self.session.server_manager.get_server_context().resources == resources
         assert (
-            self.session.server_manager.get_server_context().resource_templates is None
+            self.session.server_manager.get_server("server_id").resources == resources
+        )
+        assert (
+            self.session.server_manager.get_server("server_id").resource_templates
+            is None
         )  # No update on failure
 
         # Callback should be called with resources and empty templates list
         self.session.callbacks.call_resources_changed.assert_awaited_once_with(
-            resources,
-            [],  # Empty list for failed templates request
+            "server_id", resources, []
         )
