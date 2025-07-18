@@ -115,6 +115,7 @@ class ServerSession:
         self._coordinator = MessageCoordinator(transport, self.client_manager)
         self._register_handlers()
 
+    # TODO: GET RID OF THIS. USE disconnect_client() instead.
     async def start(self) -> None:
         """Start accepting and processing client messages.
 

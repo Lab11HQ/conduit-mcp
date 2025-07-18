@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 from conduit.protocol.roots import ListRootsRequest, ListRootsResult, Root
 
 
@@ -30,7 +32,7 @@ class RootsManager:
 
     def get_global_roots(self) -> list[Root]:
         """Get all global roots."""
-        return self._global_roots.copy()
+        return deepcopy(self._global_roots)
 
     # ================================
     # Server-specific root management
@@ -59,12 +61,21 @@ class RootsManager:
 
     def get_roots_for_server(self, server_id: str) -> list[Root]:
         """Get all roots available to a specific server (server-specific + global)."""
-        server_specific = self._server_roots.get(server_id, [])
-        return server_specific + self._global_roots
+        # Start with global roots
+        roots_by_uri = {root.uri: root for root in self._global_roots}
+
+        # Server-specific roots override globals with same URI
+        if server_id in self._server_roots:
+            for root in self._server_roots[server_id]:
+                if root.uri in roots_by_uri:
+                    print(f"Server {server_id} overriding global root '{root.uri}'")
+                roots_by_uri[root.uri] = root
+
+        return list(roots_by_uri.values())
 
     def get_server_specific_roots(self, server_id: str) -> list[Root]:
         """Get only the server-specific roots for a server (excludes global)."""
-        return self._server_roots.get(server_id, []).copy()
+        return deepcopy(self._server_roots.get(server_id, []))
 
     # ================================
     # Server lifecycle
