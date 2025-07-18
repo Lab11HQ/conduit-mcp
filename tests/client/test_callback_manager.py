@@ -69,7 +69,7 @@ class TestResourcesChangedCallback:
         manager.on_resources_changed(callback)
 
         # Act
-        await manager.call_resources_changed(resources, templates)
+        await manager.call_resources_changed("server_id", resources, templates)
 
         # Assert
         callback.assert_awaited_once_with(resources, templates)
@@ -81,7 +81,7 @@ class TestResourcesChangedCallback:
         templates = [ResourceTemplate(name="test", uri_template="test://test")]
 
         # Act
-        await manager.call_resources_changed(resources, templates)
+        await manager.call_resources_changed("server_id", resources, templates)
 
         # Assert - Test passes if we reach this point without exception
         assert True

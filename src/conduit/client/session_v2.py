@@ -394,7 +394,7 @@ class ClientSession:
             pass
 
     async def _handle_resources_list_changed(
-        self, notification: ResourceListChangedNotification
+        self, server_id: str, notification: ResourceListChangedNotification
     ) -> None:
         """Fetches the updated resources/templates and calls the registered callback.
 
@@ -404,28 +404,30 @@ class ClientSession:
         """
         resources: list[Resource] = []
         templates: list[ResourceTemplate] = []
-        context = self.server_manager.get_server_context()
+        server_state = self.server_manager.get_server(server_id)
 
         try:
-            list_resources_result = await self.send_request(ListResourcesRequest())
+            list_resources_result = await self.send_request(
+                server_id, ListResourcesRequest()
+            )
             if isinstance(list_resources_result, ListResourcesResult):
                 resources = list_resources_result.resources
-                context.resources = resources
+                server_state.resources = resources
         except Exception:
             pass
 
         try:
             list_templates_result = await self.send_request(
-                ListResourceTemplatesRequest()
+                server_id, ListResourceTemplatesRequest()
             )
             if isinstance(list_templates_result, ListResourceTemplatesResult):
                 templates = list_templates_result.resource_templates
-                context.resource_templates = templates
+                server_state.resource_templates = templates
         except Exception:
             pass
 
         if resources or templates:
-            await self.callbacks.call_resources_changed(resources, templates)
+            await self.callbacks.call_resources_changed(server_id, resources, templates)
 
     async def _handle_resources_updated(
         self, notification: ResourceUpdatedNotification

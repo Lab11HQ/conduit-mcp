@@ -147,7 +147,10 @@ class CallbackManager:
         self._resources_changed = callback
 
     async def call_resources_changed(
-        self, resources: list[Resource], templates: list[ResourceTemplate]
+        self,
+        server_id: str,
+        resources: list[Resource],
+        templates: list[ResourceTemplate],
     ) -> None:
         """Invoke your registered resources callback.
 
