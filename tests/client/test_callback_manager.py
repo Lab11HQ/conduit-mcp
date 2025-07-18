@@ -18,7 +18,7 @@ class TestProgressCallback:
         manager.on_progress(callback)
 
         # Act
-        await manager.call_progress(progress_notification)
+        await manager.call_progress("server_id", progress_notification)
 
         # Assert
         callback.assert_awaited_once_with(progress_notification)
@@ -29,7 +29,7 @@ class TestProgressCallback:
         progress_notification = ProgressNotification(progress_token="123", progress=50)
 
         # Act
-        await manager.call_progress(progress_notification)
+        await manager.call_progress("server_id", progress_notification)
 
         # Assert - Test passes if we reach this point without exception
         assert True
@@ -180,7 +180,7 @@ class TestCancelledCallback:
         manager.on_cancelled(callback)
 
         # Act
-        await manager.call_cancelled(cancelled_notification)
+        await manager.call_cancelled("server_id", cancelled_notification)
 
         # Assert
         callback.assert_awaited_once_with(cancelled_notification)
@@ -191,7 +191,7 @@ class TestCancelledCallback:
         cancelled_notification = CancelledNotification(request_id="123", reason="test")
 
         # Act
-        await manager.call_cancelled(cancelled_notification)
+        await manager.call_cancelled("server_id", cancelled_notification)
 
         # Assert - Test passes if we reach this point without exception
         assert True

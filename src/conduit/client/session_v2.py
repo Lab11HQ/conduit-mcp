@@ -353,17 +353,21 @@ class ClientSession:
     # Notifications
     # ================================
 
-    async def _handle_cancelled(self, notification: CancelledNotification) -> None:
+    async def _handle_cancelled(
+        self, server_id: str, notification: CancelledNotification
+    ) -> None:
         """Cancels a request from the server and calls the registered callback."""
         was_cancelled = await self._coordinator.cancel_request_from_server(
-            notification.request_id
+            server_id, notification.request_id
         )
         if was_cancelled:
-            await self.callbacks.call_cancelled(notification)
+            await self.callbacks.call_cancelled(server_id, notification)
 
-    async def _handle_progress(self, notification: ProgressNotification) -> None:
+    async def _handle_progress(
+        self, server_id: str, notification: ProgressNotification
+    ) -> None:
         """Calls the registered callback for progress updates."""
-        await self.callbacks.call_progress(notification)
+        await self.callbacks.call_progress(server_id, notification)
 
     async def _handle_prompts_list_changed(
         self, notification: PromptListChangedNotification

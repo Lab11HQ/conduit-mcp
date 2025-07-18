@@ -51,7 +51,9 @@ class CallbackManager:
         """
         self._progress = callback
 
-    async def call_progress(self, notification: ProgressNotification) -> None:
+    async def call_progress(
+        self, server_id: str, notification: ProgressNotification
+    ) -> None:
         """Invoke your registered progress callback with the notification.
 
         Calls your progress callback if you've registered one. Logs any errors
@@ -65,6 +67,38 @@ class CallbackManager:
                 await self._progress(notification)
             except Exception as e:
                 print(f"Progress callback failed: {e}")
+
+    def on_cancelled(
+        self, callback: Callable[[CancelledNotification], Awaitable[None]]
+    ) -> None:
+        """Register your callback for when the server cancels a request.
+
+        Your callback receives the complete notification with
+        cancellation details. Only called if the request was successfully
+        cancelled.
+
+        Args:
+            callback: Your async function called with each CancelledNotification.
+                Gets request_id and reason (optional) fields.
+        """
+        self._cancelled = callback
+
+    async def call_cancelled(
+        self, server_id: str, notification: CancelledNotification
+    ) -> None:
+        """Invoke your registered cancelled callback with the notification.
+
+        Calls your cancelled callback if you've registered one. Logs any errors
+        that occur.
+
+        Args:
+            notification: Cancellation notification to pass through to your callback.
+        """
+        if self._cancelled:
+            try:
+                await self._cancelled(notification)
+            except Exception as e:
+                print(f"Cancelled callback failed: {e}")
 
     def on_tools_changed(
         self, callback: Callable[[list[Tool]], Awaitable[None]]
@@ -223,33 +257,3 @@ class CallbackManager:
                 await self._logging_message(notification)
             except Exception as e:
                 print(f"Logging message callback failed: {e}")
-
-    def on_cancelled(
-        self, callback: Callable[[CancelledNotification], Awaitable[None]]
-    ) -> None:
-        """Register your callback for when the server cancels a request.
-
-        Your callback receives the complete notification with
-        cancellation details. Only called if the request was successfully
-        cancelled.
-
-        Args:
-            callback: Your async function called with each CancelledNotification.
-                Gets request_id and reason (optional) fields.
-        """
-        self._cancelled = callback
-
-    async def call_cancelled(self, notification: CancelledNotification) -> None:
-        """Invoke your registered cancelled callback with the notification.
-
-        Calls your cancelled callback if you've registered one. Logs any errors
-        that occur.
-
-        Args:
-            notification: Cancellation notification to pass through to your callback.
-        """
-        if self._cancelled:
-            try:
-                await self._cancelled(notification)
-            except Exception as e:
-                print(f"Cancelled callback failed: {e}")
