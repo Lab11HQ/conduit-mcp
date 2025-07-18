@@ -1,7 +1,7 @@
 from unittest.mock import AsyncMock
 
 from conduit.client.protocol.sampling import SamplingNotConfiguredError
-from conduit.client.session import ClientConfig, ClientSession
+from conduit.client.session_v2 import ClientConfig, ClientSession
 from conduit.protocol.base import INTERNAL_ERROR, METHOD_NOT_FOUND, Error
 from conduit.protocol.content import TextContent
 from conduit.protocol.initialization import ClientCapabilities, Implementation
@@ -53,7 +53,7 @@ class TestSamplingRequestHandling:
         )
 
         # Act
-        result = await self.session._handle_sampling(self.sampling_request)
+        result = await self.session._handle_sampling("server_id", self.sampling_request)
 
         # Assert
         assert result == mock_result
@@ -64,7 +64,7 @@ class TestSamplingRequestHandling:
         self.session = ClientSession(self.transport, self.config_without_sampling)
 
         # Act
-        result = await self.session._handle_sampling(self.sampling_request)
+        result = await self.session._handle_sampling("server_id", self.sampling_request)
 
         # Assert
         assert isinstance(result, Error)
@@ -80,7 +80,7 @@ class TestSamplingRequestHandling:
         )
 
         # Act
-        result = await self.session._handle_sampling(self.sampling_request)
+        result = await self.session._handle_sampling("server_id", self.sampling_request)
 
         # Assert
         assert isinstance(result, Error)
@@ -96,7 +96,7 @@ class TestSamplingRequestHandling:
         )
 
         # Act
-        result = await self.session._handle_sampling(self.sampling_request)
+        result = await self.session._handle_sampling("server_id", self.sampling_request)
 
         # Assert
         assert isinstance(result, Error)
