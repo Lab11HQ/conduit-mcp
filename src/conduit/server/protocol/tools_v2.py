@@ -104,7 +104,7 @@ class ToolManager:
     # Client-specific tool management
     # ================================
 
-    def add_tool_for_client(
+    def add_client_tool(
         self,
         client_id: str,
         tool: Tool,
@@ -131,7 +131,7 @@ class ToolManager:
         self.client_tools[client_id][tool.name] = tool
         self.client_handlers[client_id][tool.name] = handler
 
-    def get_tools_for_client(self, client_id: str) -> dict[str, Tool]:
+    def get_client_tools(self, client_id: str) -> dict[str, Tool]:
         """Get all tools available to a specific client.
 
         Returns global tools plus any client-specific tools. Client-specific tools
@@ -172,6 +172,19 @@ class ToolManager:
             return {}
         return deepcopy(self.client_tools[client_id])
 
+    def remove_client_tool(self, client_id: str, name: str) -> None:
+        """Remove a client-specific tool by name.
+
+        Silently succeeds if the client or tool doesn't exist.
+
+        Args:
+            client_id: ID of the client to remove the tool from.
+            name: Name of the tool to remove.
+        """
+        if client_id in self.client_tools:
+            self.client_tools[client_id].pop(name, None)
+            self.client_handlers[client_id].pop(name, None)
+
     def cleanup_client(self, client_id: str) -> None:
         """Remove all tools and handlers for a specific client.
 
@@ -199,7 +212,7 @@ class ToolManager:
         Returns:
             ListToolsResult: Available tools for this client
         """
-        tools = self.get_tools_for_client(client_id)
+        tools = self.get_client_tools(client_id)
         return ListToolsResult(tools=list(tools.values()))
 
     async def handle_call(
