@@ -384,9 +384,9 @@ class ClientSession:
                 server_id, ListPromptsRequest()
             )
             if isinstance(list_prompts_result, ListPromptsResult):
-                self.server_manager.get_server(
-                    server_id
-                ).prompts = list_prompts_result.prompts
+                server_state = self.server_manager.get_server(server_id)
+                if server_state is not None:
+                    server_state.prompts = list_prompts_result.prompts
                 await self.callbacks.call_prompts_changed(
                     server_id, list_prompts_result.prompts
                 )
@@ -412,7 +412,8 @@ class ClientSession:
             )
             if isinstance(list_resources_result, ListResourcesResult):
                 resources = list_resources_result.resources
-                server_state.resources = resources
+                if server_state is not None:
+                    server_state.resources = resources
         except Exception:
             pass
 
@@ -422,7 +423,8 @@ class ClientSession:
             )
             if isinstance(list_templates_result, ListResourceTemplatesResult):
                 templates = list_templates_result.resource_templates
-                server_state.resource_templates = templates
+                if server_state is not None:
+                    server_state.resource_templates = templates
         except Exception:
             pass
 
@@ -462,9 +464,9 @@ class ClientSession:
         try:
             list_tools_result = await self.send_request(server_id, ListToolsRequest())
             if isinstance(list_tools_result, ListToolsResult):
-                self.server_manager.get_server(
-                    server_id
-                ).tools = list_tools_result.tools
+                server_state = self.server_manager.get_server(server_id)
+                if server_state is not None:
+                    server_state.tools = list_tools_result.tools
                 await self.callbacks.call_tools_changed(
                     server_id, list_tools_result.tools
                 )
