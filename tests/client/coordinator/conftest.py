@@ -4,8 +4,8 @@ from typing import Any
 
 import pytest
 
-from conduit.client.coordinator_v2 import MessageCoordinator
-from conduit.client.server_manager_v2 import ServerManager
+from conduit.client.coordinator import MessageCoordinator
+from conduit.client.server_manager import ServerManager
 from conduit.transport.client_v2 import ClientTransport, ServerMessage
 
 

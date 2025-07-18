@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from conduit.client.session_v2 import ClientConfig, ClientSession
+from conduit.client.session import ClientConfig, ClientSession
 from conduit.protocol.initialization import (
     ClientCapabilities,
     Implementation,

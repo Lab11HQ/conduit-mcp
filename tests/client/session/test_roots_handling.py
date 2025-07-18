@@ -1,6 +1,6 @@
 from unittest.mock import AsyncMock
 
-from conduit.client.session_v2 import ClientConfig, ClientSession
+from conduit.client.session import ClientConfig, ClientSession
 from conduit.protocol.base import METHOD_NOT_FOUND, Error
 from conduit.protocol.initialization import (
     ClientCapabilities,

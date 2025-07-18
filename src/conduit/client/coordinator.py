@@ -27,14 +27,14 @@ from conduit.protocol.jsonrpc import (
     JSONRPCResponse,
 )
 from conduit.shared.message_parser import MessageParser
-from conduit.transport.client import ClientTransport
+from conduit.transport.client_v2 import ClientTransport, ServerMessage
 
 TRequest = TypeVar("TRequest", bound=Request)
 TResult = TypeVar("TResult", bound=Result)
 TNotification = TypeVar("TNotification", bound=Notification)
 
-RequestHandler = Callable[[TRequest], Awaitable[TResult | Error]]
-NotificationHandler = Callable[[TNotification], Coroutine[Any, Any, None]]
+RequestHandler = Callable[[str, TRequest], Awaitable[TResult | Error]]
+NotificationHandler = Callable[[str, TNotification], Coroutine[Any, Any, None]]
 
 
 class MessageCoordinator:
@@ -77,8 +77,6 @@ class MessageCoordinator:
         """
         if self.running:
             return
-        if not self.transport.is_open:
-            raise ConnectionError("Cannot start coordinator: transport is closed")
 
         self._message_loop_task = asyncio.create_task(self._message_loop())
         self._message_loop_task.add_done_callback(self._on_message_loop_done)
@@ -99,7 +97,7 @@ class MessageCoordinator:
                 pass
             self._message_loop_task = None
 
-        self.server_manager.cleanup_requests()
+        self.server_manager.cleanup_all_servers()
 
     # ================================
     # Message loop
@@ -108,8 +106,8 @@ class MessageCoordinator:
     async def _message_loop(self) -> None:
         """Processes incoming messages until cancelled or transport fails.
 
-        Runs continuously in the background and hands off messages to the message
-        handler. Individual message handling errors are logged and don't interrupt
+        Runs continuously in the background and hands off messages to registered
+        handlers. Individual message handling errors are logged and don't interrupt
         the loop, but transport failures will stop message processing entirely.
         """
         try:
@@ -117,7 +115,9 @@ class MessageCoordinator:
                 try:
                     await self._route_server_message(server_message)
                 except Exception as e:
-                    print(f"Error handling message: {e}")
+                    print(
+                        f"Error handling message from {server_message.server_id}: {e}"
+                    )
                     continue
         except Exception as e:
             print(f"Transport error: {e}")
@@ -130,41 +130,49 @@ class MessageCoordinator:
         of coordinator state.
         """
         self._message_loop_task = None
-        self.server_manager.cleanup_requests()
+        self.server_manager.cleanup_all_servers()
 
     # ================================
     # Route messages
     # ================================
 
-    async def _route_server_message(self, payload: dict[str, Any]) -> None:
-        """Routes server message to the appropriate handler."""
+    async def _route_server_message(self, server_message: ServerMessage) -> None:
+        """Route server message to appropriate handler with server context.
+
+        Args:
+            server_message: Message from server with ID and payload
+        """
+        payload = server_message.payload
+        server_id = server_message.server_id
+
         if self.parser.is_valid_request(payload):
-            await self._handle_request(payload)
+            await self._handle_request(server_id, payload)
         elif self.parser.is_valid_notification(payload):
-            await self._handle_notification(payload)
+            await self._handle_notification(server_id, payload)
         elif self.parser.is_valid_response(payload):
-            await self._handle_response(payload)
+            await self._handle_response(server_id, payload)
         else:
-            print(f"Unknown message type: {payload}")
+            print(f"Unknown message type from {server_id}: {payload}")
 
     # ================================
     # Handle requests
     # ================================
 
-    async def _handle_request(self, payload: dict[str, Any]) -> None:
+    async def _handle_request(self, server_id: str, payload: dict[str, Any]) -> None:
         """Parses and routes an incoming request from the server."""
         request_id = payload["id"]
 
         request_or_error = self.parser.parse_request(payload)
 
         if isinstance(request_or_error, Error):
-            await self._send_error(request_id, request_or_error)
+            await self._send_error(server_id, request_id, request_or_error)
             return
 
-        await self._route_request(request_id, request_or_error)
+        await self._route_request(server_id, request_id, request_or_error)
 
     async def _route_request(
         self,
+        server_id: str,
         request_id: str | int,
         request: Request,
     ) -> None:
@@ -175,35 +183,40 @@ class MessageCoordinator:
                 code=METHOD_NOT_FOUND,
                 message=f"No handler for method: {request.method}",
             )
-            await self._send_error(request_id, error)
+            await self._send_error(server_id, request_id, error)
             return
 
         task = asyncio.create_task(
-            self._execute_request_handler(handler, request_id, request),
+            self._execute_request_handler(handler, server_id, request_id, request),
             name=f"handle_{request.method}_{request_id}",
         )
 
-        self.server_manager.track_request_from_server(request_id, request, task)
+        self.server_manager.track_request_from_server(
+            server_id, request_id, request, task
+        )
         task.add_done_callback(
-            lambda t: self.server_manager.untrack_request_from_server(request_id)
+            lambda t: self.server_manager.untrack_request_from_server(
+                server_id, request_id
+            )
         )
 
     async def _execute_request_handler(
         self,
         handler: RequestHandler,
+        server_id: str,
         request_id: str | int,
         request: Request,
     ) -> None:
         """Execute handler and send response back to server."""
         try:
-            result_or_error = await handler(request)
+            result_or_error = await handler(server_id, request)
 
             if isinstance(result_or_error, Error):
                 response = JSONRPCError.from_error(result_or_error, request_id)
             else:
                 response = JSONRPCResponse.from_result(result_or_error, request_id)
 
-            await self.transport.send(response.to_wire())
+            await self.transport.send(server_id, response.to_wire())
 
         except Exception:
             error = Error(
@@ -211,13 +224,15 @@ class MessageCoordinator:
                 message="Problem handling request",
                 data={"request": request},
             )
-            await self._send_error(request_id, error)
+            await self._send_error(server_id, request_id, error)
 
     # ================================
     # Handle notifications
     # ================================
 
-    async def _handle_notification(self, payload: dict[str, Any]) -> None:
+    async def _handle_notification(
+        self, server_id: str, payload: dict[str, Any]
+    ) -> None:
         """Parses and routes a typed notification to the appropriate handler."""
         method = payload["method"]
 
@@ -231,44 +246,55 @@ class MessageCoordinator:
             return
 
         asyncio.create_task(
-            handler(notification),
-            name=f"handle_{method}",
+            handler(server_id, notification),
+            name=f"handle_{method}_{server_id}",
         )
 
     # ================================
     # Handle responses
     # ================================
 
-    async def _handle_response(self, payload: dict[str, Any]) -> None:
+    async def _handle_response(self, server_id: str, payload: dict[str, Any]) -> None:
         """Matches a response to a pending request and resolves it.
 
-        Logs an error if the response ID doesn't match any pending request.
+        Fulfills the waiting future if the response is for a known request.
+        Logs an error if the response is for an unknown request.
+
+        Args:
+            server_id: ID of the server that sent the response
+            payload: The response payload
         """
         request_id = payload["id"]
 
-        request_future_tuple = self.server_manager.get_request_to_server(request_id)
+        request_future_tuple = self.server_manager.get_request_to_server(
+            server_id, request_id
+        )
         if not request_future_tuple:
-            print(f"No pending request {request_id}")
+            print(f"No pending request {request_id} from {server_id}")
             return
 
         original_request, future = request_future_tuple
 
         result_or_error = self.parser.parse_response(payload, original_request)
 
-        self.server_manager.resolve_request_to_server(request_id, result_or_error)
+        self.server_manager.resolve_request_to_server(
+            server_id, request_id, result_or_error
+        )
 
     # ================================
     # Cancel requests from server
     # ================================
 
-    async def cancel_request_from_server(self, request_id: str | int) -> bool:
+    async def cancel_request_from_server(
+        self, server_id: str, request_id: str | int
+    ) -> bool:
         """Cancel a request from the server if it's still pending.
 
         Returns:
             True if request was found and successfully cancelled, False if request not
             found or was already completed/cancelled.
         """
-        result = self.server_manager.untrack_request_from_server(request_id)
+        result = self.server_manager.untrack_request_from_server(server_id, request_id)
         if result is None:
             return False
         request, task = result
@@ -279,7 +305,7 @@ class MessageCoordinator:
     # ================================
 
     async def send_request(
-        self, request: Request, timeout: float = 30.0
+        self, server_id: str, request: Request, timeout: float = 30.0
     ) -> Result | Error:
         """Send a request to the server and wait for a response.
 
@@ -294,36 +320,33 @@ class MessageCoordinator:
             Result | Error: The server's response or timeout error
 
         Raises:
-            ConnectionError: Transport fails to send request
+            RuntimeError: If coordinator is not running
             TimeoutError: If server doesn't respond within timeout
         """
-        await self._ensure_ready_to_send()
+        if not self.running:
+            raise RuntimeError("Cannot send request: coordinator is not running")
 
         request_id = str(uuid.uuid4())
         jsonrpc_request = JSONRPCRequest.from_request(request, request_id)
         future: asyncio.Future[Result | Error] = asyncio.Future()
 
-        self.server_manager.track_request_to_server(request_id, request, future)
+        self.server_manager.track_request_to_server(
+            server_id, request_id, request, future
+        )
 
         try:
-            await self.transport.send(jsonrpc_request.to_wire())
+            await self.transport.send(server_id, jsonrpc_request.to_wire())
             return await asyncio.wait_for(future, timeout)
         except asyncio.TimeoutError:
-            await self._handle_request_timeout(request_id, request)
+            await self._handle_request_timeout(server_id, request_id, request)
             raise
         finally:
-            self.server_manager.untrack_request_to_server(request_id)
+            self.server_manager.untrack_request_to_server(server_id, request_id)
 
-    async def _ensure_ready_to_send(self) -> None:
-        """Ensures coordinator is running and transport is open."""
-        if not self.running:
-            await self.start()
-
-        if not self.transport.is_open:
-            raise ConnectionError("Cannot send request: transport is closed")
-
-    async def _handle_request_timeout(self, request_id: str, request: Request) -> None:
-        """Sends a cancellation notification to the server.
+    async def _handle_request_timeout(
+        self, server_id: str, request_id: str, request: Request
+    ) -> None:
+        """Sends a cancellation notification to a server.
 
         Note: Won't try to cancel initialization requests.
         """
@@ -334,7 +357,7 @@ class MessageCoordinator:
                 request_id=request_id,
                 reason="Request timed out",
             )
-            await self.send_notification(cancelled_notification)
+            await self.send_notification(server_id, cancelled_notification)
         except Exception as e:
             print(f"Error sending cancellation to server: {e}")
 
@@ -342,14 +365,19 @@ class MessageCoordinator:
     # Send notifications
     # ================================
 
-    async def send_notification(self, notification: Notification) -> None:
+    async def send_notification(
+        self, server_id: str, notification: Notification
+    ) -> None:
         """Send a notification to the server.
 
-        Starts the message loop if it's not already running.
+        Raises:
+            RuntimeError: If coordinator is not running
         """
-        await self._ensure_ready_to_send()
+        if not self.running:
+            raise RuntimeError("Cannot send notification: coordinator is not running")
+
         jsonrpc_notification = JSONRPCNotification.from_notification(notification)
-        await self.transport.send(jsonrpc_notification.to_wire())
+        await self.transport.send(server_id, jsonrpc_notification.to_wire())
 
     # ================================
     # Register handlers
@@ -368,7 +396,9 @@ class MessageCoordinator:
     # ================================
     # Helpers
     # ================================
-    async def _send_error(self, request_id: str | int, error: Error) -> None:
+    async def _send_error(
+        self, server_id: str, request_id: str | int, error: Error
+    ) -> None:
         """Send error response to server."""
         response = JSONRPCError.from_error(error, request_id)
-        await self.transport.send(response.to_wire())
+        await self.transport.send(server_id, response.to_wire())

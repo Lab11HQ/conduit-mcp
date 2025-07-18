@@ -1,7 +1,7 @@
 from unittest.mock import AsyncMock
 
 from conduit.client.protocol.sampling import SamplingNotConfiguredError
-from conduit.client.session_v2 import ClientConfig, ClientSession
+from conduit.client.session import ClientConfig, ClientSession
 from conduit.protocol.base import INTERNAL_ERROR, METHOD_NOT_FOUND, Error
 from conduit.protocol.content import TextContent
 from conduit.protocol.initialization import ClientCapabilities, Implementation

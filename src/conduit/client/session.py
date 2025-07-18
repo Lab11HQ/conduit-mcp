@@ -8,6 +8,7 @@ Key components:
 
 import asyncio
 from dataclasses import dataclass
+from typing import Any, cast
 
 from conduit.client.callbacks import CallbackManager
 from conduit.client.coordinator import MessageCoordinator
@@ -66,11 +67,20 @@ from conduit.protocol.tools import (
     ListToolsResult,
     ToolListChangedNotification,
 )
-from conduit.transport.client import ClientTransport
+from conduit.transport.client_v2 import ClientTransport
 
 
 class InvalidProtocolVersionError(Exception):
     pass
+
+
+class ServerInitializationError(Exception):
+    """Raised when server initialization fails during the MCP handshake."""
+
+    def __init__(self, server_id: str, message: str, error_code: int | None = None):
+        self.server_id = server_id
+        self.error_code = error_code
+        super().__init__(f"Server '{server_id}' initialization failed: {message}")
 
 
 @dataclass
@@ -84,7 +94,6 @@ class ClientSession:
     def __init__(self, transport: ClientTransport, config: ClientConfig):
         self.transport = transport
         self.client_config = config
-        self._initialized = False
 
         self.server_manager = ServerManager()
         self.callbacks = CallbackManager()
@@ -101,7 +110,7 @@ class ClientSession:
     # Lifecycle
     # ================================
 
-    async def start(self) -> None:
+    async def _start(self) -> None:
         """Start accepting and processing server messages.
 
         Starts the background message loop that will handle incoming server
@@ -109,86 +118,121 @@ class ClientSession:
         """
         await self._coordinator.start()
 
-    async def stop(self) -> None:
+    async def _stop(self) -> None:
         """Stop accepting and processing server messages and clean up all state."""
         await self._coordinator.stop()
-        self.server_manager.reset_server_state()
 
-        self._initialized = False
+    async def _cleanup_server(self, server_id: str) -> None:
+        """Cleans up all state for a specific server."""
+        # Clean up domain managers
+        self.roots.cleanup_server(server_id)
+        # self.sampling.cleanup_server(server_id)
+        # self.elicitation.cleanup_server(server_id)
+
+        # Clean up server manager
+        self.server_manager.cleanup_server(server_id)
+
+        # Clean up transport
+        await self.transport.disconnect_server(server_id)
+
+    async def disconnect_server(self, server_id: str) -> None:
+        """Disconnects from a server and cleans up all state."""
+        await self._cleanup_server(server_id)
+
+    async def disconnect_all_servers(self) -> None:
+        """Disconnects from all servers and cleans up all state."""
+        await self._stop()
+        for server_id in self.server_manager.get_server_ids():
+            await self._cleanup_server(server_id)
 
     # ================================
     # Initialization
     # ================================
-
-    async def initialize(self, timeout: float = 30.0) -> None:
-        """Initialize your MCP session with the server.
-
-        Performs the MCP handshake to establish a working connection. This starts
-        the message loop and negotiates capabilities with the server. Call this
-        once after creating your session—it's safe to call multiple times and
-        will return the cached result on subsequent calls.
+    async def connect_server(
+        self, server_id: str, connection_info: dict[str, Any], timeout: float = 30.0
+    ) -> None:
+        """Connect to a server and perform MCP initialization handshake.
 
         Args:
+            server_id: Unique identifier for this server connection
+            connection_info: Transport-specific connection details
             timeout: How long to wait for the server to respond (seconds).
                 Defaults to 30 seconds.
 
-        Returns:
-            Server capabilities, version info, and optional setup instructions.
-
         Raises:
+            ValueError: If server_id is already initialized
             TimeoutError: Server didn't respond within the timeout period.
             InvalidProtocolVersionError: Server uses an incompatible protocol version.
             ConnectionError: Network failure or server rejected the handshake.
         """
-        if self._initialized:
+        # Note: This check doesn't prevent concurrent initialization attempts
+        # for the same server_id. Multiple calls will result in redundant work
+        # but both will succeed and reach the same final state.
+        if self.server_manager.is_protocol_initialized(server_id):
             return
 
-        await self.start()
+        await self._start()
+
         try:
-            await asyncio.wait_for(self._do_initialize(timeout), timeout)
+            # 1. Register server with transport
+            await self.transport.add_server(server_id, connection_info)
+
+            # 2. Register server with server manager
+            self.server_manager.register_server(server_id)
+
+            # 3. Do MCP initialization handshake
+            await asyncio.wait_for(
+                self._do_initialize_server(server_id, timeout), timeout
+            )
+
         except asyncio.TimeoutError:
-            await self.stop()
-            raise TimeoutError(f"Initialization timed out after {timeout}s")
+            await self._cleanup_server(server_id)
+            raise TimeoutError(f"Connection to {server_id} timed out after {timeout}s")
         except InvalidProtocolVersionError:
-            await self.stop()
+            await self._cleanup_server(server_id)
             raise
         except Exception as e:
-            await self.stop()
-            raise ConnectionError(f"Initialization failed: {e}") from e
+            await self._cleanup_server(server_id)
+            raise ConnectionError(f"Connection to {server_id} failed: {e}") from e
 
-    async def _do_initialize(self, timeout: float = 30.0) -> None:
+    async def _do_initialize_server(
+        self, server_id: str, timeout: float = 30.0
+    ) -> None:
         """Executes the three-step MCP initialization handshake.
 
         1. Send InitializeRequest with client info and capabilities
         2. Validate the server's InitializeResult response
         3. Send InitializedNotification to complete the handshake
 
-        Updates the server manager with the negotiated capabilities and info.
+        Stores server capabilities and marks the server as initialized.
 
         Raises:
-            RuntimeError: If the server returns an error or unexpected response type
-                during initialization.
+            ServerInitializationError: If the server returns an error during
+                initialization.
             InvalidProtocolVersionError: If the server uses an incompatible
                 protocol version.
         """
         init_request = self._create_init_request()
-        response = await self.send_request(init_request, timeout)
+        response = await self.send_request(server_id, init_request, timeout)
 
         if isinstance(response, Error):
-            raise RuntimeError(response.message)
-        if not isinstance(response, InitializeResult):
-            raise RuntimeError("Server returned unexpected response type")
+            raise ServerInitializationError(
+                server_id,
+                f"Server returned error: {response.message}",
+                response.code,
+            )
+        response = cast(InitializeResult, response)
 
         self._validate_protocol_version(response)
 
-        await self._coordinator.send_notification(InitializedNotification())
+        await self._coordinator.send_notification(server_id, InitializedNotification())
         self.server_manager.initialize_server(
+            server_id=server_id,
             capabilities=response.capabilities,
             info=response.server_info,
             protocol_version=self.client_config.protocol_version,  # must match client
             instructions=response.instructions,
         )
-        self._initialized = True
 
     def _create_init_request(self) -> InitializeRequest:
         """Creates an InitializeRequest with client info and capabilities.
@@ -220,7 +264,7 @@ class ClientSession:
     # Ping
     # ================================
 
-    async def _handle_ping(self, request: PingRequest) -> EmptyResult:
+    async def _handle_ping(self, server_id: str, request: PingRequest) -> EmptyResult:
         """Returns an empty result."""
 
         return EmptyResult()
@@ -230,9 +274,9 @@ class ClientSession:
     # ================================
 
     async def _handle_list_roots(
-        self, request: ListRootsRequest
+        self, server_id: str, request: ListRootsRequest
     ) -> ListRootsResult | Error:
-        """Returns the available roots.
+        """Returns the roots available to the server.
 
         Returns:
             ListRootsResult: The available roots.
@@ -243,14 +287,14 @@ class ClientSession:
                 code=METHOD_NOT_FOUND,
                 message="Client does not support roots capability",
             )
-        return await self.roots.handle_list_roots(request)
+        return await self.roots.handle_list_roots(server_id, request)
 
     # ================================
     # Sampling
     # ================================
 
     async def _handle_sampling(
-        self, request: CreateMessageRequest
+        self, server_id: str, request: CreateMessageRequest
     ) -> CreateMessageResult | Error:
         """Creates a message using the configured sampling handler.
 
@@ -265,7 +309,7 @@ class ClientSession:
                 message="Client does not support sampling capability",
             )
         try:
-            return await self.sampling.handle_create_message(request)
+            return await self.sampling.handle_create_message(server_id, request)
         except SamplingNotConfiguredError as e:
             return Error(code=METHOD_NOT_FOUND, message=str(e))
         except Exception:
@@ -279,7 +323,9 @@ class ClientSession:
     # Elicitation
     # ================================
 
-    async def _handle_elicitation(self, request: ElicitRequest) -> ElicitResult | Error:
+    async def _handle_elicitation(
+        self, server_id: str, request: ElicitRequest
+    ) -> ElicitResult | Error:
         """Returns an elicitation result using the configured elicitation handler
 
         Returns:
@@ -293,7 +339,7 @@ class ClientSession:
                 message="Client does not support elicitation capability",
             )
         try:
-            return await self.elicitation.handle_elicitation(request)
+            return await self.elicitation.handle_elicitation(server_id, request)
         except ElicitationNotConfiguredError as e:
             return Error(code=METHOD_NOT_FOUND, message=str(e))
         except Exception:
@@ -307,20 +353,24 @@ class ClientSession:
     # Notifications
     # ================================
 
-    async def _handle_cancelled(self, notification: CancelledNotification) -> None:
+    async def _handle_cancelled(
+        self, server_id: str, notification: CancelledNotification
+    ) -> None:
         """Cancels a request from the server and calls the registered callback."""
         was_cancelled = await self._coordinator.cancel_request_from_server(
-            notification.request_id
+            server_id, notification.request_id
         )
         if was_cancelled:
-            await self.callbacks.call_cancelled(notification)
+            await self.callbacks.call_cancelled(server_id, notification)
 
-    async def _handle_progress(self, notification: ProgressNotification) -> None:
+    async def _handle_progress(
+        self, server_id: str, notification: ProgressNotification
+    ) -> None:
         """Calls the registered callback for progress updates."""
-        await self.callbacks.call_progress(notification)
+        await self.callbacks.call_progress(server_id, notification)
 
     async def _handle_prompts_list_changed(
-        self, notification: PromptListChangedNotification
+        self, server_id: str, notification: PromptListChangedNotification
     ) -> None:
         """Fetches the updated prompts list and calls the registered callback.
 
@@ -330,17 +380,21 @@ class ClientSession:
             disrupting the session.
         """
         try:
-            list_prompts_result = await self.send_request(ListPromptsRequest())
+            list_prompts_result = await self.send_request(
+                server_id, ListPromptsRequest()
+            )
             if isinstance(list_prompts_result, ListPromptsResult):
-                self.server_manager.get_server_context().prompts = (
-                    list_prompts_result.prompts
+                self.server_manager.get_server(
+                    server_id
+                ).prompts = list_prompts_result.prompts
+                await self.callbacks.call_prompts_changed(
+                    server_id, list_prompts_result.prompts
                 )
-                await self.callbacks.call_prompts_changed(list_prompts_result.prompts)
         except Exception:
             pass
 
     async def _handle_resources_list_changed(
-        self, notification: ResourceListChangedNotification
+        self, server_id: str, notification: ResourceListChangedNotification
     ) -> None:
         """Fetches the updated resources/templates and calls the registered callback.
 
@@ -350,31 +404,33 @@ class ClientSession:
         """
         resources: list[Resource] = []
         templates: list[ResourceTemplate] = []
-        context = self.server_manager.get_server_context()
+        server_state = self.server_manager.get_server(server_id)
 
         try:
-            list_resources_result = await self.send_request(ListResourcesRequest())
+            list_resources_result = await self.send_request(
+                server_id, ListResourcesRequest()
+            )
             if isinstance(list_resources_result, ListResourcesResult):
                 resources = list_resources_result.resources
-                context.resources = resources
+                server_state.resources = resources
         except Exception:
             pass
 
         try:
             list_templates_result = await self.send_request(
-                ListResourceTemplatesRequest()
+                server_id, ListResourceTemplatesRequest()
             )
             if isinstance(list_templates_result, ListResourceTemplatesResult):
                 templates = list_templates_result.resource_templates
-                context.resource_templates = templates
+                server_state.resource_templates = templates
         except Exception:
             pass
 
         if resources or templates:
-            await self.callbacks.call_resources_changed(resources, templates)
+            await self.callbacks.call_resources_changed(server_id, resources, templates)
 
     async def _handle_resources_updated(
-        self, notification: ResourceUpdatedNotification
+        self, server_id: str, notification: ResourceUpdatedNotification
     ) -> None:
         """Reads the updated resource content and calls the registered callback.
 
@@ -384,17 +440,17 @@ class ClientSession:
         """
         try:
             read_resource_result = await self.send_request(
-                ReadResourceRequest(uri=notification.uri)
+                server_id, ReadResourceRequest(uri=notification.uri)
             )
             if isinstance(read_resource_result, ReadResourceResult):
                 await self.callbacks.call_resource_updated(
-                    notification.uri, read_resource_result
+                    server_id, notification.uri, read_resource_result
                 )
         except Exception:
             pass
 
     async def _handle_tools_list_changed(
-        self, notification: ToolListChangedNotification
+        self, server_id: str, notification: ToolListChangedNotification
     ) -> None:
         """Fetches the updated tools list and calls the registered callback.
 
@@ -404,29 +460,34 @@ class ClientSession:
             disrupting the session.
         """
         try:
-            list_tools_result = await self.send_request(ListToolsRequest())
+            list_tools_result = await self.send_request(server_id, ListToolsRequest())
             if isinstance(list_tools_result, ListToolsResult):
-                self.server_manager.get_server_context().tools = list_tools_result.tools
-                await self.callbacks.call_tools_changed(list_tools_result.tools)
+                self.server_manager.get_server(
+                    server_id
+                ).tools = list_tools_result.tools
+                await self.callbacks.call_tools_changed(
+                    server_id, list_tools_result.tools
+                )
         except Exception:
             pass
 
     async def _handle_logging_message(
-        self, notification: LoggingMessageNotification
+        self, server_id: str, notification: LoggingMessageNotification
     ) -> None:
         """Calls the registered callback for logging messages."""
-        await self.callbacks.call_logging_message(notification)
+        await self.callbacks.call_logging_message(server_id, notification)
 
     # ================================
     # Send messages
     # ================================
 
     async def send_request(
-        self, request: Request, timeout: float = 30.0
+        self, server_id: str, request: Request, timeout: float = 30.0
     ) -> Result | Error:
-        """Send a request to the server and wait for a response.
+        """Send a request to a server and wait for a response.
 
         Args:
+            server_id: The server to send the request to.
             request: The request to send.
             timeout: Maximum time to wait for response in seconds (default 30s).
 
@@ -434,35 +495,39 @@ class ClientSession:
             Result | Error: The server's response or timeout error.
 
         Raises:
-            ValueError: If attempting to send non-ping request to uninitialized server.
+            ValueError: If attempting to send non-ping/initialize request to
+                uninitialized server.
             ConnectionError: If the transport fails.
             TimeoutError: If server doesn't respond within timeout.
         """
-        await self.start()
+        await self._start()
 
-        if (
-            request.method not in ("ping", "initialize")
-            and not self.server_manager.get_server_context().initialized
-        ):
+        if request.method not in (
+            "ping",
+            "initialize",
+        ) and not self.server_manager.is_protocol_initialized(server_id):
             raise ValueError(
                 f"Cannot send {request.method} to uninitialized server. "
                 "Only ping requests are allowed before initialization."
             )
 
-        return await self._coordinator.send_request(request, timeout)
+        return await self._coordinator.send_request(server_id, request, timeout)
 
-    async def send_notification(self, notification: Notification) -> None:
-        """Send a notification to the server.
+    async def send_notification(
+        self, server_id: str, notification: Notification
+    ) -> None:
+        """Send a notification to a server.
 
         Args:
+            server_id: The server to send the notification to.
             notification: The notification to send.
 
         Raises:
             ConnectionError: If the transport fails.
         """
-        await self.start()
+        await self._start()
 
-        await self._coordinator.send_notification(notification)
+        await self._coordinator.send_notification(server_id, notification)
 
     # ================================
     # Register handlers

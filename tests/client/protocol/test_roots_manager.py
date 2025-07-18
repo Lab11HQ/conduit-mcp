@@ -1,4 +1,4 @@
-from conduit.client.protocol.roots_v2 import RootsManager
+from conduit.client.protocol.roots import RootsManager
 from conduit.protocol.roots import ListRootsRequest, ListRootsResult, Root
 
 
