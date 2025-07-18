@@ -22,7 +22,7 @@ class SamplingManager:
         self._handler = handler
 
     async def handle_create_message(
-        self, request: CreateMessageRequest
+        self, server_id: str, request: CreateMessageRequest
     ) -> CreateMessageResult:
         """Handle create message request.
 

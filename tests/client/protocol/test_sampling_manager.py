@@ -20,7 +20,7 @@ class TestSamplingManager:
         with pytest.raises(
             SamplingNotConfiguredError, match="No sampling handler registered"
         ):
-            await manager.handle_create_message(request)
+            await manager.handle_create_message("server_id", request)
 
     async def test_handle_create_message_calls_handler_and_returns_result(self):
         # Arrange
@@ -38,7 +38,7 @@ class TestSamplingManager:
 
         # Act
         manager.set_handler(handler)
-        result = await manager.handle_create_message(request)
+        result = await manager.handle_create_message("server_id", request)
 
         # Assert
         handler.assert_awaited_once_with(request)

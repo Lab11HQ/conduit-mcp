@@ -294,7 +294,7 @@ class ClientSession:
     # ================================
 
     async def _handle_sampling(
-        self, request: CreateMessageRequest
+        self, server_id: str, request: CreateMessageRequest
     ) -> CreateMessageResult | Error:
         """Creates a message using the configured sampling handler.
 
@@ -309,7 +309,7 @@ class ClientSession:
                 message="Client does not support sampling capability",
             )
         try:
-            return await self.sampling.handle_create_message(request)
+            return await self.sampling.handle_create_message(server_id, request)
         except SamplingNotConfiguredError as e:
             return Error(code=METHOD_NOT_FOUND, message=str(e))
         except Exception:
