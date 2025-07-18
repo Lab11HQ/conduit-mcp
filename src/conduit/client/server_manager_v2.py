@@ -52,7 +52,7 @@ class ServerManager:
         """Get a server state."""
         return self._servers.get(server_id)
 
-    def get_all_server_ids(self) -> list[str]:
+    def get_server_ids(self) -> list[str]:
         """Get all server IDs."""
         return list(self._servers.keys())
 

@@ -99,7 +99,7 @@ class TestInitialization:
         assert server_state.info.name == "test-server"
         assert server_state.info.version == "1.0.0"
 
-        await self.session.stop()
+        await self.session.disconnect_all_servers()
 
     async def test_connect_server_is_idempotent(self, yield_loop):
         """Test that calling connect_server() multiple times returns cached result."""
@@ -134,7 +134,7 @@ class TestInitialization:
         assert len(sent_messages) == 2  # Only init request + notification
         assert self.session.server_manager.is_protocol_initialized(server_id)
 
-        await self.session.stop()
+        await self.session.disconnect_all_servers()
 
     async def test_connect_server_raises_timeout_when_server_does_not_respond(self):
         """Test connection timeout when server doesn't respond."""

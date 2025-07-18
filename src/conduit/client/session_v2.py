@@ -16,7 +16,7 @@ from conduit.client.protocol.elicitation import (
     ElicitationManager,
     ElicitationNotConfiguredError,
 )
-from conduit.client.protocol.roots import RootsManager
+from conduit.client.protocol.roots_v2 import RootsManager
 from conduit.client.protocol.sampling import SamplingManager, SamplingNotConfiguredError
 from conduit.client.server_manager_v2 import ServerManager
 from conduit.protocol.base import (
@@ -118,10 +118,32 @@ class ClientSession:
         """
         await self._coordinator.start()
 
-    async def stop(self) -> None:
+    async def _stop(self) -> None:
         """Stop accepting and processing server messages and clean up all state."""
         await self._coordinator.stop()
-        self.server_manager.cleanup_all_servers()
+
+    async def _cleanup_server(self, server_id: str) -> None:
+        """Cleans up all state for a specific server."""
+        # Clean up domain managers
+        self.roots.cleanup_server(server_id)
+        # self.sampling.cleanup_server(server_id)
+        # self.elicitation.cleanup_server(server_id)
+
+        # Clean up server manager
+        self.server_manager.cleanup_server(server_id)
+
+        # Clean up transport
+        await self.transport.disconnect_server(server_id)
+
+    async def disconnect_server(self, server_id: str) -> None:
+        """Disconnects from a server and cleans up all state."""
+        await self._cleanup_server(server_id)
+
+    async def disconnect_all_servers(self) -> None:
+        """Disconnects from all servers and cleans up all state."""
+        await self._stop()
+        for server_id in self.server_manager.get_server_ids():
+            await self._cleanup_server(server_id)
 
     # ================================
     # Initialization
@@ -164,13 +186,13 @@ class ClientSession:
             )
 
         except asyncio.TimeoutError:
-            await self._cleanup_failed_connection(server_id)
+            await self._cleanup_server(server_id)
             raise TimeoutError(f"Connection to {server_id} timed out after {timeout}s")
         except InvalidProtocolVersionError:
-            await self._cleanup_failed_connection(server_id)
+            await self._cleanup_server(server_id)
             raise
         except Exception as e:
-            await self._cleanup_failed_connection(server_id)
+            await self._cleanup_server(server_id)
             raise ConnectionError(f"Connection to {server_id} failed: {e}") from e
 
     async def _do_initialize_server(
@@ -238,11 +260,6 @@ class ClientSession:
                 f"server={result.protocol_version}"
             )
 
-    async def _cleanup_failed_connection(self, server_id: str) -> None:
-        """Clean up both transport and server manager state."""
-        self.server_manager.cleanup_server(server_id)
-        await self.transport.disconnect_server(server_id)
-
     # ================================
     # Ping
     # ================================
@@ -257,9 +274,9 @@ class ClientSession:
     # ================================
 
     async def _handle_list_roots(
-        self, request: ListRootsRequest
+        self, server_id: str, request: ListRootsRequest
     ) -> ListRootsResult | Error:
-        """Returns the available roots.
+        """Returns the roots available to the server.
 
         Returns:
             ListRootsResult: The available roots.
@@ -270,7 +287,7 @@ class ClientSession:
                 code=METHOD_NOT_FOUND,
                 message="Client does not support roots capability",
             )
-        return await self.roots.handle_list_roots(request)
+        return await self.roots.handle_list_roots(server_id, request)
 
     # ================================
     # Sampling
