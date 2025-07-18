@@ -18,7 +18,9 @@ class ElicitationManager:
     ) -> None:
         self._handler = handler
 
-    async def handle_elicitation(self, request: ElicitRequest) -> ElicitResult:
+    async def handle_elicitation(
+        self, server_id: str, request: ElicitRequest
+    ) -> ElicitResult:
         if self._handler is None:
             raise ElicitationNotConfiguredError("No elicitation handler registered")
         return await self._handler(request)

@@ -323,7 +323,9 @@ class ClientSession:
     # Elicitation
     # ================================
 
-    async def _handle_elicitation(self, request: ElicitRequest) -> ElicitResult | Error:
+    async def _handle_elicitation(
+        self, server_id: str, request: ElicitRequest
+    ) -> ElicitResult | Error:
         """Returns an elicitation result using the configured elicitation handler
 
         Returns:
@@ -337,7 +339,7 @@ class ClientSession:
                 message="Client does not support elicitation capability",
             )
         try:
-            return await self.elicitation.handle_elicitation(request)
+            return await self.elicitation.handle_elicitation(server_id, request)
         except ElicitationNotConfiguredError as e:
             return Error(code=METHOD_NOT_FOUND, message=str(e))
         except Exception:

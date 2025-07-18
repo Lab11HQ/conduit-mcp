@@ -28,7 +28,7 @@ class TestElicitationManager:
 
         # Act & Assert
         with pytest.raises(ElicitationNotConfiguredError):
-            await manager.handle_elicitation(request)
+            await manager.handle_elicitation("server_id", request)
 
     async def test_handle_elicitation_calls_handler_and_returns_result(self):
         # Arrange
@@ -45,8 +45,8 @@ class TestElicitationManager:
 
         # Act
         manager.set_handler(handler)
-        result = await manager.handle_elicitation(request)
+        result = await manager.handle_elicitation("server_id", request)
 
         # Assert
-        handler.assert_called_once_with(request)
+        handler.assert_awaited_once_with(request)
         assert result is expected_result
