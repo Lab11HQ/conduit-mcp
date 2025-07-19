@@ -168,7 +168,7 @@ class ToolManager:
     async def handle_list(
         self, client_id: str, request: ListToolsRequest
     ) -> ListToolsResult:
-        """Handle list tools request for specific client.
+        """Lists tools request for specific client.
 
         Returns all tools available to this client (global + client-specific).
         Client-specific tools override global tools with the same name.
@@ -186,7 +186,7 @@ class ToolManager:
     async def handle_call(
         self, client_id: str, request: CallToolRequest
     ) -> CallToolResult:
-        """Execute a tool call request for specific client.
+        """Executes a tool call request for specific client.
 
         Tool execution failures return CallToolResult with is_error=True so the LLM
         can see what went wrong and potentially recover.

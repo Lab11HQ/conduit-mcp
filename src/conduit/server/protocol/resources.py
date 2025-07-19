@@ -233,21 +233,21 @@ class ResourceManager:
     async def handle_list_resources(
         self, client_id: str, request: ListResourcesRequest
     ) -> ListResourcesResult:
-        """List all resources available to a specific client."""
+        """Lists all resources available to a specific client."""
         resources = self.get_client_resources(client_id)
         return ListResourcesResult(resources=list(resources.values()))
 
     async def handle_list_templates(
         self, client_id: str, request: ListResourceTemplatesRequest
     ) -> ListResourceTemplatesResult:
-        """List all resource templates available to a specific client."""
+        """Lists all resource templates available to a specific client."""
         templates = self.get_client_templates(client_id)
         return ListResourceTemplatesResult(resource_templates=list(templates.values()))
 
     async def handle_read(
         self, client_id: str, request: ReadResourceRequest
     ) -> ReadResourceResult:
-        """Read a resource by URI for specific client.
+        """Reads a resource by URI for specific client.
 
         Args:
             client_id: ID of the client reading the resource
@@ -283,7 +283,7 @@ class ResourceManager:
     async def handle_subscribe(
         self, client_id: str, request: SubscribeRequest
     ) -> EmptyResult:
-        """Subscribe client to resource change notifications.
+        """Subscribes client to resource change notifications.
 
         Args:
             client_id: ID of the client subscribing
@@ -325,7 +325,7 @@ class ResourceManager:
     async def handle_unsubscribe(
         self, client_id: str, request: UnsubscribeRequest
     ) -> EmptyResult:
-        """Unsubscribe client from resource change notifications.
+        """Unsubscribes client from resource change notifications.
 
         Args:
             client_id: ID of the client unsubscribing

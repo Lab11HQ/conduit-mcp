@@ -18,7 +18,7 @@ class CompletionManager:
     async def handle_complete(
         self, client_id: str, request: CompleteRequest
     ) -> CompleteResult:
-        """Generate completions using the configured handler.
+        """Calls the completion handler.
 
         Args:
             client_id: The client's unique identifier.

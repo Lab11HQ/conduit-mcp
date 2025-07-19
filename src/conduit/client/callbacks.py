@@ -19,7 +19,6 @@ class CallbackManager:
     """Manages event callbacks for server state changes."""
 
     def __init__(self):
-        # Direct callback assignment
         self.progress_handler: (
             Callable[[ProgressNotification], Awaitable[None]] | None
         ) = None
@@ -45,7 +44,7 @@ class CallbackManager:
     async def call_progress(
         self, server_id: str, notification: ProgressNotification
     ) -> None:
-        """Invoke progress callback with the notification."""
+        """Invokes progress callback. Catches and logs any errors."""
         if self.progress_handler:
             try:
                 await self.progress_handler(notification)
@@ -55,7 +54,7 @@ class CallbackManager:
     async def call_cancelled(
         self, server_id: str, notification: CancelledNotification
     ) -> None:
-        """Invoke cancelled callback with the notification."""
+        """Invokes cancelled callback. Catches and logs any errors."""
         if self.cancelled_handler:
             try:
                 await self.cancelled_handler(notification)
@@ -63,7 +62,7 @@ class CallbackManager:
                 print(f"Cancelled callback failed: {e}")
 
     async def call_tools_changed(self, server_id: str, tools: list[Tool]) -> None:
-        """Invoke tools changed callback with the updated tools."""
+        """Invokes tools changed callback. Catches and logs any errors."""
         if self.tools_changed_handler:
             try:
                 await self.tools_changed_handler(tools)
@@ -76,7 +75,7 @@ class CallbackManager:
         resources: list[Resource],
         templates: list[ResourceTemplate],
     ) -> None:
-        """Invoke resources changed callback."""
+        """Invokes resources changed callback. Catches and logs any errors."""
         if self.resources_changed_handler:
             try:
                 await self.resources_changed_handler(resources, templates)
@@ -86,7 +85,7 @@ class CallbackManager:
     async def call_resource_updated(
         self, server_id: str, uri: str, result: ReadResourceResult
     ) -> None:
-        """Invoke resource updated callback with URI and result."""
+        """Invokes resource updated callback. Catches and logs any errors."""
         if self.resource_updated_handler:
             try:
                 await self.resource_updated_handler(uri, result)
@@ -94,7 +93,7 @@ class CallbackManager:
                 print(f"Resource updated callback failed: {e}")
 
     async def call_prompts_changed(self, server_id: str, prompts: list[Prompt]) -> None:
-        """Invoke prompts changed callback with the updated prompts."""
+        """Invokes prompts changed callback. Catches and logs any errors."""
         if self.prompts_changed_handler:
             try:
                 await self.prompts_changed_handler(prompts)
@@ -104,7 +103,7 @@ class CallbackManager:
     async def call_logging_message(
         self, server_id: str, notification: LoggingMessageNotification
     ) -> None:
-        """Invoke logging message callback with the notification."""
+        """Invokes logging message callback. Catches and logs any errors."""
         if self.logging_message_handler:
             try:
                 await self.logging_message_handler(notification)

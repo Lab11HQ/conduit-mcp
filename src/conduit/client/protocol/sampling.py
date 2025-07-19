@@ -11,7 +11,6 @@ class SamplingNotConfiguredError(Exception):
 
 class SamplingManager:
     def __init__(self):
-        # Direct callback assignment
         self.sampling_handler: (
             Callable[[CreateMessageRequest], Awaitable[CreateMessageResult]] | None
         ) = None
@@ -19,10 +18,17 @@ class SamplingManager:
     async def handle_create_message(
         self, server_id: str, request: CreateMessageRequest
     ) -> CreateMessageResult:
-        """Handle create message request.
+        """Calls the sampling handler.
 
+        Args:
+            server_id: The server ID.
+            request: The create message request.
+
+        Returns:
+            The create message result.
         Raises:
-            SamplingNotConfiguredError: If no handler registered.
+            SamplingNotConfiguredError: If no handler is registered.
+            Exception: If the sampling handler raises an exception.
         """
         if self.sampling_handler is None:
             raise SamplingNotConfiguredError("No sampling handler registered")

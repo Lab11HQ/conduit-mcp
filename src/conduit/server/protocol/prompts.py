@@ -165,7 +165,7 @@ class PromptManager:
     async def handle_list_prompts(
         self, client_id: str, request: ListPromptsRequest
     ) -> ListPromptsResult:
-        """Handle list prompts request for specific client.
+        """Returns all prompts available to this client.
 
         Returns all prompts available to this client. Client-specific prompts
         override global prompts with the same name.
@@ -183,7 +183,7 @@ class PromptManager:
     async def handle_get_prompt(
         self, client_id: str, request: GetPromptRequest
     ) -> GetPromptResult:
-        """Execute a prompt request for specific client.
+        """Executes a prompt request for specific client.
 
         Uses client-specific handler if available, otherwise falls back to global.
 
