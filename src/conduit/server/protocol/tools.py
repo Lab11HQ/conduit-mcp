@@ -17,19 +17,14 @@ ToolHandler = Callable[[str, CallToolRequest], Awaitable[CallToolResult]]
 
 
 class ToolManager:
-    """Client-aware tool manager for multi-client server sessions.
-
-    Manages global tool registration with client context passed to handlers
-    during execution. Tools are registered once but can behave differently
-    based on which client is calling them.
+    """
+    Manages protocol tool registration and execution for a server.
     """
 
     def __init__(self):
-        # Global tools (shared across all clients)
         self.global_tools: dict[str, Tool] = {}
         self.global_handlers: dict[str, ToolHandler] = {}
 
-        # Client-specific tools
         self.client_tools: dict[
             str, dict[str, Tool]
         ] = {}  # client_id -> {tool_name: tool}
@@ -55,8 +50,8 @@ class ToolManager:
 
         Args:
             tool: Tool definition with name, description, and schema.
-            handler: Async function that processes tool calls with client context.
-                Should return CallToolResult even when execution fails.
+            handler: Async function that processes tool calls. Must take client_id
+                and CallToolRequest as arguments and return a CallToolResult.
         """
         self.global_tools[tool.name] = tool
         self.global_handlers[tool.name] = handler
@@ -113,23 +108,20 @@ class ToolManager:
         Args:
             client_id: ID of the client this tool is specific to.
             tool: Tool definition with name, description, and schema.
-            handler: Async function that processes tool calls with client context.
-                Should return CallToolResult even when execution fails.
+            handler: Async function that processes tool calls. Must take client_id
+                and CallToolRequest as arguments and return a CallToolResult.
         """
-        # Initialize client storage if this is the first tool for this client
         if client_id not in self.client_tools:
             self.client_tools[client_id] = {}
             self.client_handlers[client_id] = {}
 
-        # Store the client-specific tool and handler
         self.client_tools[client_id][tool.name] = tool
         self.client_handlers[client_id][tool.name] = handler
 
     def get_client_tools(self, client_id: str) -> dict[str, Tool]:
         """Get all tools a client can access.
 
-        Returns global tools plus any client-specific tools. Client-specific tools
-        override global tools with the same name.
+        Returns global tools plus any client-specific tools.
 
         Args:
             client_id: ID of the client to get tools for.
@@ -137,11 +129,8 @@ class ToolManager:
         Returns:
             Dictionary mapping tool names to Tool objects for this client.
         """
-
-        # Start with global tools
         tools = deepcopy(self.global_tools)
 
-        # Add client-specific tools, with override logging
         if client_id in self.client_tools:
             for name, tool in self.client_tools[client_id].items():
                 if name in tools:
@@ -153,7 +142,7 @@ class ToolManager:
     def remove_client_tool(self, client_id: str, name: str) -> None:
         """Remove a client-specific tool by name.
 
-        Silently succeeds if the client or tool doesn't exist.
+        Does not raise an error if the client or tool doesn't exist.
 
         Args:
             client_id: ID of the client to remove the tool from.
@@ -199,11 +188,8 @@ class ToolManager:
     ) -> CallToolResult:
         """Execute a tool call request for specific client.
 
-        Client-specific handlers override global handlers for the same tool name.
-
         Tool execution failures return CallToolResult with is_error=True so the LLM
-        can see what went wrong and potentially recover. Unknown tools raise KeyError
-        for the session to convert to protocol errors.
+        can see what went wrong and potentially recover.
 
         Args:
             client_id: ID of the client calling the tool
@@ -216,7 +202,6 @@ class ToolManager:
             KeyError: If the requested tool is not registered for this client
         """
         try:
-            # Check for client-specific handler first
             if (
                 client_id in self.client_handlers
                 and request.name in self.client_handlers[client_id]
@@ -229,10 +214,8 @@ class ToolManager:
 
             return await handler(client_id, request)
         except KeyError:
-            # Re-raise for session to convert to protocol error
             raise
         except Exception as e:
-            # Tool execution failed -> domain error for LLM to see
             return CallToolResult(
                 content=[TextContent(text=f"Tool execution failed: {str(e)}")],
                 is_error=True,
