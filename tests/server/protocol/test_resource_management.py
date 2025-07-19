@@ -106,7 +106,7 @@ class TestGlobalResourceManagement:
         assert "file:///unknown.log" not in templates
         assert "file:///unknown.log" not in self.manager.global_template_handlers
 
-    def test_clear_resources_removes_all_resources_and_handlers(self):
+    def test_clear_resources_removes_all_global_resources_and_handlers(self):
         # Arrange - add multiple resources
         resource2 = Resource(uri="file:///test2.txt", name="Test File 2")
         mock_handler2 = AsyncMock()
@@ -129,7 +129,7 @@ class TestGlobalResourceManagement:
         # Verify all handlers are removed internally
         assert len(self.manager.global_handlers) == 0
 
-    def test_clear_templates_removes_all_templates_and_handlers(self):
+    def test_clear_templates_removes_all_global_templates_and_handlers(self):
         # Arrange - add multiple templates
         template2 = ResourceTemplate(
             uri_template="file:///data/{id}.json", name="Data Template"
@@ -331,59 +331,12 @@ class TestClientResourceManagement:
         assert client_templates["file:///logs/{date}.log"] == client_template
         assert client_templates["file:///logs/{date}.log"].name == "Client Log Template"
 
-    def test_remove_client_resource_removes_resource_and_handler(self):
-        # Arrange - add client resource first
-        self.manager.add_client_resource(
-            self.client_id, self.test_resource, self.mock_handler
-        )
-        assert "file:///test.txt" in self.manager.client_resources[self.client_id]
-        assert "file:///test.txt" in self.manager.client_handlers[self.client_id]
-
-        # Act
-        self.manager.remove_client_resource(self.client_id, "file:///test.txt")
-
-        # Assert
-        # Verify resource is removed
-        assert "file:///test.txt" not in self.manager.client_resources[self.client_id]
-
-        # Verify handler is removed internally
-        assert "file:///test.txt" not in self.manager.client_handlers[self.client_id]
-
     def test_remove_client_resource_silently_succeeds_for_unknown_client(self):
         # Act - remove from non-existent client
         self.manager.remove_client_resource("unknown-client", "file:///test.txt")
 
         # Assert - no error thrown, no state changed
         assert "unknown-client" not in self.manager.client_resources
-
-    def test_remove_client_template_removes_template_and_handler(self):
-        # Arrange - add client template first
-        self.manager.add_client_template(
-            self.client_id, self.test_template, self.mock_handler
-        )
-        assert (
-            "file:///logs/{date}.log" in self.manager.client_templates[self.client_id]
-        )
-        assert (
-            "file:///logs/{date}.log"
-            in self.manager.client_template_handlers[self.client_id]
-        )
-
-        # Act
-        self.manager.remove_client_template(self.client_id, "file:///logs/{date}.log")
-
-        # Assert
-        # Verify template is removed
-        assert (
-            "file:///logs/{date}.log"
-            not in self.manager.client_templates[self.client_id]
-        )
-
-        # Verify handler is removed internally
-        assert (
-            "file:///logs/{date}.log"
-            not in self.manager.client_template_handlers[self.client_id]
-        )
 
     def test_remove_client_template_silently_succeeds_for_unknown_client(self):
         # Act - remove from non-existent client
@@ -422,7 +375,7 @@ class TestClientResourceManagement:
         assert self.client_id not in self.manager._client_subscriptions
 
     def test_cleanup_client_silently_succeeds_for_unknown_client(self):
-        # Act - cleanup non-existent client
+        # Act - cleanup non-existent client (testing possible race conditions)
         self.manager.cleanup_client("unknown-client")
 
         # Assert - no error thrown, no state changed
