@@ -24,35 +24,28 @@ SubscriptionCallback = Callable[[str, str], Awaitable[None]]  # (client_id, uri)
 
 
 class ResourceManager:
-    """Client-aware resource manager for multi-client server sessions.
+    """Manages protocol resource registration and execution for a server.
 
-    Manages global and client-specific resource registration with
-    client-specific subscriptions tracked internally.
+    Controls which resources are available to MCP clients and how they're executed.
     """
 
     def __init__(self):
-        # Global resources (shared across all clients)
         self.global_resources: dict[str, Resource] = {}
         self.global_handlers: dict[str, ResourceHandler] = {}
 
-        # Global templates (shared across all clients)
         self.global_templates: dict[str, ResourceTemplate] = {}
         self.global_template_handlers: dict[str, ResourceHandler] = {}
 
-        # Client-specific resources
         self.client_resources: dict[
             str, dict[str, Resource]
         ] = {}  # client_id -> {uri: resource}
         self.client_handlers: dict[str, dict[str, ResourceHandler]] = {}
 
-        # Client-specific templates
         self.client_templates: dict[str, dict[str, ResourceTemplate]] = {}
         self.client_template_handlers: dict[str, dict[str, ResourceHandler]] = {}
 
-        # Client subscriptions (what we manage FOR each client)
         self._client_subscriptions: dict[str, set[str]] = {}  # client_id -> {uri, ...}
 
-        # Direct callback assignment
         self.subscribe_handler: SubscriptionCallback | None = None
         self.unsubscribe_handler: SubscriptionCallback | None = None
 
@@ -65,15 +58,13 @@ class ResourceManager:
         resource: Resource,
         handler: ResourceHandler,
     ) -> None:
-        """Add a global resource with its client-aware handler function.
-
-        Your handler should return ReadResourceResult with the resource content.
-        Handler exceptions bubble up to the session for protocol error conversion.
+        """Add a global resource with its handler function.
 
         Args:
             resource: Resource definition with URI and metadata.
             handler: Async function that processes read requests.
-                Should return ReadResourceResult with resource contents.
+                Must take client_id and ReadResourceRequest as arguments and return a
+                ReadResourceResult.
         """
         self.global_resources[resource.uri] = resource
         self.global_handlers[resource.uri] = handler
@@ -83,14 +74,12 @@ class ResourceManager:
         template: ResourceTemplate,
         handler: ResourceHandler,
     ) -> None:
-        """Add a global resource template with its client-aware handler function.
-
-        Templates enable dynamic resource access with URI patterns like
-        'file:///logs/{date}.log'. Available to all clients.
+        """Add a global resource template with its handler function.
 
         Args:
             template: ResourceTemplate definition with URI pattern and metadata.
-            handler: Async function that processes read requests.
+            handler: Async function that processes read requests. Must take client_id
+                and ReadResourceRequest as arguments and return a ReadResourceResult.
         """
         self.global_templates[template.uri_template] = template
         self.global_template_handlers[template.uri_template] = handler
@@ -135,13 +124,13 @@ class ResourceManager:
     ) -> None:
         """Add a resource specific to a client.
 
-        Client-specific resources are only available to the specified client and can
-        override global resources with the same URI for that client.
+        Overrides global resources with the same URI for this client.
 
         Args:
             client_id: ID of the client this resource is specific to.
             resource: Resource definition with URI and metadata.
-            handler: Async function that processes read requests.
+            handler: Async function that processes read requests. Must take client_id
+                and ReadResourceRequest as arguments and return a ReadResourceResult.
         """
         if client_id not in self.client_resources:
             self.client_resources[client_id] = {}
@@ -158,13 +147,13 @@ class ResourceManager:
     ) -> None:
         """Add a resource template specific to a client.
 
-        Client-specific templates are only available to the specified client and can
-        override global templates with the same URI pattern for that client.
+        Overrides global templates with the same URI pattern for this client.
 
         Args:
             client_id: ID of the client this template is specific to.
             template: ResourceTemplate definition with URI pattern and metadata.
-            handler: Async function that processes read requests.
+            handler: Async function that processes read requests. Must take client_id
+                and ReadResourceRequest as arguments and return a ReadResourceResult.
         """
         if client_id not in self.client_templates:
             self.client_templates[client_id] = {}
@@ -176,7 +165,8 @@ class ResourceManager:
     def get_client_resources(self, client_id: str) -> dict[str, Resource]:
         """Get all resources available to a specific client.
 
-        Returns global resources plus any client-specific resources.
+        Returns global resources plus any client-specific resources. Client-specific
+        resources override global resources with the same URI.
 
         Args:
             client_id: ID of the client to get resources for.
@@ -184,10 +174,8 @@ class ResourceManager:
         Returns:
             Dictionary mapping URIs to Resource objects for this client.
         """
-        # Start with global resources
         resources = deepcopy(self.global_resources)
 
-        # Add client-specific resources, with override logging
         if client_id in self.client_resources:
             for uri, resource in self.client_resources[client_id].items():
                 if uri in resources:
@@ -199,7 +187,8 @@ class ResourceManager:
     def get_client_templates(self, client_id: str) -> dict[str, ResourceTemplate]:
         """Get all resource templates available to a specific client.
 
-        Returns global templates plus any client-specific templates.
+        Returns global templates plus any client-specific templates. Client-specific
+        templates override global templates with the same URI pattern.
 
         Args:
             client_id: ID of the client to get templates for.
@@ -207,10 +196,8 @@ class ResourceManager:
         Returns:
             Dictionary mapping URI patterns to ResourceTemplate objects for this client.
         """
-        # Start with global templates
         templates = deepcopy(self.global_templates)
 
-        # Add client-specific templates, with override logging
         if client_id in self.client_templates:
             for pattern, template in self.client_templates[client_id].items():
                 if pattern in templates:
@@ -262,8 +249,6 @@ class ResourceManager:
     ) -> ReadResourceResult:
         """Read a resource by URI for specific client.
 
-        Client-specific handlers override global handlers for the same URI.
-
         Args:
             client_id: ID of the client reading the resource
             request: Read resource request with URI
@@ -277,13 +262,11 @@ class ResourceManager:
         """
         uri = request.uri
 
-        # Try static resources first - check client-specific then global
         if client_id in self.client_handlers and uri in self.client_handlers[client_id]:
             return await self.client_handlers[client_id][uri](client_id, request)
         elif uri in self.global_handlers:
             return await self.global_handlers[uri](client_id, request)
 
-        # Try template patterns - check client-specific then global
         if client_id in self.client_template_handlers:
             for template_pattern, handler in self.client_template_handlers[
                 client_id
@@ -291,12 +274,10 @@ class ResourceManager:
                 if self._matches_template(uri=uri, template=template_pattern):
                     return await handler(client_id, request)
 
-        # Check global templates
         for template_pattern, handler in self.global_template_handlers.items():
             if self._matches_template(uri=uri, template=template_pattern):
                 return await handler(client_id, request)
 
-        # Not found
         raise KeyError(f"Unknown resource: {uri}")
 
     async def handle_subscribe(
@@ -319,9 +300,8 @@ class ResourceManager:
 
         client_resources = self.get_client_resources(client_id)
         if uri in client_resources:
-            resource_exists = True  # static resource
+            resource_exists = True
         else:
-            # template resource
             client_templates = self.get_client_templates(client_id)
             for template_pattern in client_templates.keys():
                 if self._matches_template(uri=uri, template=template_pattern):
@@ -331,11 +311,9 @@ class ResourceManager:
         if not resource_exists:
             raise KeyError(f"Cannot subscribe to unknown resource: {uri}")
 
-        # Record the subscription
         client_subscriptions = self._client_subscriptions.setdefault(client_id, set())
         client_subscriptions.add(uri)
 
-        # Notify via callback if configured
         if self.subscribe_handler:
             try:
                 await self.subscribe_handler(client_id, uri)
@@ -362,14 +340,11 @@ class ResourceManager:
         uri = request.uri
         client_subscriptions = self._client_subscriptions.get(client_id, set())
 
-        # Check if client is subscribed
         if uri not in client_subscriptions:
             raise KeyError(f"Client not subscribed to resource: {uri}")
 
-        # Remove the subscription
         self._client_subscriptions[client_id].remove(uri)
 
-        # Notify via callback if configured
         if self.unsubscribe_handler:
             try:
                 await self.unsubscribe_handler(client_id, uri)
@@ -380,8 +355,6 @@ class ResourceManager:
 
     def _matches_template(self, uri: str, template: str) -> bool:
         """Checks if a URI matches a URI template pattern."""
-        # Convert template to regex pattern
-        # Replace {variable} with regex group that matches non-slash characters
         pattern = re.escape(template)
         pattern = re.sub(r"\\{[^}]+\\}", r"([^/]+)", pattern)
         pattern = f"^{pattern}$"

@@ -44,7 +44,7 @@ class PromptManager:
         Args:
             prompt: Prompt definition with name, description, and arguments.
             handler: Async function that processes prompt requests. Must take client_id
-                and request as arguments and return a GetPromptResult.
+                and GetPromptRequest as arguments and return a GetPromptResult.
         """
         self.global_prompts[prompt.name] = prompt
         self.global_handlers[prompt.name] = handler
@@ -100,7 +100,7 @@ class PromptManager:
             client_id: ID of the client this prompt is specific to.
             prompt: Prompt definition with name, description, and arguments.
             handler: Async function that processes prompt requests. Must take client_id
-                and request as arguments and return a GetPromptResult.
+                and GetPromptRequest as arguments and return a GetPromptResult.
         """
         # Initialize client storage if this is the first prompt for this client
         if client_id not in self.client_prompts:
