@@ -11,7 +11,6 @@ class CompletionNotConfiguredError(Exception):
 
 class CompletionManager:
     def __init__(self):
-        # Direct callback assignment
         self.completion_handler: (
             Callable[[str, CompleteRequest], Awaitable[CompleteResult]] | None
         ) = None
@@ -20,10 +19,6 @@ class CompletionManager:
         self, client_id: str, request: CompleteRequest
     ) -> CompleteResult:
         """Generate completions using the configured handler.
-
-        Delegates to the registered completion handler for actual generation.
-        The handler should process the request reference and arguments to
-        produce appropriate completions.
 
         Args:
             client_id: The client's unique identifier.
