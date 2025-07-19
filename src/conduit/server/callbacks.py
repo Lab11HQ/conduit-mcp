@@ -9,7 +9,6 @@ class CallbackManager:
     """Manages event callbacks for client state changes."""
 
     def __init__(self):
-        # Direct callback assignment
         self.initialized_handler: (
             Callable[[str, InitializedNotification], Awaitable[None]] | None
         ) = None
@@ -26,7 +25,7 @@ class CallbackManager:
     async def call_initialized(
         self, client_id: str, notification: InitializedNotification
     ) -> None:
-        """Invoke initialized callback with client context."""
+        """Invokes initialized callback. Catches and logs any errors."""
         if self.initialized_handler:
             try:
                 await self.initialized_handler(client_id, notification)
@@ -36,7 +35,7 @@ class CallbackManager:
     async def call_progress(
         self, client_id: str, notification: ProgressNotification
     ) -> None:
-        """Invoke progress callback with client context."""
+        """Invokes progress callback. Catches and logs any errors."""
         if self.progress_handler:
             try:
                 await self.progress_handler(client_id, notification)
@@ -44,7 +43,7 @@ class CallbackManager:
                 print(f"Progress callback failed for {client_id}: {e}")
 
     async def call_roots_changed(self, client_id: str, roots: list[Root]) -> None:
-        """Invoke roots changed callback with client context."""
+        """Invokes roots changed callback. Catches and logs any errors."""
         if self.roots_changed_handler:
             try:
                 await self.roots_changed_handler(client_id, roots)
@@ -54,7 +53,7 @@ class CallbackManager:
     async def call_cancelled(
         self, client_id: str, notification: CancelledNotification
     ) -> None:
-        """Invoke cancelled callback with client context."""
+        """Invokes cancelled callback. Catches and logs any errors."""
         if self.cancelled_handler:
             try:
                 await self.cancelled_handler(client_id, notification)
