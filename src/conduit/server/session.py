@@ -106,7 +106,7 @@ class ServerSession:
         self.client_manager = ClientManager()
 
         self.tools = ToolManager()
-        self.resources = ResourceManager(self.client_manager)
+        self.resources = ResourceManager()
         self.prompts = PromptManager()
         self.logging = LoggingManager()
         self.completions = CompletionManager()
