@@ -14,19 +14,15 @@ PromptHandler = Callable[[str, GetPromptRequest], Awaitable[GetPromptResult]]
 
 
 class PromptManager:
-    """Client-aware prompt manager for multi-client server sessions.
+    """Manages protocol prompt registration and execution for a server.
 
-    Manages global prompt registration with client context passed to handlers
-    during execution. Prompts are registered once but can behave differently
-    based on which client is calling them.
+    Controls which prompts are available to MCP clients and how they're executed.
     """
 
     def __init__(self):
-        # Global prompts (shared across all clients)
         self.global_prompts: dict[str, Prompt] = {}
         self.global_handlers: dict[str, PromptHandler] = {}
 
-        # Client-specific prompts
         self.client_prompts: dict[
             str, dict[str, Prompt]
         ] = {}  # client_id -> {prompt_name: prompt}
@@ -43,16 +39,12 @@ class PromptManager:
         prompt: Prompt,
         handler: PromptHandler,
     ) -> None:
-        """Add a global prompt with its client-aware handler function.
-
-        Your handler should process request arguments and return GetPromptResult
-        with appropriate messages. Handler exceptions become INTERNAL_ERROR responses,
-        so consider handling expected failures gracefully within your handler.
+        """Add a global prompt with its handler function.
 
         Args:
             prompt: Prompt definition with name, description, and arguments.
-            handler: Async function that processes prompt requests with client context.
-                Should return GetPromptResult with messages for the LLM.
+            handler: Async function that processes prompt requests. Must take client_id
+                and request as arguments and return a GetPromptResult.
         """
         self.global_prompts[prompt.name] = prompt
         self.global_handlers[prompt.name] = handler
@@ -107,8 +99,8 @@ class PromptManager:
         Args:
             client_id: ID of the client this prompt is specific to.
             prompt: Prompt definition with name, description, and arguments.
-            handler: Async function that processes prompt requests with client context.
-                Should return GetPromptResult with messages for the LLM.
+            handler: Async function that processes prompt requests. Must take client_id
+                and request as arguments and return a GetPromptResult.
         """
         # Initialize client storage if this is the first prompt for this client
         if client_id not in self.client_prompts:
@@ -147,7 +139,7 @@ class PromptManager:
     def remove_client_prompt(self, client_id: str, name: str) -> None:
         """Remove a client-specific prompt by name.
 
-        Silently succeeds if the client or prompt doesn't exist.
+        Does not raise an error if the client or prompt doesn't exist.
 
         Args:
             client_id: ID of the client to remove the prompt from.
@@ -159,9 +151,6 @@ class PromptManager:
 
     def cleanup_client(self, client_id: str) -> None:
         """Remove all prompts and handlers for a specific client.
-
-        Called when a client disconnects to free up memory and prevent
-        stale client-specific prompts from accumulating.
 
         Args:
             client_id: ID of the client to clean up.
@@ -178,8 +167,8 @@ class PromptManager:
     ) -> ListPromptsResult:
         """Handle list prompts request for specific client.
 
-        Returns all prompts available to this client (global + client-specific).
-        Client-specific prompts override global prompts with the same name.
+        Returns all prompts available to this client. Client-specific prompts
+        override global prompts with the same name.
 
         Args:
             client_id: ID of the client requesting prompts
@@ -197,7 +186,6 @@ class PromptManager:
         """Execute a prompt request for specific client.
 
         Uses client-specific handler if available, otherwise falls back to global.
-        Client-specific handlers override global handlers for the same prompt name.
 
         Args:
             client_id: ID of the client requesting the prompt
@@ -211,7 +199,6 @@ class PromptManager:
             Exception: Any exception from the prompt handler
         """
         try:
-            # Check for client-specific handler first
             if (
                 client_id in self.client_handlers
                 and request.name in self.client_handlers[client_id]
@@ -224,8 +211,6 @@ class PromptManager:
 
             return await handler(client_id, request)
         except KeyError:
-            # Re-raise for session to convert to protocol error
             raise
         except Exception:
-            # Re-raise handler failures for session to convert to protocol errors
             raise
