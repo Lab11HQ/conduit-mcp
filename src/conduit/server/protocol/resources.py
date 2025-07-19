@@ -247,6 +247,10 @@ class ResourceManager:
         self.client_template_handlers.pop(client_id, None)
         self._client_subscriptions.pop(client_id, None)
 
+    # ===============================
+    # Protocol handlers
+    # ===============================
+
     async def handle_list_resources(
         self, client_id: str, request: ListResourcesRequest
     ) -> ListResourcesResult:
@@ -266,9 +270,7 @@ class ResourceManager:
     ) -> ReadResourceResult:
         """Read a resource by URI for specific client.
 
-        Uses client-specific handler if available, otherwise falls back to global.
         Client-specific handlers override global handlers for the same URI.
-        Tries static resources first, then attempts template pattern matching.
 
         Args:
             client_id: ID of the client reading the resource
@@ -284,48 +286,31 @@ class ResourceManager:
         uri = request.uri
 
         # Try static resources first - check client-specific then global
-        handler = None
         if client_id in self.client_handlers and uri in self.client_handlers[client_id]:
-            handler = self.client_handlers[client_id][uri]
+            return await self.client_handlers[client_id][uri](client_id, request)
         elif uri in self.global_handlers:
-            handler = self.global_handlers[uri]
-
-        if handler:
-            try:
-                return await handler(client_id, request)
-            except Exception:
-                raise
+            return await self.global_handlers[uri](client_id, request)
 
         # Try template patterns - check client-specific then global
-        # First check client-specific templates
         if client_id in self.client_template_handlers:
             for template_pattern, handler in self.client_template_handlers[
                 client_id
             ].items():
                 if self._matches_template(uri=uri, template=template_pattern):
-                    try:
-                        return await handler(client_id, request)
-                    except Exception:
-                        raise
+                    return await handler(client_id, request)
 
-        # Then check global templates
+        # Check global templates
         for template_pattern, handler in self.global_template_handlers.items():
             if self._matches_template(uri=uri, template=template_pattern):
-                try:
-                    return await handler(client_id, request)
-                except Exception:
-                    raise
+                return await handler(client_id, request)
 
-        # Not found - let session handle as protocol error
+        # Not found
         raise KeyError(f"Unknown resource: {uri}")
 
     async def handle_subscribe(
         self, client_id: str, request: SubscribeRequest
     ) -> EmptyResult:
         """Subscribe client to resource change notifications.
-
-        Validates the resource exists (static or template match), records the
-        client-specific subscription, and calls the subscribe callback.
 
         Args:
             client_id: ID of the client subscribing
@@ -337,15 +322,14 @@ class ResourceManager:
         Raises:
             KeyError: If the URI matches no static resource or template pattern
         """
+        resource_exists = False
         uri = request.uri
 
-        # Check if resource exists - static resources first
         client_resources = self.get_client_resources(client_id)
         if uri in client_resources:
-            resource_exists = True
+            resource_exists = True  # static resource
         else:
-            # Check templates
-            resource_exists = False
+            # template resource
             client_templates = self.get_client_templates(client_id)
             for template_pattern in client_templates.keys():
                 if self._matches_template(uri=uri, template=template_pattern):
@@ -372,9 +356,6 @@ class ResourceManager:
         self, client_id: str, request: UnsubscribeRequest
     ) -> EmptyResult:
         """Unsubscribe client from resource change notifications.
-
-        Validates the client subscription exists, removes it, and calls the
-        unsubscribe callback.
 
         Args:
             client_id: ID of the client unsubscribing
@@ -406,11 +387,7 @@ class ResourceManager:
         return EmptyResult()
 
     def _matches_template(self, uri: str, template: str) -> bool:
-        """Check if a URI matches a URI template pattern.
-
-        Supports basic RFC 6570 variable substitution like {var}.
-        Returns True if the URI could have been generated from this template.
-        """
+        """Checks if a URI matches a URI template pattern."""
         # Convert template to regex pattern
         # Replace {variable} with regex group that matches non-slash characters
         pattern = re.escape(template)

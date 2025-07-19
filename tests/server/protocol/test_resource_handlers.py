@@ -124,6 +124,60 @@ class TestHandleList:
         assert len(result.resource_templates) == 1
         assert result.resource_templates[0].uri_template == "file:///logs/{date}.log"
 
+    async def test_handle_list_resources_client_specific_overrides_global(self):
+        # Arrange - same URI for both global and client-specific resources
+        global_resource = Resource(uri="file:///config.json", name="Global Config")
+        client_resource = Resource(
+            uri="file:///config.json", name="Client Config Override"
+        )
+
+        self.manager.add_resource(global_resource, self.mock_handler)
+        self.manager.add_client_resource(
+            self.client_id, client_resource, self.mock_handler
+        )
+        request = ListResourcesRequest()
+
+        # Act
+        result = await self.manager.handle_list_resources(self.client_id, request)
+
+        # Assert
+        assert isinstance(result, ListResourcesResult)
+        assert len(result.resources) == 1  # Only one resource despite same URI
+
+        # Verify client-specific resource is returned, not global
+        returned_resource = result.resources[0]
+        assert returned_resource.uri == "file:///config.json"
+        assert returned_resource.name == "Client Config Override"  # Client wins
+
+    async def test_handle_list_templates_client_specific_overrides_global(self):
+        # Arrange - same URI pattern for both global and client-specific templates
+        global_template = ResourceTemplate(
+            uri_template="file:///logs/{date}.log", name="Global Log Template"
+        )
+        client_template = ResourceTemplate(
+            uri_template="file:///logs/{date}.log", name="Client Log Template Override"
+        )
+
+        self.manager.add_template(global_template, self.mock_handler)
+        self.manager.add_client_template(
+            self.client_id, client_template, self.mock_handler
+        )
+        request = ListResourceTemplatesRequest()
+
+        # Act
+        result = await self.manager.handle_list_templates(self.client_id, request)
+
+        # Assert
+        assert isinstance(result, ListResourceTemplatesResult)
+        assert (
+            len(result.resource_templates) == 1
+        )  # Only one template despite same pattern
+
+        # Verify client-specific template is returned, not global
+        returned_template = result.resource_templates[0]
+        assert returned_template.uri_template == "file:///logs/{date}.log"
+        assert returned_template.name == "Client Log Template Override"  # Client wins
+
 
 class TestHandleRead:
     def setup_method(self):
@@ -152,9 +206,6 @@ class TestHandleRead:
 
         # Verify result matches expectations
         assert result == self.expected_result
-        assert len(result.contents) == 1
-        assert isinstance(result.contents[0], TextResourceContents)
-        assert result.contents[0].text == "Hello, World!"
 
     async def test_handle_read_calls_template_handler_and_returns_result(self):
         # Arrange
@@ -183,9 +234,6 @@ class TestHandleRead:
 
         # Verify result matches expectations
         assert result == expected_result
-        assert len(result.contents) == 1
-        assert isinstance(result.contents[0], TextResourceContents)
-        assert result.contents[0].text == "2024-01-15: System started"
 
     async def test_handle_read_raises_keyerror_for_unknown_resource(self):
         # Arrange - no resources or templates registered
@@ -281,6 +329,7 @@ class TestHandleSubscription:
         # Arrange - resource exists but client is not subscribed to it
         self.manager.add_resource(self.test_resource, self.mock_handler)
         request = UnsubscribeRequest(uri="file:///test.txt")
+        assert self.client_id not in self.manager._client_subscriptions
 
         # Act & Assert
         with pytest.raises(KeyError):
