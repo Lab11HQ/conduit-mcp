@@ -95,33 +95,6 @@ class TestRootsManager:
         assert server_specific_root in result
         assert global_root in result
 
-    def test_get_server_specific_roots_returns_only_server_specific_roots(self):
-        # Arrange
-        manager = RootsManager()
-        server_specific_root = Root(uri="file:///server_specific")
-        global_root = Root(uri="file:///global")
-        manager.add_root(global_root)
-        manager.add_server_root("server_id", server_specific_root)
-
-        # Act
-        result = manager.get_server_specific_roots("server_id")
-
-        # Assert
-        assert result == [server_specific_root]
-
-    def test_cleanup_server_removes_server_specific_roots(self):
-        # Arrange
-        manager = RootsManager()
-        server_specific_root = Root(uri="file:///server_specific")
-        manager.add_server_root("server_id", server_specific_root)
-
-        # Act
-        manager.cleanup_server("server_id")
-
-        # Assert
-        assert manager.get_server_roots("server_id") == []
-        assert manager.get_server_specific_roots("server_id") == []
-
     def test_cleanup_server_does_not_remove_global_roots(self):
         # Arrange
         manager = RootsManager()
@@ -136,4 +109,3 @@ class TestRootsManager:
         # Assert
         assert manager.get_roots() == [global_root]
         assert manager.get_server_roots("server_id") == [global_root]
-        assert manager.get_server_specific_roots("server_id") == []

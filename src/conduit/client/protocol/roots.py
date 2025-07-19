@@ -18,6 +18,10 @@ class RootsManager:
         """Register a root that all servers can access."""
         self._global_roots.append(root)
 
+    def get_roots(self) -> list[Root]:
+        """Get all global roots."""
+        return deepcopy(self._global_roots)
+
     def remove_root(self, uri: str) -> None:
         """Remove a global root by URI."""
         for i, root in enumerate(self._global_roots):
@@ -30,10 +34,6 @@ class RootsManager:
         """Remove all global roots."""
         self._global_roots.clear()
 
-    def get_roots(self) -> list[Root]:
-        """Get all global roots."""
-        return deepcopy(self._global_roots)
-
     # ================================
     # Server-specific root management
     # ================================
@@ -43,20 +43,6 @@ class RootsManager:
         if server_id not in self._server_roots:
             self._server_roots[server_id] = []
         self._server_roots[server_id].append(root)
-
-    def remove_server_root(self, server_id: str, uri: str) -> None:
-        """Remove a root by URI for a specific server."""
-        if server_id not in self._server_roots:
-            return
-
-        for i, root in enumerate(self._server_roots[server_id]):
-            if root.uri == uri:
-                self._server_roots[server_id].pop(i)
-                return
-
-    def clear_server_roots(self, server_id: str) -> None:
-        """Remove all registered roots for a specific server."""
-        self._server_roots.pop(server_id, None)
 
     def get_server_roots(self, server_id: str) -> list[Root]:
         """Get all roots available to a specific server (server-specific + global)."""
@@ -72,20 +58,22 @@ class RootsManager:
 
         return list(roots_by_uri.values())
 
-    def get_server_specific_roots(self, server_id: str) -> list[Root]:
-        """Get only the server-specific roots for a server (excludes global)."""
-        return deepcopy(self._server_roots.get(server_id, []))
+    def remove_server_root(self, server_id: str, uri: str) -> None:
+        """Remove a root by URI for a specific server."""
+        if server_id not in self._server_roots:
+            return
 
-    # ================================
-    # Server lifecycle
-    # ================================
+        for i, root in enumerate(self._server_roots[server_id]):
+            if root.uri == uri:
+                self._server_roots[server_id].pop(i)
+                return
 
     def cleanup_server(self, server_id: str) -> None:
         """Clean up all state for a specific server."""
         self._server_roots.pop(server_id, None)
 
     # ================================
-    # Protocol handler (server-aware)
+    # Protocol handlers
     # ================================
 
     async def handle_list_roots(
