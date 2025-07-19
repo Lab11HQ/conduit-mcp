@@ -44,7 +44,7 @@ class TestElicitationManager:
         handler = AsyncMock(return_value=expected_result)
 
         # Act
-        manager.set_handler(handler)
+        manager.elicitation_handler = handler
         result = await manager.handle_elicitation("server_id", request)
 
         # Assert
