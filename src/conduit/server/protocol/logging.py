@@ -15,7 +15,6 @@ class LoggingManager:
         # Client-specific log levels (what we manage FOR each client)
         self._client_log_levels: dict[str, LoggingLevel] = {}
 
-        # Direct callback assignment
         self.level_change_handler: (
             Callable[[str, LoggingLevel], Awaitable[None]] | None
         ) = None
@@ -25,25 +24,33 @@ class LoggingManager:
         return self._client_log_levels.get(client_id)
 
     def set_client_level(self, client_id: str, level: LoggingLevel) -> None:
-        """Set logging level for a client (server-side management).
+        """Set logging level for a client.
 
-        Typically clients request their own levels via a SetLevelRequest, but
-        servers may need to set defaults or administrative overrides.
+        Typically clients request their own levels via a SetLevelRequest. Use this
+        for admin or default levels.
         """
         self._client_log_levels[client_id] = level
 
     def cleanup_client(self, client_id: str) -> None:
-        """Remove logging state for a disconnected client."""
+        """Remove logging state for a client."""
         self._client_log_levels.pop(client_id, None)
 
     async def handle_set_level(
         self, client_id: str, request: SetLevelRequest
     ) -> EmptyResult:
-        """Set the MCP protocol logging level for specific client."""
-        # Store the level directly in our manager
+        """Set the MCP protocol logging level for specific client.
+
+        Sets the logging level for a client and calls the level change handler.
+
+        Args:
+            client_id: The client's unique identifier.
+            request: The request containing the new logging level.
+
+        Returns:
+            EmptyResult: Empty result indicating success.
+        """
         self._client_log_levels[client_id] = request.level
 
-        # Notify via callback if configured
         if self.level_change_handler:
             try:
                 await self.level_change_handler(client_id, request.level)
