@@ -130,7 +130,7 @@ class TestGlobalToolManagement:
         assert len(self.manager.global_handlers) == 0
 
 
-class TestClientSpecificToolManagement:
+class TestClientToolManagement:
     """Tests for client-specific tool registration and retrieval."""
 
     def setup_method(self):

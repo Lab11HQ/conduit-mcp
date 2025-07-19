@@ -40,7 +40,7 @@ class TestCompletionManager:
         handler = AsyncMock(return_value=expected_result)
 
         # Act
-        manager.set_handler(handler)
+        manager.completion_handler = handler
         result = await manager.handle_complete(client_id, request)
 
         # Assert

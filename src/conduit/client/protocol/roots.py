@@ -5,13 +5,11 @@ from conduit.protocol.roots import ListRootsRequest, ListRootsResult, Root
 
 class RootsManager:
     def __init__(self):
-        # Server-specific roots (what each server knows about us)
         self._server_roots: dict[str, list[Root]] = {}
-        # Global roots shared across all servers
         self._global_roots: list[Root] = []
 
     # ================================
-    # Global root management (shared across all servers)
+    # Global root management
     # ================================
 
     def add_root(self, root: Root) -> None:
@@ -45,11 +43,9 @@ class RootsManager:
         self._server_roots[server_id].append(root)
 
     def get_server_roots(self, server_id: str) -> list[Root]:
-        """Get all roots available to a specific server (server-specific + global)."""
-        # Start with global roots
+        """Get all roots available to a specific server."""
         roots_by_uri = {root.uri: root for root in self._global_roots}
 
-        # Server-specific roots override globals with same URI
         if server_id in self._server_roots:
             for root in self._server_roots[server_id]:
                 if root.uri in roots_by_uri:

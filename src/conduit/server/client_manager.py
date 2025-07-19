@@ -3,7 +3,6 @@ from dataclasses import dataclass, field
 
 from conduit.protocol.base import INTERNAL_ERROR, Error, Request, Result
 from conduit.protocol.initialization import ClientCapabilities, Implementation
-from conduit.protocol.logging import LoggingLevel
 from conduit.protocol.roots import Root
 
 RequestId = str | int
@@ -13,8 +12,6 @@ RequestId = str | int
 class ClientState:
     """Complete client state in one place."""
 
-    id: str
-
     # Protocol state
     capabilities: ClientCapabilities | None = None
     info: Implementation | None = None
@@ -23,8 +20,6 @@ class ClientState:
 
     # Domain state
     roots: list[Root] | None = None
-    log_level: LoggingLevel | None = None
-    subscriptions: set[str] = field(default_factory=set)
 
     # Request tracking
     requests_from_client: dict[RequestId, tuple[Request, asyncio.Task[None]]] = field(
@@ -43,7 +38,7 @@ class ClientManager:
 
     def register_client(self, client_id: str) -> ClientState:
         """Register new client connection."""
-        state = ClientState(id=client_id)
+        state = ClientState()
         self._clients[client_id] = state
         return state
 

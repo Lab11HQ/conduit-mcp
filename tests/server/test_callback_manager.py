@@ -17,7 +17,7 @@ class TestInitializationCallback:
         # Arrange - user registers an initialization callback
         manager = CallbackManager()
         callback = AsyncMock()
-        manager.on_initialized(callback)
+        manager.initialized_handler = callback
 
         initialized_notification = InitializedNotification()
 
@@ -42,7 +42,7 @@ class TestInitializationCallback:
         # Arrange - user registers a buggy callback that throws
         manager = CallbackManager()
         callback = AsyncMock(side_effect=RuntimeError("User callback failed"))
-        manager.on_initialized(callback)
+        manager.initialized_handler = callback
 
         initialized_notification = InitializedNotification()
 
@@ -63,7 +63,7 @@ class TestProgressCallback:
         # Arrange - user registers a progress callback
         manager = CallbackManager()
         callback = AsyncMock()
-        manager.on_progress(callback)
+        manager.progress_handler = callback
 
         progress_notification = ProgressNotification(
             progress_token="file-upload-456",
@@ -95,7 +95,7 @@ class TestProgressCallback:
         # Arrange - user registers a buggy callback that throws
         manager = CallbackManager()
         callback = AsyncMock(side_effect=RuntimeError("User callback failed"))
-        manager.on_progress(callback)
+        manager.progress_handler = callback
 
         progress_notification = ProgressNotification(
             progress_token="file-upload-456", progress=75
@@ -118,7 +118,7 @@ class TestCancellationCallback:
         # Arrange - user registers a cancellation callback
         manager = CallbackManager()
         callback = AsyncMock()
-        manager.on_cancelled(callback)
+        manager.cancelled_handler = callback
 
         cancelled_notification = CancelledNotification(
             request_id="req-456", reason="timeout"
@@ -147,7 +147,7 @@ class TestCancellationCallback:
         # Arrange - user registers a buggy callback that throws
         manager = CallbackManager()
         callback = AsyncMock(side_effect=RuntimeError("User callback failed"))
-        manager.on_cancelled(callback)
+        manager.cancelled_handler = callback
 
         cancelled_notification = CancelledNotification(
             request_id="req-456", reason="timeout"
@@ -170,7 +170,7 @@ class TestRootsChangedCallback:
         # Arrange - user registers a roots changed callback
         manager = CallbackManager()
         callback = AsyncMock()
-        manager.on_roots_changed(callback)
+        manager.roots_changed_handler = callback
 
         roots = [Root(uri="file:///project/src"), Root(uri="file:///project/docs")]
 
@@ -197,7 +197,7 @@ class TestRootsChangedCallback:
         # Arrange - user registers a buggy callback that throws
         manager = CallbackManager()
         callback = AsyncMock(side_effect=RuntimeError("User callback failed"))
-        manager.on_roots_changed(callback)
+        manager.roots_changed_handler = callback
 
         roots = [Root(uri="file:///project/src")]
 

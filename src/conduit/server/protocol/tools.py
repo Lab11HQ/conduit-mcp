@@ -12,29 +12,24 @@ from conduit.protocol.tools import (
     Tool,
 )
 
-# Type alias for client-aware tool handlers
-ClientAwareToolHandler = Callable[[str, CallToolRequest], Awaitable[CallToolResult]]
+# Type alias for tool handlers
+ToolHandler = Callable[[str, CallToolRequest], Awaitable[CallToolResult]]
 
 
 class ToolManager:
-    """Client-aware tool manager for multi-client server sessions.
-
-    Manages global tool registration with client context passed to handlers
-    during execution. Tools are registered once but can behave differently
-    based on which client is calling them.
+    """
+    Manages protocol tool registration and execution for a server.
     """
 
     def __init__(self):
-        # Global tools (shared across all clients)
         self.global_tools: dict[str, Tool] = {}
-        self.global_handlers: dict[str, ClientAwareToolHandler] = {}
+        self.global_handlers: dict[str, ToolHandler] = {}
 
-        # Client-specific tools
         self.client_tools: dict[
             str, dict[str, Tool]
         ] = {}  # client_id -> {tool_name: tool}
         self.client_handlers: dict[
-            str, dict[str, ClientAwareToolHandler]
+            str, dict[str, ToolHandler]
         ] = {}  # client_id -> {tool_name: handler}
 
     # ================================
@@ -44,13 +39,9 @@ class ToolManager:
     def add_tool(
         self,
         tool: Tool,
-        handler: ClientAwareToolHandler,
+        handler: ToolHandler,
     ) -> None:
-        """Add a global tool with its client-aware handler function.
-
-        Tools are registered globally and available to all clients. Handlers receive
-        client context during execution, allowing tools to behave differently per client
-        for logging, access control, or personalization.
+        """Add a global tool with its handler function.
 
         Your handler should catch exceptions and return CallToolResult with
         is_error=True and descriptive error content. This gives the LLM useful
@@ -59,8 +50,8 @@ class ToolManager:
 
         Args:
             tool: Tool definition with name, description, and schema.
-            handler: Async function that processes tool calls with client context.
-                Should return CallToolResult even when execution fails.
+            handler: Async function that processes tool calls. Must take client_id
+                and CallToolRequest as arguments and return a CallToolResult.
         """
         self.global_tools[tool.name] = tool
         self.global_handlers[tool.name] = handler
@@ -74,7 +65,7 @@ class ToolManager:
         return deepcopy(self.global_tools)
 
     def get_tool(self, name: str) -> Tool | None:
-        """Get a specific global tool by name.
+        """Get a global tool by name.
 
         Args:
             name: Name of the tool to retrieve.
@@ -108,34 +99,29 @@ class ToolManager:
         self,
         client_id: str,
         tool: Tool,
-        handler: ClientAwareToolHandler,
+        handler: ToolHandler,
     ) -> None:
         """Add a tool for a specific client.
 
-        Client-specific tools are only available to the specified client and can
-        override global tools with the same name for that client. Handlers receive
-        the client context during execution.
+        Overrides global tools with the same name for this client.
 
         Args:
             client_id: ID of the client this tool is specific to.
             tool: Tool definition with name, description, and schema.
-            handler: Async function that processes tool calls with client context.
-                Should return CallToolResult even when execution fails.
+            handler: Async function that processes tool calls. Must take client_id
+                and CallToolRequest as arguments and return a CallToolResult.
         """
-        # Initialize client storage if this is the first tool for this client
         if client_id not in self.client_tools:
             self.client_tools[client_id] = {}
             self.client_handlers[client_id] = {}
 
-        # Store the client-specific tool and handler
         self.client_tools[client_id][tool.name] = tool
         self.client_handlers[client_id][tool.name] = handler
 
     def get_client_tools(self, client_id: str) -> dict[str, Tool]:
         """Get all tools a client can access.
 
-        Returns global tools plus any client-specific tools. Client-specific tools
-        override global tools with the same name.
+        Returns global tools plus any client-specific tools.
 
         Args:
             client_id: ID of the client to get tools for.
@@ -143,11 +129,8 @@ class ToolManager:
         Returns:
             Dictionary mapping tool names to Tool objects for this client.
         """
-
-        # Start with global tools
         tools = deepcopy(self.global_tools)
 
-        # Add client-specific tools, with override logging
         if client_id in self.client_tools:
             for name, tool in self.client_tools[client_id].items():
                 if name in tools:
@@ -159,7 +142,7 @@ class ToolManager:
     def remove_client_tool(self, client_id: str, name: str) -> None:
         """Remove a client-specific tool by name.
 
-        Silently succeeds if the client or tool doesn't exist.
+        Does not raise an error if the client or tool doesn't exist.
 
         Args:
             client_id: ID of the client to remove the tool from.
@@ -171,9 +154,6 @@ class ToolManager:
 
     def cleanup_client(self, client_id: str) -> None:
         """Remove all tools and handlers for a specific client.
-
-        Called when a client disconnects to free up memory and prevent
-        stale client-specific tools from accumulating.
 
         Args:
             client_id: ID of the client to clean up.
@@ -188,7 +168,7 @@ class ToolManager:
     async def handle_list(
         self, client_id: str, request: ListToolsRequest
     ) -> ListToolsResult:
-        """Handle list tools request for specific client.
+        """Lists tools request for specific client.
 
         Returns all tools available to this client (global + client-specific).
         Client-specific tools override global tools with the same name.
@@ -206,14 +186,10 @@ class ToolManager:
     async def handle_call(
         self, client_id: str, request: CallToolRequest
     ) -> CallToolResult:
-        """Execute a tool call request for specific client.
-
-        Uses client-specific handler if available, otherwise falls back to global.
-        Client-specific handlers override global handlers for the same tool name.
+        """Executes a tool call request for specific client.
 
         Tool execution failures return CallToolResult with is_error=True so the LLM
-        can see what went wrong and potentially recover. Unknown tools raise KeyError
-        for the session to convert to protocol errors.
+        can see what went wrong and potentially recover.
 
         Args:
             client_id: ID of the client calling the tool
@@ -226,7 +202,6 @@ class ToolManager:
             KeyError: If the requested tool is not registered for this client
         """
         try:
-            # Check for client-specific handler first
             if (
                 client_id in self.client_handlers
                 and request.name in self.client_handlers[client_id]
@@ -239,10 +214,8 @@ class ToolManager:
 
             return await handler(client_id, request)
         except KeyError:
-            # Re-raise for session to convert to protocol error
             raise
         except Exception as e:
-            # Tool execution failed -> domain error for LLM to see
             return CallToolResult(
                 content=[TextContent(text=f"Tool execution failed: {str(e)}")],
                 is_error=True,

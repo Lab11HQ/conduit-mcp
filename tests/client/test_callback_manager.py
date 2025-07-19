@@ -15,7 +15,7 @@ class TestProgressCallback:
         manager = CallbackManager()
         progress_notification = ProgressNotification(progress_token="123", progress=50)
         callback = AsyncMock(side_effect=RuntimeError("User callback failed"))
-        manager.on_progress(callback)
+        manager.progress_handler = callback
 
         # Act
         await manager.call_progress("server_id", progress_notification)
@@ -41,7 +41,7 @@ class TestToolsChangedCallback:
         manager = CallbackManager()
         tools = [Tool(name="test", input_schema=JSONSchema())]
         callback = AsyncMock(side_effect=RuntimeError("User callback failed"))
-        manager.on_tools_changed(callback)
+        manager.tools_changed_handler = callback
         await manager.call_tools_changed("server_id", tools)
 
         # Assert
@@ -66,7 +66,7 @@ class TestResourcesChangedCallback:
         resources = [Resource(name="test", uri="test://test")]
         templates = [ResourceTemplate(name="test", uri_template="test://test")]
         callback = AsyncMock(side_effect=RuntimeError("User callback failed"))
-        manager.on_resources_changed(callback)
+        manager.resources_changed_handler = callback
 
         # Act
         await manager.call_resources_changed("server_id", resources, templates)
@@ -96,7 +96,7 @@ class TestResourceUpdatedCallback:
             contents=[TextResourceContents(uri=resource.uri, text="test")]
         )
         callback = AsyncMock(side_effect=RuntimeError("User callback failed"))
-        manager.on_resource_updated(callback)
+        manager.resource_updated_handler = callback
 
         # Act
         await manager.call_resource_updated("server_id", resource.uri, result)
@@ -125,7 +125,7 @@ class TestPromptsChangedCallback:
         manager = CallbackManager()
         prompts = [Prompt(name="test", description="test")]
         callback = AsyncMock(side_effect=RuntimeError("User callback failed"))
-        manager.on_prompts_changed(callback)
+        manager.prompts_changed_handler = callback
 
         # Act
         await manager.call_prompts_changed("server_id", prompts)
@@ -151,7 +151,7 @@ class TestLoggingMessageCallback:
         manager = CallbackManager()
         logging_message = LoggingMessageNotification(level="info", data="test")
         callback = AsyncMock(side_effect=RuntimeError("User callback failed"))
-        manager.on_logging_message(callback)
+        manager.logging_message_handler = callback
 
         # Act
         await manager.call_logging_message("server_id", logging_message)
@@ -177,7 +177,7 @@ class TestCancelledCallback:
         manager = CallbackManager()
         cancelled_notification = CancelledNotification(request_id="123", reason="test")
         callback = AsyncMock(side_effect=RuntimeError("User callback failed"))
-        manager.on_cancelled(callback)
+        manager.cancelled_handler = callback
 
         # Act
         await manager.call_cancelled("server_id", cancelled_notification)

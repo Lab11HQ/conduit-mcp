@@ -2,6 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from conduit.protocol.logging import (
+    LoggingLevel,
     LoggingMessageNotification,
     SetLevelRequest,
 )
@@ -9,7 +10,7 @@ from conduit.protocol.logging import (
 
 class TestLogging:
     def test_set_level_request_roundtrip(self):
-        request = SetLevelRequest(level="debug")
+        request = SetLevelRequest(level=LoggingLevel.DEBUG)
         protocol_data = request.to_protocol()
         assert protocol_data == {
             "method": "logging/setLevel",
@@ -18,7 +19,7 @@ class TestLogging:
         assert SetLevelRequest.from_protocol(protocol_data) == request
 
     def test_logging_message_notification_roundtrip(self):
-        notification = LoggingMessageNotification(level="debug", data="test")
+        notification = LoggingMessageNotification(level=LoggingLevel.DEBUG, data="test")
         protocol_data = notification.to_protocol()
         assert protocol_data == {
             "method": "notifications/message",

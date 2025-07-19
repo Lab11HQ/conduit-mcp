@@ -1,9 +1,7 @@
-import asyncio
 from typing import Awaitable, Callable
 
 from conduit.protocol.common import EmptyResult
 from conduit.protocol.logging import LoggingLevel, SetLevelRequest
-from conduit.server.client_manager import ClientManager
 
 
 class LoggingManager:
@@ -13,34 +11,64 @@ class LoggingManager:
     This is separate from your application's general logging configuration.
     """
 
-    def __init__(self, client_manager: ClientManager):
-        self.client_manager = client_manager
-        self._on_level_change: Callable[[str, LoggingLevel], Awaitable[None]] | None = (
-            None
-        )
+    def __init__(self):
+        self._client_log_levels: dict[str, LoggingLevel] = {}
 
-    def on_level_change(
-        self, callback: Callable[[str, LoggingLevel], Awaitable[None]]
-    ) -> None:
-        """Set callback for log level changes with client context."""
-        self._on_level_change = callback
+        self.level_change_handler: (
+            Callable[[str, LoggingLevel], Awaitable[None]] | None
+        ) = None
+
+    def get_client_level(self, client_id: str) -> LoggingLevel | None:
+        """Get the current logging level for a specific client.
+
+        Args:
+            client_id: The client's unique identifier.
+
+        Returns:
+            LoggingLevel: The current logging level for the client, or None if not set.
+        """
+        return self._client_log_levels.get(client_id)
+
+    def set_client_level(self, client_id: str, level: LoggingLevel) -> None:
+        """Set logging level for a client.
+
+        Typically clients request their own levels via a SetLevelRequest. Use this
+        for admin or default levels.
+
+        Args:
+            client_id: The client's unique identifier.
+            level: The new logging level to set.
+        """
+        self._client_log_levels[client_id] = level
+
+    def cleanup_client(self, client_id: str) -> None:
+        """Remove logging state for a client.
+
+        Args:
+            client_id: The client's unique identifier.
+        """
+        self._client_log_levels.pop(client_id, None)
 
     async def handle_set_level(
         self, client_id: str, request: SetLevelRequest
     ) -> EmptyResult:
-        """Set the MCP protocol logging level for specific client."""
-        state = self.client_manager.get_client(client_id)
-        if state:
-            state.log_level = request.level
+        """Set the MCP protocol logging level for specific client.
 
-        if self._on_level_change:
+        Sets the logging level for a client and calls the level change handler.
+
+        Args:
+            client_id: The client's unique identifier.
+            request: The request containing the new logging level.
+
+        Returns:
+            EmptyResult: Empty result indicating success.
+        """
+        self._client_log_levels[client_id] = request.level
+
+        if self.level_change_handler:
             try:
-                asyncio.create_task(self._on_level_change(client_id, request.level))
+                await self.level_change_handler(client_id, request.level)
             except Exception as e:
-                print(f"Error in log level change callback for {client_id}: {e}")
-        return EmptyResult()
+                print(f"Error in level change handler for {client_id}: {e}")
 
-    def get_client_level(self, client_id: str) -> LoggingLevel | None:
-        """Get the current logging level for a specific client."""
-        state = self.client_manager.get_client(client_id)
-        return state.log_level if state else None
+        return EmptyResult()

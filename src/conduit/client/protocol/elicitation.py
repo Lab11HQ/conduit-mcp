@@ -11,16 +11,26 @@ class ElicitationNotConfiguredError(Exception):
 
 class ElicitationManager:
     def __init__(self):
-        self._handler: Callable[[ElicitRequest], Awaitable[ElicitResult]] | None = None
-
-    def set_handler(
-        self, handler: Callable[[ElicitRequest], Awaitable[ElicitResult]]
-    ) -> None:
-        self._handler = handler
+        self.elicitation_handler: (
+            Callable[[ElicitRequest], Awaitable[ElicitResult]] | None
+        ) = None
 
     async def handle_elicitation(
         self, server_id: str, request: ElicitRequest
     ) -> ElicitResult:
-        if self._handler is None:
+        """Calls the elicitation handler.
+
+        Args:
+            server_id: The server ID.
+            request: The elicitation request.
+
+        Returns:
+            The elicitation result.
+
+        Raises:
+            ElicitationNotConfiguredError: If no elicitation handler is registered.
+            Exception: If the elicitation handler raises an exception.
+        """
+        if self.elicitation_handler is None:
             raise ElicitationNotConfiguredError("No elicitation handler registered")
-        return await self._handler(request)
+        return await self.elicitation_handler(request)

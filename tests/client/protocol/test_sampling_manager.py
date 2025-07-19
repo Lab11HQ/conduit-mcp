@@ -37,7 +37,7 @@ class TestSamplingManager:
         handler = AsyncMock(return_value=expected_result)
 
         # Act
-        manager.set_handler(handler)
+        manager.sampling_handler = handler
         result = await manager.handle_create_message("server_id", request)
 
         # Assert

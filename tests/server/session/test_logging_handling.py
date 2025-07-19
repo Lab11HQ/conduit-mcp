@@ -55,19 +55,13 @@ class TestLoggingHandling:
         assert result.code == METHOD_NOT_FOUND
 
     async def test_callback_failures_do_not_propagate(self):
-        """Test that callback failures do not propagate to the client.
-
-        This documents the design decision that callback failures do not
-        propagate to the client, since the core operation of setting the
-        log level is still successful.
-        """
         # Arrange
         session = ServerSession(self.transport, self.config_with_logging)
         client_id = "test-client"
 
         # Mock the logging manager
         failing_callback = AsyncMock(side_effect=RuntimeError("test error"))
-        session.logging.on_level_change(failing_callback)
+        session.logging.level_change_handler = failing_callback
 
         # Act
         result = await session._handle_set_level(client_id, self.set_level_request)
