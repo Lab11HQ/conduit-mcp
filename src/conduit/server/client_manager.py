@@ -22,7 +22,6 @@ class ClientState:
 
     # Domain state
     roots: list[Root] | None = None
-    subscriptions: set[str] = field(default_factory=set)
 
     # Request tracking
     requests_from_client: dict[RequestId, tuple[Request, asyncio.Task[None]]] = field(
