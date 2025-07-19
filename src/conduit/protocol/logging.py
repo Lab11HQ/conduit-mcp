@@ -32,34 +32,34 @@ Note: If you never send a `SetLevelRequest`, the server picks what to show you
 automatically.
 """
 
-from typing import Annotated, Any, Literal
+from enum import Enum
+from typing import Any, Literal
 
 from pydantic import field_validator
 
 from conduit.protocol.base import Notification, Request
 from conduit.protocol.common import EmptyResult
 
-LoggingLevel = Annotated[
-    Literal[
-        "debug",
-        "info",
-        "notice",
-        "warning",
-        "error",
-        "critical",
-        "alert",
-        "emergency",
-    ],
+
+class LoggingLevel(str, Enum):
     """
     Logging severity levels, following syslog standards (RFC 5424).
-    
+
     When you set a level, you receive that level and all more severe levels.
     Common choices:
     - 'error': Only problems that need attention
-    - 'info': Major server operations and errors  
+    - 'info': Major server operations and errors
     - 'debug': Everything (verbose, use sparingly)
-    """,
-]
+    """
+
+    DEBUG = "debug"
+    INFO = "info"
+    NOTICE = "notice"
+    WARNING = "warning"
+    ERROR = "error"
+    CRITICAL = "critical"
+    ALERT = "alert"
+    EMERGENCY = "emergency"
 
 
 class SetLevelRequest(Request):

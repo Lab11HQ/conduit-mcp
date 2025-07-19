@@ -3,7 +3,6 @@ from dataclasses import dataclass, field
 
 from conduit.protocol.base import INTERNAL_ERROR, Error, Request, Result
 from conduit.protocol.initialization import ClientCapabilities, Implementation
-from conduit.protocol.logging import LoggingLevel
 from conduit.protocol.roots import Root
 
 RequestId = str | int
@@ -23,7 +22,6 @@ class ClientState:
 
     # Domain state
     roots: list[Root] | None = None
-    log_level: LoggingLevel | None = None
     subscriptions: set[str] = field(default_factory=set)
 
     # Request tracking

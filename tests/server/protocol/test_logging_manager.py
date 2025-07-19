@@ -1,64 +1,110 @@
-import asyncio
 from unittest.mock import AsyncMock
 
 from conduit.protocol.common import EmptyResult
-from conduit.protocol.logging import SetLevelRequest
-from conduit.server.client_manager import ClientManager
+from conduit.protocol.logging import LoggingLevel, SetLevelRequest
 from conduit.server.protocol.logging import LoggingManager
 
 
 class TestLoggingManager:
+    """Tests for logging level management."""
+
     def setup_method(self):
-        # Arrange - Create client manager and register a test client
-        self.client_manager = ClientManager()
+        # Arrange - consistent setup for all tests
+        self.manager = LoggingManager()
         self.client_id = "test-client-123"
-        self.client_state = self.client_manager.register_client(self.client_id)
 
-    async def test_handle_set_level_updates_client_level(self):
+    async def test_handle_set_level_stores_client_log_level(self):
         # Arrange
-        manager = LoggingManager(self.client_manager)
-        request = SetLevelRequest(level="info")
-
-        # Verify initial state
-        assert self.client_state.log_level is None
+        request = SetLevelRequest(level=LoggingLevel.DEBUG)
 
         # Act
-        result = await manager.handle_set_level(self.client_id, request)
+        result = await self.manager.handle_set_level(self.client_id, request)
 
         # Assert
-        assert self.client_state.log_level == "info"
         assert isinstance(result, EmptyResult)
+        assert self.manager.get_client_level(self.client_id) == "debug"
 
-    async def test_handle_set_level_calls_callback_if_registered(self):
+    async def test_handle_set_level_calls_handler_when_configured(self):
         # Arrange
-        manager = LoggingManager(self.client_manager)
-        callback = AsyncMock()
-        manager.on_level_change(callback)
-        request = SetLevelRequest(level="warning")
+        handler = AsyncMock()
+        self.manager.level_change_handler = handler
+        request = SetLevelRequest(level=LoggingLevel.INFO)
 
         # Act
-        await manager.handle_set_level(self.client_id, request)
+        result = await self.manager.handle_set_level(self.client_id, request)
 
         # Assert
-        await asyncio.sleep(0)  # Yield to let the callback run
-        callback.assert_awaited_once_with(self.client_id, "warning")
-
-    async def test_handle_set_level_silent_if_no_callback_registered(self):
-        # Arrange
-        manager = LoggingManager(self.client_manager)
-        request = SetLevelRequest(level="error")
-
-        # Act & Assert - should complete without raising
-        result = await manager.handle_set_level(self.client_id, request)
         assert isinstance(result, EmptyResult)
+        handler.assert_awaited_once_with(self.client_id, "info")
 
-    async def test_handle_set_level_does_not_raise_on_failing_callback(self):
+    async def test_handle_set_level_succeeds_when_no_handler_configured(self):
         # Arrange
-        manager = LoggingManager(self.client_manager)
-        callback = AsyncMock(side_effect=Exception("Test exception"))
-        manager.on_level_change(callback)
-        request = SetLevelRequest(level="error")
+        request = SetLevelRequest(level=LoggingLevel.WARNING)
+        # No handler configured (level_change_handler remains None)
 
-        # Act & Assert - should complete without raising
-        result = await manager.handle_set_level(self.client_id, request)
+        # Act & Assert - should not raise any exception
+        result = await self.manager.handle_set_level(self.client_id, request)
+
         assert isinstance(result, EmptyResult)
+        assert self.manager.get_client_level(self.client_id) == "warning"
+
+    async def test_handle_set_level_continues_on_handler_exception(self):
+        # Arrange
+        failing_handler = AsyncMock(side_effect=RuntimeError("Handler failed"))
+        self.manager.level_change_handler = failing_handler
+        request = SetLevelRequest(level=LoggingLevel.ERROR)
+
+        # Act - should not raise the handler exception
+        result = await self.manager.handle_set_level(self.client_id, request)
+
+        # Assert - level still gets stored despite handler failure
+        assert isinstance(result, EmptyResult)
+        assert self.manager.get_client_level(self.client_id) == "error"
+        failing_handler.assert_awaited_once_with(self.client_id, "error")
+
+    def test_get_client_level_returns_none_for_unknown_client(self):
+        # Arrange - no level set for unknown client
+
+        # Act
+        level = self.manager.get_client_level("unknown-client")
+
+        # Assert
+        assert level is None
+
+    def test_set_client_level_stores_level_programmatically(self):
+        # Arrange - direct server-side level setting
+
+        # Act
+        self.manager.set_client_level(self.client_id, "debug")
+
+        # Assert
+        assert self.manager.get_client_level(self.client_id) == "debug"
+
+    def test_cleanup_client_removes_client_log_level(self):
+        # Arrange
+        self.manager.set_client_level(self.client_id, "info")
+        assert self.manager.get_client_level(self.client_id) is not None  # Verify setup
+
+        # Act
+        self.manager.cleanup_client(self.client_id)
+
+        # Assert
+        assert self.manager.get_client_level(self.client_id) is None
+
+    def test_cleanup_client_silently_succeeds_for_unknown_client(self):
+        # Arrange - no client exists
+
+        # Act & Assert - should not raise any exception
+        self.manager.cleanup_client("unknown-client")
+
+    async def test_handle_set_level_updates_existing_client_level(self):
+        # Arrange - client already has a level
+        self.manager.set_client_level(self.client_id, "error")
+        request = SetLevelRequest(level=LoggingLevel.DEBUG)
+
+        # Act
+        result = await self.manager.handle_set_level(self.client_id, request)
+
+        # Assert - level gets updated
+        assert isinstance(result, EmptyResult)
+        assert self.manager.get_client_level(self.client_id) == "debug"
