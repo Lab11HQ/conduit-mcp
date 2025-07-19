@@ -18,13 +18,9 @@ from conduit.protocol.resources import (
     UnsubscribeRequest,
 )
 
-# Type aliases for client-aware handlers
-ClientAwareResourceHandler = Callable[
-    [str, ReadResourceRequest], Awaitable[ReadResourceResult]
-]
-ClientAwareSubscriptionCallback = Callable[
-    [str, str], Awaitable[None]
-]  # (client_id, uri)
+# Type aliases for resource handlers
+ResourceHandler = Callable[[str, ReadResourceRequest], Awaitable[ReadResourceResult]]
+SubscriptionCallback = Callable[[str, str], Awaitable[None]]  # (client_id, uri)
 
 
 class ResourceManager:
@@ -37,30 +33,28 @@ class ResourceManager:
     def __init__(self):
         # Global resources (shared across all clients)
         self.global_resources: dict[str, Resource] = {}
-        self.global_handlers: dict[str, ClientAwareResourceHandler] = {}
+        self.global_handlers: dict[str, ResourceHandler] = {}
 
         # Global templates (shared across all clients)
         self.global_templates: dict[str, ResourceTemplate] = {}
-        self.global_template_handlers: dict[str, ClientAwareResourceHandler] = {}
+        self.global_template_handlers: dict[str, ResourceHandler] = {}
 
         # Client-specific resources
         self.client_resources: dict[
             str, dict[str, Resource]
         ] = {}  # client_id -> {uri: resource}
-        self.client_handlers: dict[str, dict[str, ClientAwareResourceHandler]] = {}
+        self.client_handlers: dict[str, dict[str, ResourceHandler]] = {}
 
         # Client-specific templates
         self.client_templates: dict[str, dict[str, ResourceTemplate]] = {}
-        self.client_template_handlers: dict[
-            str, dict[str, ClientAwareResourceHandler]
-        ] = {}
+        self.client_template_handlers: dict[str, dict[str, ResourceHandler]] = {}
 
         # Client subscriptions (what we manage FOR each client)
         self._client_subscriptions: dict[str, set[str]] = {}  # client_id -> {uri, ...}
 
         # Direct callback assignment
-        self.subscribe_handler: ClientAwareSubscriptionCallback | None = None
-        self.unsubscribe_handler: ClientAwareSubscriptionCallback | None = None
+        self.subscribe_handler: SubscriptionCallback | None = None
+        self.unsubscribe_handler: SubscriptionCallback | None = None
 
     # ===============================
     # Global resource management
@@ -69,7 +63,7 @@ class ResourceManager:
     def add_resource(
         self,
         resource: Resource,
-        handler: ClientAwareResourceHandler,
+        handler: ResourceHandler,
     ) -> None:
         """Add a global resource with its client-aware handler function.
 
@@ -78,7 +72,7 @@ class ResourceManager:
 
         Args:
             resource: Resource definition with URI and metadata.
-            handler: Async function that processes read requests with client context.
+            handler: Async function that processes read requests.
                 Should return ReadResourceResult with resource contents.
         """
         self.global_resources[resource.uri] = resource
@@ -87,7 +81,7 @@ class ResourceManager:
     def add_template(
         self,
         template: ResourceTemplate,
-        handler: ClientAwareResourceHandler,
+        handler: ResourceHandler,
     ) -> None:
         """Add a global resource template with its client-aware handler function.
 
@@ -96,7 +90,7 @@ class ResourceManager:
 
         Args:
             template: ResourceTemplate definition with URI pattern and metadata.
-            handler: Async function that processes read requests with client context.
+            handler: Async function that processes read requests.
         """
         self.global_templates[template.uri_template] = template
         self.global_template_handlers[template.uri_template] = handler
@@ -137,7 +131,7 @@ class ResourceManager:
         self,
         client_id: str,
         resource: Resource,
-        handler: ClientAwareResourceHandler,
+        handler: ResourceHandler,
     ) -> None:
         """Add a resource specific to a client.
 
@@ -147,7 +141,7 @@ class ResourceManager:
         Args:
             client_id: ID of the client this resource is specific to.
             resource: Resource definition with URI and metadata.
-            handler: Async function that processes read requests with client context.
+            handler: Async function that processes read requests.
         """
         if client_id not in self.client_resources:
             self.client_resources[client_id] = {}
@@ -160,7 +154,7 @@ class ResourceManager:
         self,
         client_id: str,
         template: ResourceTemplate,
-        handler: ClientAwareResourceHandler,
+        handler: ResourceHandler,
     ) -> None:
         """Add a resource template specific to a client.
 
@@ -170,7 +164,7 @@ class ResourceManager:
         Args:
             client_id: ID of the client this template is specific to.
             template: ResourceTemplate definition with URI pattern and metadata.
-            handler: Async function that processes read requests with client context.
+            handler: Async function that processes read requests.
         """
         if client_id not in self.client_templates:
             self.client_templates[client_id] = {}
@@ -182,8 +176,7 @@ class ResourceManager:
     def get_client_resources(self, client_id: str) -> dict[str, Resource]:
         """Get all resources available to a specific client.
 
-        Returns global resources plus any client-specific resources. Client-specific
-        resources override global resources with the same URI.
+        Returns global resources plus any client-specific resources.
 
         Args:
             client_id: ID of the client to get resources for.
@@ -206,8 +199,7 @@ class ResourceManager:
     def get_client_templates(self, client_id: str) -> dict[str, ResourceTemplate]:
         """Get all resource templates available to a specific client.
 
-        Returns global templates plus any client-specific templates. Client-specific
-        templates override global templates with the same URI pattern.
+        Returns global templates plus any client-specific templates.
 
         Args:
             client_id: ID of the client to get templates for.
