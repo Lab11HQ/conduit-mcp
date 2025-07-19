@@ -12,8 +12,6 @@ RequestId = str | int
 class ClientState:
     """Complete client state in one place."""
 
-    id: str
-
     # Protocol state
     capabilities: ClientCapabilities | None = None
     info: Implementation | None = None
@@ -40,7 +38,7 @@ class ClientManager:
 
     def register_client(self, client_id: str) -> ClientState:
         """Register new client connection."""
-        state = ClientState(id=client_id)
+        state = ClientState()
         self._clients[client_id] = state
         return state
 
