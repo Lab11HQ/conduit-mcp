@@ -1,6 +1,5 @@
 """Client-aware resource manager for multi-client server sessions."""
 
-import asyncio
 import re
 from copy import deepcopy
 from typing import Awaitable, Callable
@@ -63,8 +62,7 @@ class ResourceManager:
         self.subscribe_handler: ClientAwareSubscriptionCallback | None = None
         self.unsubscribe_handler: ClientAwareSubscriptionCallback | None = None
 
-        # ===============================
-
+    # ===============================
     # Global resource management
     # ===============================
 
@@ -74,10 +72,6 @@ class ResourceManager:
         handler: ClientAwareResourceHandler,
     ) -> None:
         """Add a global resource with its client-aware handler function.
-
-        Resources are registered globally and available to all clients. Handlers receive
-        client context during execution, allowing resources to behave differently per
-        client for access control, personalization, or logging.
 
         Your handler should return ReadResourceResult with the resource content.
         Handler exceptions bubble up to the session for protocol error conversion.
@@ -256,37 +250,14 @@ class ResourceManager:
     async def handle_list_resources(
         self, client_id: str, request: ListResourcesRequest
     ) -> ListResourcesResult:
-        """List all resources available to a specific client.
-
-        Returns global resources plus any client-specific resources. Client-specific
-        resources override global resources with the same URI.
-
-        Args:
-            client_id: ID of the client requesting resources
-            request: List resources request with optional pagination
-
-        Returns:
-            ListResourcesResult: All resources available to this client
-        """
+        """List all resources available to a specific client."""
         resources = self.get_client_resources(client_id)
         return ListResourcesResult(resources=list(resources.values()))
 
     async def handle_list_templates(
         self, client_id: str, request: ListResourceTemplatesRequest
     ) -> ListResourceTemplatesResult:
-        """List all resource templates available to a specific client.
-
-        Returns global templates plus any client-specific templates. Client-specific
-        templates override global templates with the same URI pattern.
-
-        Args:
-            client_id: ID of the client requesting templates
-            request: List templates request with optional pagination
-
-        Returns:
-            ListResourceTemplatesResult: All resource templates available to this
-                client
-        """
+        """List all resource templates available to a specific client."""
         templates = self.get_client_templates(client_id)
         return ListResourceTemplatesResult(resource_templates=list(templates.values()))
 
@@ -368,45 +339,30 @@ class ResourceManager:
         """
         uri = request.uri
 
-        # Check if resource exists - look in both global and client-specific
-        resource_exists = False
-
-        # Check static resources (global + client-specific)
-        if uri in self.global_resources:
+        # Check if resource exists - static resources first
+        client_resources = self.get_client_resources(client_id)
+        if uri in client_resources:
             resource_exists = True
-        elif (
-            client_id in self.client_resources
-            and uri in self.client_resources[client_id]
-        ):
-            resource_exists = True
-
-        # Check templates if no static resource found
-        if not resource_exists:
-            # Check global templates
-            for template in self.global_templates.keys():
-                if self._matches_template(uri=uri, template=template):
+        else:
+            # Check templates
+            resource_exists = False
+            client_templates = self.get_client_templates(client_id)
+            for template_pattern in client_templates.keys():
+                if self._matches_template(uri=uri, template=template_pattern):
                     resource_exists = True
                     break
-
-            # Check client-specific templates if still not found
-            if not resource_exists and client_id in self.client_templates:
-                for template in self.client_templates[client_id].keys():
-                    if self._matches_template(uri=uri, template=template):
-                        resource_exists = True
-                        break
 
         if not resource_exists:
             raise KeyError(f"Cannot subscribe to unknown resource: {uri}")
 
         # Record the subscription
-        if client_id not in self._client_subscriptions:
-            self._client_subscriptions[client_id] = set()
-        self._client_subscriptions[client_id].add(uri)
+        client_subscriptions = self._client_subscriptions.setdefault(client_id, set())
+        client_subscriptions.add(uri)
 
         # Notify via callback if configured
         if self.subscribe_handler:
             try:
-                asyncio.create_task(self.subscribe_handler(client_id, uri))
+                await self.subscribe_handler(client_id, uri)
             except Exception as e:
                 print(f"Error in subscribe handler for {client_id}: {uri}: {e}")
 
@@ -431,12 +387,10 @@ class ResourceManager:
             KeyError: If client not currently subscribed to the resource
         """
         uri = request.uri
+        client_subscriptions = self._client_subscriptions.get(client_id, set())
 
         # Check if client is subscribed
-        if (
-            client_id not in self._client_subscriptions
-            or uri not in self._client_subscriptions[client_id]
-        ):
+        if uri not in client_subscriptions:
             raise KeyError(f"Client not subscribed to resource: {uri}")
 
         # Remove the subscription
@@ -445,7 +399,7 @@ class ResourceManager:
         # Notify via callback if configured
         if self.unsubscribe_handler:
             try:
-                asyncio.create_task(self.unsubscribe_handler(client_id, uri))
+                await self.unsubscribe_handler(client_id, uri)
             except Exception as e:
                 print(f"Error in unsubscribe handler for {client_id}: {uri}: {e}")
 
