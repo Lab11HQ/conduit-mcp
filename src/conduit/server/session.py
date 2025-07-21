@@ -161,7 +161,7 @@ class ServerSession:
         try:
             await self.transport.disconnect_client(client_id)
         except Exception as e:
-            self.logger.error(
+            self.logger.warning(
                 f"Transport error while disconnecting from client {client_id}: {e}"
             )
 
