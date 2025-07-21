@@ -195,7 +195,7 @@ class MessageCoordinator:
             client_id, request_id, request, task
         )
         task.add_done_callback(
-            lambda t: self.client_manager.untrack_request_from_client(
+            lambda t: self.client_manager.remove_request_from_client(
                 client_id, request_id
             )
         )
@@ -292,19 +292,14 @@ class MessageCoordinator:
 
     async def cancel_request_from_client(
         self, client_id: str, request_id: str | int
-    ) -> bool:
+    ) -> None:
         """Cancel a specific request from a client.
 
-        Returns:
-            True if request was found and successfully cancelled, False if request
-            not found or was already completed/cancelled.
+        Args:
+            client_id: Client identifier
+            request_id: Request identifier to cancel
         """
-        result = self.client_manager.untrack_request_from_client(client_id, request_id)
-        if result is None:
-            return False
-
-        request, task = result
-        return task.cancel()
+        self.client_manager.cancel_request_from_client(client_id, request_id)
 
     # ================================
     # Send requests
@@ -352,7 +347,7 @@ class MessageCoordinator:
             await self._handle_request_timeout(client_id, request_id)
             raise
         finally:
-            self.client_manager.untrack_request_to_client(client_id, request_id)
+            self.client_manager.remove_request_to_client(client_id, request_id)
 
     async def _handle_request_timeout(self, client_id: str, request_id: str) -> None:
         """Clean up and notify client when request times out."""

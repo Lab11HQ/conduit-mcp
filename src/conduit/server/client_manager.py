@@ -1,9 +1,10 @@
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-from conduit.protocol.base import INTERNAL_ERROR, Error, Request, Result
+from conduit.protocol.base import Error, Request, Result
 from conduit.protocol.initialization import ClientCapabilities, Implementation
 from conduit.protocol.roots import Root
+from conduit.shared.request_tracker import RequestTracker
 
 RequestId = str | int
 
@@ -21,20 +22,17 @@ class ClientState:
     # Domain state
     roots: list[Root] | None = None
 
-    # Request tracking
-    requests_from_client: dict[RequestId, tuple[Request, asyncio.Task[None]]] = field(
-        default_factory=dict
-    )
-    requests_to_client: dict[
-        RequestId, tuple[Request, asyncio.Future[Result | Error]]
-    ] = field(default_factory=dict)
-
 
 class ClientManager:
     """Owns all client state and lifecycle."""
 
     def __init__(self):
         self._clients: dict[str, ClientState] = {}
+        self.request_tracker = RequestTracker()
+
+    # ================================
+    # Registration
+    # ================================
 
     def register_client(self, client_id: str) -> ClientState:
         """Register new client connection."""
@@ -50,13 +48,13 @@ class ClientManager:
         """Get all client IDs."""
         return list(self._clients.keys())
 
-    def is_protocol_initialized(self, client_id: str) -> bool:
-        """Check if a specific client has completed MCP protocol initialization."""
-        state = self.get_client(client_id)
-        if state is None:
-            return False
+    def client_count(self) -> int:
+        """Get number of active clients."""
+        return len(self._clients)
 
-        return state.initialized
+    # ================================
+    # Initialization
+    # ================================
 
     def initialize_client(
         self,
@@ -76,39 +74,17 @@ class ClientManager:
 
         state.initialized = True
 
-    def client_count(self) -> int:
-        """Get number of active clients."""
-        return len(self._clients)
-
-    def cleanup_client(self, client_id: str) -> None:
-        """Clean up all client state for a disconnected client.
-
-        Cancels all in-flight requests from the client and resolves all pending
-        requests to the client with an error.
-        """
+    def is_protocol_initialized(self, client_id: str) -> bool:
+        """Check if a specific client has completed MCP protocol initialization."""
         state = self.get_client(client_id)
         if state is None:
-            return
+            return False
 
-        for request, task in state.requests_from_client.values():
-            task.cancel()
-        state.requests_from_client.clear()
+        return state.initialized
 
-        for _, future in state.requests_to_client.values():
-            if not future.done():
-                error = Error(
-                    code=INTERNAL_ERROR,
-                    message="Request failed. Client disconnected.",
-                )
-                future.set_result(error)
-        state.requests_to_client.clear()
-
-        del self._clients[client_id]
-
-    def cleanup_all_clients(self) -> None:
-        """Clean up all client connections and state."""
-        for client_id in list(self._clients.keys()):
-            self.cleanup_client(client_id)
+    # ================================
+    # Outbound requests
+    # ================================
 
     def track_request_to_client(
         self,
@@ -132,25 +108,9 @@ class ClientManager:
         if state is None:
             raise ValueError(f"Client {client_id} not registered")
 
-        state.requests_to_client[request_id] = (request, future)
-
-    def untrack_request_to_client(
-        self, client_id: str, request_id: str
-    ) -> tuple[Request, asyncio.Future[Result | Error]] | None:
-        """Stop tracking a request to the client.
-
-        Args:
-            client_id: ID of the client
-            request_id: Request identifier to remove
-
-        Returns:
-            Tuple of (request, future) if found, None otherwise
-        """
-        state = self.get_client(client_id)
-        if state is None:
-            raise ValueError(f"Client {client_id} not registered")
-
-        return state.requests_to_client.pop(request_id, None)
+        self.request_tracker.track_outbound_request(
+            client_id, request_id, request, future
+        )
 
     def get_request_to_client(
         self, client_id: str, request_id: str
@@ -164,11 +124,7 @@ class ClientManager:
         Returns:
             Tuple of (request, future) if found, None otherwise
         """
-        state = self.get_client(client_id)
-        if state is None:
-            return None
-
-        return state.requests_to_client.get(request_id)
+        return self.request_tracker.get_outbound_request(client_id, request_id)
 
     def resolve_request_to_client(
         self, client_id: str, request_id: str, result_or_error: Result | Error
@@ -180,14 +136,22 @@ class ClientManager:
             request_id: Request identifier to resolve
             result_or_error: Result or error to resolve the request with
         """
-        client_state = self.get_client(client_id)
-        if client_state is None:
-            return
+        self.request_tracker.resolve_outbound_request(
+            client_id, request_id, result_or_error
+        )
 
-        request_future_tuple = client_state.requests_to_client.pop(request_id, None)
-        if request_future_tuple:
-            _, future = request_future_tuple
-            future.set_result(result_or_error)
+    def remove_request_to_client(self, client_id: str, request_id: str) -> None:
+        """Stop tracking a request to the client.
+
+        Args:
+            client_id: ID of the client
+            request_id: Request identifier to remove
+        """
+        self.request_tracker.remove_outbound_request(client_id, request_id)
+
+    # ================================
+    # Inbound requests
+    # ================================
 
     def track_request_from_client(
         self,
@@ -210,25 +174,7 @@ class ClientManager:
         if state is None:
             raise ValueError(f"Client {client_id} not registered")
 
-        state.requests_from_client[request_id] = (request, task)
-
-    def untrack_request_from_client(
-        self, client_id: str, request_id: str | int
-    ) -> tuple[Request, asyncio.Task[None]] | None:
-        """Stop tracking a request from the client.
-
-        Args:
-            client_id: ID of the client
-            request_id: Request identifier to remove
-
-        Returns:
-            Tuple of (request, task) if found, None otherwise
-        """
-        state = self.get_client(client_id)
-        if state is None:
-            raise ValueError(f"Client {client_id} not registered")
-
-        return state.requests_from_client.pop(request_id, None)
+        self.request_tracker.track_inbound_request(client_id, request_id, request, task)
 
     def get_request_from_client(
         self, client_id: str, request_id: str | int
@@ -242,8 +188,40 @@ class ClientManager:
         Returns:
             Tuple of (request, task) if found, None otherwise
         """
-        state = self.get_client(client_id)
-        if state is None:
-            return None
+        return self.request_tracker.get_inbound_request(client_id, request_id)
 
-        return state.requests_from_client.get(request_id)
+    def cancel_request_from_client(self, client_id: str, request_id: str | int) -> None:
+        """Cancel a request from the client.
+
+        Args:
+            client_id: ID of the client
+            request_id: Request identifier to cancel
+        """
+        self.request_tracker.cancel_inbound_request(client_id, request_id)
+
+    def remove_request_from_client(self, client_id: str, request_id: str | int) -> None:
+        """Stop tracking a request from the client.
+
+        Args:
+            client_id: ID of the client
+            request_id: Request identifier to remove
+        """
+        self.request_tracker.remove_inbound_request(client_id, request_id)
+
+    # ================================
+    # Cleanup
+    # ================================
+
+    def cleanup_client(self, client_id: str) -> None:
+        """Clean up all client state for a disconnected client.
+
+        Cancels all in-flight requests from the client and resolves all pending
+        requests to the client with an error.
+        """
+        self.request_tracker.cleanup_peer(client_id)
+        self._clients.pop(client_id, None)
+
+    def cleanup_all_clients(self) -> None:
+        """Clean up all client connections and state."""
+        for client_id in list(self._clients.keys()):
+            self.cleanup_client(client_id)

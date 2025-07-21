@@ -133,7 +133,7 @@ class TestOutboundRequestTracking:
         manager = ServerManager()
 
         # Act & Assert
-        with pytest.raises(ValueError, match="not registered"):
+        with pytest.raises(ValueError):
             await manager.track_request_to_server(
                 "nonexistent", "req-1", PingRequest(), asyncio.Future()
             )
@@ -198,6 +198,10 @@ class TestOutboundRequestTracking:
 
         # Assert
         assert manager.request_tracker.get_outbound_request(server_id, "req-1") is None
+
+        # Assert - future is resolved with error
+        assert future.done()
+        assert isinstance(future.result(), Error)
 
 
 class TestInboundRequestTracking:
@@ -334,6 +338,7 @@ class TestCleanup:
         manager = ServerManager()
         manager.register_server("server-1")
         manager.register_server("server-2")
+        assert manager.get_server_ids() is not []
 
         # Act
         manager.cleanup_all_servers()

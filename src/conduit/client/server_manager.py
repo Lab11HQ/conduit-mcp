@@ -78,21 +78,6 @@ class ServerManager:
     # Initialization
     # ================================
 
-    def is_protocol_initialized(self, server_id: str) -> bool:
-        """Check if a specific server has completed MCP initialization.
-
-        Args:
-            server_id: Server identifier
-
-        Returns:
-            True if server is initialized, False otherwise.
-        """
-        server_state = self.get_server(server_id)
-        if server_state is None:
-            return False
-
-        return server_state.initialized
-
     def initialize_server(
         self,
         server_id: str,
@@ -112,8 +97,23 @@ class ServerManager:
         server_state.instructions = instructions
         server_state.initialized = True
 
+    def is_protocol_initialized(self, server_id: str) -> bool:
+        """Check if a specific server has completed MCP initialization.
+
+        Args:
+            server_id: Server identifier
+
+        Returns:
+            True if server is initialized, False otherwise.
+        """
+        server_state = self.get_server(server_id)
+        if server_state is None:
+            return False
+
+        return server_state.initialized
+
     # ================================
-    # Outbound request tracking
+    # Outbound requests
     # ================================
 
     def track_request_to_server(
@@ -179,14 +179,11 @@ class ServerManager:
         Args:
             server_id: Server identifier
             request_id: Request identifier to remove
-
-        Returns:
-            Tuple of (request, future) if found, None otherwise
         """
         self.request_tracker.remove_outbound_request(server_id, request_id)
 
     # ================================
-    # Inbound request tracking
+    # Inbound requests
     # ================================
 
     def track_request_from_server(
@@ -242,9 +239,6 @@ class ServerManager:
         Args:
             server_id: Server identifier
             request_id: Request identifier to remove
-
-        Returns:
-            Tuple of (request, task) if found, None otherwise
         """
         self.request_tracker.remove_inbound_request(server_id, request_id)
 

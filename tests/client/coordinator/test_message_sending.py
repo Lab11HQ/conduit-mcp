@@ -196,6 +196,7 @@ class TestRequestSending:
         # Arrange
         await coordinator.start()
         server_id = "server1"
+        request = PingRequest()
 
         # Register server in coordinator's manager and transport
         coordinator.server_manager.register_server(server_id)
@@ -205,14 +206,11 @@ class TestRequestSending:
 
         # Act & Assert - should raise the transport error
         with pytest.raises(ConnectionError):
-            await coordinator.send_request(server_id, PingRequest(), timeout=1.0)
+            await coordinator.send_request(server_id, request, timeout=1.0)
 
         # Assert
         assert (
-            coordinator.server_manager.request_tracker.get_peer_outbound_request_ids(
-                server_id
-            )
-            == []
+            coordinator.server_manager.get_request_to_server(server_id, "req-1") is None
         )
 
 

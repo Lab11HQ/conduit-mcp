@@ -57,7 +57,10 @@ class TestRequestHandling:
         # Assert: Client was tracked and request cleaned up
         await yield_loop()  # Let client manager clean up
         client = coordinator.client_manager.get_client("client-1")
-        assert len(client.requests_from_client) == 0
+        assert (
+            coordinator.client_manager.get_request_from_client("client-1", "test-123")
+            is None
+        )
 
     async def test_sends_error_on_parsing_failure_to_protocol(
         self, coordinator, mock_transport, yield_loop
@@ -109,8 +112,10 @@ class TestRequestHandling:
         assert coordinator.client_manager.get_client("client-1") is not None
 
         # Assert: No request tracking since parsing failed
-        client = coordinator.client_manager.get_client("client-1")
-        assert len(client.requests_from_client) == 0
+        assert (
+            coordinator.client_manager.get_request_from_client("client-1", "test-123")
+            is None
+        )
 
     async def test_handler_exception_returns_internal_error(
         self, coordinator, mock_transport, yield_loop

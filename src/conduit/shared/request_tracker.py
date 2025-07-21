@@ -75,7 +75,7 @@ class RequestTracker:
     ) -> None:
         """Resolve a pending outbound request for a specific peer.
 
-        Safe to call even if the request was already resolved or canceled.
+        Safe to call multiple times.
 
         Args:
             peer_id: The ID of the peer we are resolving the request for.
@@ -92,7 +92,7 @@ class RequestTracker:
     def cancel_inbound_request(self, peer_id: str, request_id: RequestId) -> None:
         """Cancel an inbound request from a specific peer.
 
-        Safe to call even if the request was already resolved or canceled.
+        Safe to call multiple times.
 
         Args:
             peer_id: The ID of the peer we are canceling the request for.
@@ -107,7 +107,7 @@ class RequestTracker:
     def cleanup_peer(self, peer_id: str) -> None:
         """Clean up all requests for a specific peer and remove it from tracking.
 
-        Safe to call even if the requests were already resolved or canceled.
+        Safe to call multiple times.
 
         Args:
             peer_id: The ID of the peer we are cleaning up the requests for.
@@ -151,7 +151,7 @@ class RequestTracker:
         self.resolve_outbound_request(peer_id, request_id, error)
 
     def remove_inbound_request(self, peer_id: str, request_id: RequestId) -> None:
-        """Remove an inbound request from tracking.
+        """Removes an inbound request from tracking and cancels it.
 
         Args:
             peer_id: The ID of the peer we are removing the request for.

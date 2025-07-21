@@ -165,9 +165,9 @@ class TestRequestSending:
             await coordinator.send_request(client_id, request, timeout=1.0)
 
         # Assert - request is no longer tracked (cleaned up in finally block)
-        client_context = coordinator.client_manager.get_client(client_id)
-        assert client_context is not None
-        assert len(client_context.requests_to_client) == 0
+        assert (
+            coordinator.client_manager.get_request_to_client(client_id, "req-1") is None
+        )
 
 
 class TestNotificationSending:
