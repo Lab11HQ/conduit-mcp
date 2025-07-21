@@ -235,19 +235,6 @@ class TestInitialization:
         with pytest.raises(ConnectionError):  # Should be wrapped
             await connect_task
 
-    async def test_raises_error_when_transport_add_server_fails(self):
-        """Test handling when transport fails to add server."""
-        # Arrange
-        server_id = "duplicate-server"
-        connection_info = {"host": "test-host", "port": 8080}
-
-        # Pre-register the server to cause add_server to fail
-        await self.transport.add_server(server_id, connection_info)
-
-        # Act & Assert
-        with pytest.raises(ConnectionError):
-            await self.session.connect_server(server_id, connection_info)
-
     async def test_cleans_up_server_state_on_failure(self, yield_loop):
         """Test that server state is cleaned up when connection fails."""
         # Arrange

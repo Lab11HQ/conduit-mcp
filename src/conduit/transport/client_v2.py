@@ -30,9 +30,6 @@ class ClientTransport(ABC):
         Args:
             server_id: Unique identifier for this server connection
             connection_info: Transport-specific connection details
-
-        Raises:
-            ValueError: If server_id is already registered
         """
         ...
 

@@ -18,8 +18,6 @@ class MockClientTransport(ClientTransport):
 
     async def add_server(self, server_id: str, connection_info: dict[str, Any]) -> None:
         """Register how to reach a server (doesn't connect yet)."""
-        if server_id in self.registered_servers:
-            raise ValueError(f"Server {server_id} already registered")
         self.registered_servers[server_id] = connection_info
 
     async def send(self, server_id: str, message: dict[str, Any]) -> None:
