@@ -8,7 +8,7 @@ class RootsManager:
     def __init__(self):
         self._server_roots: dict[str, list[Root]] = {}
         self._global_roots: list[Root] = []
-        self.logger = logging.getLogger(__name__)
+        self.logger = logging.getLogger("conduit.client.protocol.roots")
 
     # ================================
     # Global root management
