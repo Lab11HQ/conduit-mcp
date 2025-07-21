@@ -82,13 +82,7 @@ class ServerConfig:
 
 
 class ServerSession:
-    """MCP server session handling protocol conversations with clients.
-
-    Create a session with transport and configuration, then call start() to
-    begin accepting client connections. The session handles all MCP protocol
-    interactions including initialization, capability-specific requests, and
-    notifications.
-    """
+    """MCP server session handling protocol conversations with clients."""
 
     def __init__(self, transport: ServerTransport, config: ServerConfig):
         """Initialize the server session.
@@ -115,8 +109,11 @@ class ServerSession:
         self._coordinator = MessageCoordinator(transport, self.client_manager)
         self._register_handlers()
 
-    # TODO: GET RID OF THIS. USE disconnect_client() instead.
-    async def start(self) -> None:
+    # ================================
+    # Lifecycle
+    # ================================
+
+    async def _start(self) -> None:
         """Start accepting and processing client messages.
 
         Starts the background message loop that will handle incoming client
@@ -124,24 +121,35 @@ class ServerSession:
         """
         await self._coordinator.start()
 
-    async def stop(self) -> None:
-        """Stop listening for client messages and clean up all client connections.
-
-        Gracefully shuts down the server session, ensuring all active
-        client connections are properly closed.
-        """
-        for client_id in self.client_manager.get_client_ids():
-            try:
-                await self.transport.disconnect_client(client_id)
-            except Exception:
-                # Log but don't fail shutdown for individual client errors
-                pass
-
-        # Stop message processing (coordinator-level)
+    async def _stop(self) -> None:
+        """Stop listening for client messages."""
         await self._coordinator.stop()
 
-        # Clean up all client state (manager-level)
-        self.client_manager.cleanup_all_clients()
+    async def _cleanup_client(self, client_id: str) -> None:
+        """Clean up all state for a specific client."""
+
+        # Clean up domain managers
+        self.tools.cleanup_client(client_id)
+        self.resources.cleanup_client(client_id)
+        self.prompts.cleanup_client(client_id)
+        self.logging.cleanup_client(client_id)
+
+        # Clean up client manager
+        self.client_manager.cleanup_client(client_id)
+
+    async def disconnect_client(self, client_id: str) -> None:
+        """Disconnect a client and clean up all state."""
+        await self._cleanup_client(client_id)
+        try:
+            await self.transport.disconnect_client(client_id)
+        except Exception as e:
+            print(f"Transport error while disconnecting from client {client_id}: {e}")
+
+    async def disconnect_all_clients(self) -> None:
+        """Disconnect all clients and clean up all state."""
+        await self._stop()
+        for client_id in self.client_manager.get_client_ids():
+            await self.disconnect_client(client_id)
 
     # ================================
     # Initialization
@@ -536,7 +544,7 @@ class ServerSession:
             ConnectionError: If transport is closed
             TimeoutError: If client doesn't respond within timeout
         """
-        await self.start()
+        await self._start()
         if request.method != "ping" and not self.client_manager.is_protocol_initialized(
             client_id
         ):
@@ -559,7 +567,7 @@ class ServerSession:
         Raises:
             ConnectionError: If transport is closed
         """
-        await self.start()
+        await self._start()
         await self._coordinator.send_notification(client_id, notification)
 
     # ================================
