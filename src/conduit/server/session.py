@@ -5,6 +5,8 @@ and notifications, then registers them with a message coordinator to handle
 the full protocol lifecycle.
 """
 
+import logging
+import sys
 from dataclasses import dataclass
 
 from conduit.protocol.base import (
@@ -94,11 +96,15 @@ class ServerSession:
                 (e.g., stdio, streamable HTTP, etc.)
             config: The server configuration
         """
+
+        # Transport and config
         self.transport = transport
         self.server_config = config
 
+        # Client manager
         self.client_manager = ClientManager()
 
+        # Domain managers
         self.tools = ToolManager()
         self.resources = ResourceManager()
         self.prompts = PromptManager()
@@ -106,7 +112,19 @@ class ServerSession:
         self.completions = CompletionManager()
         self.callbacks = CallbackManager()
 
+        # Coordinator
         self._coordinator = MessageCoordinator(transport, self.client_manager)
+
+        # Configure logging if not already configured
+        if not logging.getLogger().handlers:
+            logging.basicConfig(
+                level=logging.INFO,
+                format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                stream=sys.stderr,
+            )
+        self.logger = logging.getLogger("conduit.server.session")
+
+        # Register handlers
         self._register_handlers()
 
     # ================================
@@ -143,7 +161,9 @@ class ServerSession:
         try:
             await self.transport.disconnect_client(client_id)
         except Exception as e:
-            print(f"Transport error while disconnecting from client {client_id}: {e}")
+            self.logger.error(
+                f"Transport error while disconnecting from client {client_id}: {e}"
+            )
 
     async def disconnect_all_clients(self) -> None:
         """Disconnect all clients and clean up all state."""
@@ -514,10 +534,10 @@ class ServerSession:
 
                 await self.callbacks.call_roots_changed(client_id, result.roots)
             else:
-                print(f"Failed to get roots from {client_id}: {result}")
+                self.logger.error(f"Failed to get roots from {client_id}: {result}")
 
         except Exception as e:
-            print(f"Error handling roots change for {client_id}: {e}")
+            self.logger.error(f"Error handling roots change for {client_id}: {e}")
 
     # ================================
     # Send messages

@@ -1,3 +1,4 @@
+import logging
 from copy import deepcopy
 from typing import Awaitable, Callable
 
@@ -22,7 +23,7 @@ class PromptManager:
     def __init__(self):
         self.global_prompts: dict[str, Prompt] = {}
         self.global_handlers: dict[str, PromptHandler] = {}
-
+        self.logger = logging.getLogger("conduit.server.protocol.prompts")
         self.client_prompts: dict[
             str, dict[str, Prompt]
         ] = {}  # client_id -> {prompt_name: prompt}
@@ -131,7 +132,9 @@ class PromptManager:
         if client_id in self.client_prompts:
             for name, prompt in self.client_prompts[client_id].items():
                 if name in prompts:
-                    print(f"Client {client_id} overriding global prompt '{name}'")
+                    self.logger.info(
+                        f"Client {client_id} overriding global prompt '{name}'"
+                    )
                 prompts[name] = prompt
 
         return prompts

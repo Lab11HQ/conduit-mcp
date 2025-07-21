@@ -1,3 +1,4 @@
+import logging
 from typing import Awaitable, Callable
 
 from conduit.protocol.common import EmptyResult
@@ -17,6 +18,7 @@ class LoggingManager:
         self.level_change_handler: (
             Callable[[str, LoggingLevel], Awaitable[None]] | None
         ) = None
+        self.logger = logging.getLogger("conduit.server.protocol.logging")
 
     def get_client_level(self, client_id: str) -> LoggingLevel | None:
         """Get the current logging level for a specific client.
@@ -69,6 +71,9 @@ class LoggingManager:
             try:
                 await self.level_change_handler(client_id, request.level)
             except Exception as e:
-                print(f"Error in level change handler for {client_id}: {e}")
+                self.logger.warning(
+                    f"Error in level change handler for {client_id}: {e}. "
+                    f"Request: {request}"
+                )
 
         return EmptyResult()

@@ -1,3 +1,4 @@
+import logging
 from typing import Awaitable, Callable
 
 from conduit.protocol.completions import CompleteRequest, CompleteResult
@@ -14,6 +15,7 @@ class CompletionManager:
         self.completion_handler: (
             Callable[[str, CompleteRequest], Awaitable[CompleteResult]] | None
         ) = None
+        self.logger = logging.getLogger("conduit.server.protocol.completions")
 
     async def handle_complete(
         self, client_id: str, request: CompleteRequest
