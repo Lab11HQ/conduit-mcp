@@ -7,6 +7,8 @@ Key components:
 """
 
 import asyncio
+import logging
+import sys
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -106,6 +108,16 @@ class ClientSession:
         self._coordinator = MessageCoordinator(transport, self.server_manager)
         self._register_handlers()
 
+        # Configure logging if not already configured
+        if not logging.getLogger().handlers:
+            logging.basicConfig(
+                level=logging.INFO,
+                format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                stream=sys.stderr,
+            )
+
+        self.logger = logging.getLogger("conduit.client.session")
+
     # ================================
     # Lifecycle
     # ================================
@@ -137,7 +149,9 @@ class ClientSession:
         try:
             await self.transport.disconnect_server(server_id)
         except Exception as e:
-            print(f"Transport error while disconnecting from server {server_id}: {e}")
+            self.logger.warning(
+                f"Transport error while disconnecting from server {server_id}: {e}"
+            )
 
     async def disconnect_all_servers(self) -> None:
         """Disconnects from all servers and cleans up all state."""

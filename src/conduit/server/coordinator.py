@@ -5,6 +5,7 @@ the session focused on protocol logic rather than message processing.
 """
 
 import asyncio
+import logging
 import uuid
 from collections.abc import Coroutine
 from typing import Any, Awaitable, Callable, TypeVar
@@ -52,6 +53,7 @@ class MessageCoordinator:
         self._request_handlers: dict[str, RequestHandler] = {}
         self._notification_handlers: dict[str, NotificationHandler] = {}
         self._message_loop_task: asyncio.Task[None] | None = None
+        self.logger = logging.getLogger("conduit.server.coordinator")
 
     # ================================
     # Lifecycle
@@ -112,12 +114,12 @@ class MessageCoordinator:
                 try:
                     await self._route_client_message(client_message)
                 except Exception as e:
-                    print(
+                    self.logger.warning(
                         f"Error handling message from {client_message.client_id}: {e}"
                     )
                     continue
         except Exception as e:
-            print(f"Transport error: {e}")
+            self.logger.error(f"Transport error: {e}")
 
     def _on_message_loop_done(self, task: asyncio.Task[None]) -> None:
         """Clean up when message loop task completes.
@@ -150,7 +152,7 @@ class MessageCoordinator:
         elif self.parser.is_valid_response(payload):
             await self._handle_response(client_id, payload)
         else:
-            print(f"Unknown message type from {client_id}: {payload}")
+            self.logger.info(f"Unknown message type from {client_id}: {payload}")
 
     # ================================
     # Handle requests
@@ -247,7 +249,7 @@ class MessageCoordinator:
 
         handler = self._notification_handlers.get(method)
         if not handler:
-            print(f"Unknown notification '{method}' from {client_id}")
+            self.logger.info(f"Unknown notification '{method}' from {client_id}")
             return
 
         asyncio.create_task(
@@ -275,7 +277,9 @@ class MessageCoordinator:
             client_id, request_id
         )
         if not request_future_tuple:
-            print(f"No pending request {request_id} for client {client_id}")
+            self.logger.warning(
+                f"No pending request {request_id} for client {client_id}"
+            )
             return
 
         original_request, future = request_future_tuple
@@ -359,7 +363,7 @@ class MessageCoordinator:
             )
             await self.send_notification(client_id, cancelled_notification)
         except Exception as e:
-            print(f"Error sending cancellation to {client_id}: {e}")
+            self.logger.warning(f"Error sending cancellation to {client_id}: {e}")
 
     # ================================
     # Send notifications

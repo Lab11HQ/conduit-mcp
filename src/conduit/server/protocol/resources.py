@@ -1,5 +1,6 @@
 """Client-aware resource manager for multi-client server sessions."""
 
+import logging
 import re
 from copy import deepcopy
 from typing import Awaitable, Callable
@@ -48,6 +49,7 @@ class ResourceManager:
 
         self.subscribe_handler: SubscriptionCallback | None = None
         self.unsubscribe_handler: SubscriptionCallback | None = None
+        self.logger = logging.getLogger("conduit.server.protocol.resources")
 
     # ===============================
     # Global resource management
@@ -179,7 +181,9 @@ class ResourceManager:
         if client_id in self.client_resources:
             for uri, resource in self.client_resources[client_id].items():
                 if uri in resources:
-                    print(f"Client {client_id} overriding global resource '{uri}'")
+                    self.logger.info(
+                        f"Client {client_id} overriding global resource '{uri}'"
+                    )
                 resources[uri] = resource
 
         return resources
@@ -201,7 +205,9 @@ class ResourceManager:
         if client_id in self.client_templates:
             for pattern, template in self.client_templates[client_id].items():
                 if pattern in templates:
-                    print(f"Client {client_id} overriding global template '{pattern}'")
+                    self.logger.info(
+                        f"Client {client_id} overriding global template '{pattern}'"
+                    )
                 templates[pattern] = template
 
         return templates
@@ -318,7 +324,9 @@ class ResourceManager:
             try:
                 await self.subscribe_handler(client_id, uri)
             except Exception as e:
-                print(f"Error in subscribe handler for {client_id}: {uri}: {e}")
+                self.logger.warning(
+                    f"Error in subscribe handler for {client_id}: {uri}: {e}"
+                )
 
         return EmptyResult()
 
@@ -349,7 +357,9 @@ class ResourceManager:
             try:
                 await self.unsubscribe_handler(client_id, uri)
             except Exception as e:
-                print(f"Error in unsubscribe handler for {client_id}: {uri}: {e}")
+                self.logger.warning(
+                    f"Error in unsubscribe handler for {client_id}: {uri}: {e}"
+                )
 
         return EmptyResult()
 

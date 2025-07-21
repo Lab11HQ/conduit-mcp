@@ -1,3 +1,4 @@
+import logging
 from typing import Awaitable, Callable
 
 from conduit.protocol.common import CancelledNotification, ProgressNotification
@@ -21,6 +22,7 @@ class CallbackManager:
         self.cancelled_handler: (
             Callable[[str, CancelledNotification], Awaitable[None]] | None
         ) = None
+        self.logger = logging.getLogger("conduit.server.callbacks")
 
     async def call_initialized(
         self, client_id: str, notification: InitializedNotification
@@ -30,7 +32,10 @@ class CallbackManager:
             try:
                 await self.initialized_handler(client_id, notification)
             except Exception as e:
-                print(f"Initialized callback failed for {client_id}: {e}")
+                self.logger.warning(
+                    f"Initialized callback failed for {client_id}: {e}. "
+                    f"Notification: {notification}"
+                )
 
     async def call_progress(
         self, client_id: str, notification: ProgressNotification
@@ -40,7 +45,10 @@ class CallbackManager:
             try:
                 await self.progress_handler(client_id, notification)
             except Exception as e:
-                print(f"Progress callback failed for {client_id}: {e}")
+                self.logger.warning(
+                    f"Progress callback failed for {client_id}: {e}. "
+                    f"Notification: {notification}"
+                )
 
     async def call_roots_changed(self, client_id: str, roots: list[Root]) -> None:
         """Invokes roots changed callback. Catches and logs any errors."""
@@ -48,7 +56,10 @@ class CallbackManager:
             try:
                 await self.roots_changed_handler(client_id, roots)
             except Exception as e:
-                print(f"Roots changed callback failed for {client_id}: {e}")
+                self.logger.warning(
+                    f"Roots changed callback failed for {client_id}: {e}. "
+                    f"Roots: {roots}"
+                )
 
     async def call_cancelled(
         self, client_id: str, notification: CancelledNotification
@@ -58,4 +69,7 @@ class CallbackManager:
             try:
                 await self.cancelled_handler(client_id, notification)
             except Exception as e:
-                print(f"Cancelled callback failed for {client_id}: {e}")
+                self.logger.warning(
+                    f"Cancelled callback failed for {client_id}: {e}. "
+                    f"Notification: {notification}"
+                )

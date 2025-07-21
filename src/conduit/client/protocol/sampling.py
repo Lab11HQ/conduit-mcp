@@ -1,3 +1,4 @@
+import logging
 from typing import Awaitable, Callable
 
 from conduit.protocol.sampling import CreateMessageRequest, CreateMessageResult
@@ -14,6 +15,7 @@ class SamplingManager:
         self.sampling_handler: (
             Callable[[CreateMessageRequest], Awaitable[CreateMessageResult]] | None
         ) = None
+        self.logger = logging.getLogger("conduit.client.protocol.sampling")
 
     async def handle_create_message(
         self, server_id: str, request: CreateMessageRequest

@@ -1,5 +1,6 @@
 """Client-aware tool manager for multi-client server sessions."""
 
+import logging
 from copy import deepcopy
 from typing import Awaitable, Callable
 
@@ -31,6 +32,8 @@ class ToolManager:
         self.client_handlers: dict[
             str, dict[str, ToolHandler]
         ] = {}  # client_id -> {tool_name: handler}
+
+        self.logger = logging.getLogger("conduit.server.protocol.tools")
 
     # ================================
     # Global tool management
@@ -134,7 +137,9 @@ class ToolManager:
         if client_id in self.client_tools:
             for name, tool in self.client_tools[client_id].items():
                 if name in tools:
-                    print(f"Client {client_id} overriding global tool '{name}'")
+                    self.logger.info(
+                        f"Client {client_id} overriding global tool '{name}'"
+                    )
                 tools[name] = tool
 
         return tools

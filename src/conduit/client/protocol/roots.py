@@ -1,3 +1,4 @@
+import logging
 from copy import deepcopy
 
 from conduit.protocol.roots import ListRootsRequest, ListRootsResult, Root
@@ -7,6 +8,7 @@ class RootsManager:
     def __init__(self):
         self._server_roots: dict[str, list[Root]] = {}
         self._global_roots: list[Root] = []
+        self.logger = logging.getLogger("conduit.client.protocol.roots")
 
     # ================================
     # Global root management
@@ -49,7 +51,9 @@ class RootsManager:
         if server_id in self._server_roots:
             for root in self._server_roots[server_id]:
                 if root.uri in roots_by_uri:
-                    print(f"Server {server_id} overriding global root '{root.uri}'")
+                    self.logger.warning(
+                        f"Server {server_id} overriding global root '{root.uri}'"
+                    )
                 roots_by_uri[root.uri] = root
 
         return list(roots_by_uri.values())
