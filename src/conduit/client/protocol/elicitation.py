@@ -1,3 +1,4 @@
+import logging
 from typing import Awaitable, Callable
 
 from conduit.protocol.elicitation import ElicitRequest, ElicitResult
@@ -14,6 +15,7 @@ class ElicitationManager:
         self.elicitation_handler: (
             Callable[[ElicitRequest], Awaitable[ElicitResult]] | None
         ) = None
+        self.logger = logging.getLogger("conduit.client.protocol.elicitation")
 
     async def handle_elicitation(
         self, server_id: str, request: ElicitRequest
