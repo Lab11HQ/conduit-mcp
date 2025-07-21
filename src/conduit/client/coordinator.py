@@ -195,7 +195,7 @@ class MessageCoordinator:
             server_id, request_id, request, task
         )
         task.add_done_callback(
-            lambda t: self.server_manager.untrack_request_from_server(
+            lambda t: self.server_manager.remove_request_from_server(
                 server_id, request_id
             )
         )
@@ -287,18 +287,14 @@ class MessageCoordinator:
 
     async def cancel_request_from_server(
         self, server_id: str, request_id: str | int
-    ) -> bool:
+    ) -> None:
         """Cancel a request from the server if it's still pending.
 
-        Returns:
-            True if request was found and successfully cancelled, False if request not
-            found or was already completed/cancelled.
+        Args:
+            server_id: Server identifier
+            request_id: Request identifier to cancel
         """
-        result = self.server_manager.untrack_request_from_server(server_id, request_id)
-        if result is None:
-            return False
-        request, task = result
-        return task.cancel()
+        self.server_manager.cancel_request_from_server(server_id, request_id)
 
     # ================================
     # Send requests to server
@@ -341,7 +337,7 @@ class MessageCoordinator:
             await self._handle_request_timeout(server_id, request_id, request)
             raise
         finally:
-            self.server_manager.untrack_request_to_server(server_id, request_id)
+            self.server_manager.remove_request_to_server(server_id, request_id)
 
     async def _handle_request_timeout(
         self, server_id: str, request_id: str, request: Request

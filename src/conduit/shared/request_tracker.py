@@ -29,7 +29,9 @@ class RequestTracker:
         if peer_id not in self._inbound_requests:
             self._inbound_requests[peer_id] = {}
 
-    # === COMMANDS ===
+    # ==================
+    # COMMANDS
+    # ==================
 
     def track_outbound_request(
         self,
@@ -73,6 +75,8 @@ class RequestTracker:
     ) -> None:
         """Resolve a pending outbound request for a specific peer.
 
+        Safe to call even if the request was already resolved or canceled.
+
         Args:
             peer_id: The ID of the peer we are resolving the request for.
             request_id: The ID of the request.
@@ -82,7 +86,6 @@ class RequestTracker:
         request_future_tuple = peer_requests.pop(request_id, None)
         if request_future_tuple:
             _, future = request_future_tuple
-            # Only set result if future hasn't been resolved yet
             if not future.done():
                 future.set_result(result_or_error)
 
@@ -141,7 +144,11 @@ class RequestTracker:
             peer_id: The ID of the peer we are removing the request for.
             request_id: The ID of the request.
         """
-        self._outbound_requests.get(peer_id, {}).pop(request_id, None)
+        error = Error(
+            code=INTERNAL_ERROR,
+            message="Request removed from tracking.",
+        )
+        self.resolve_outbound_request(peer_id, request_id, error)
 
     def remove_inbound_request(self, peer_id: str, request_id: RequestId) -> None:
         """Remove an inbound request from tracking.
@@ -150,9 +157,11 @@ class RequestTracker:
             peer_id: The ID of the peer we are removing the request for.
             request_id: The ID of the request.
         """
-        self._inbound_requests.get(peer_id, {}).pop(request_id, None)
+        self.cancel_inbound_request(peer_id, request_id)
 
-    # === QUERIES ===
+    # ==================
+    # QUERIES
+    # ==================
 
     def get_outbound_request(
         self, peer_id: str, request_id: RequestId
@@ -178,7 +187,6 @@ class RequestTracker:
         peer_requests = self._inbound_requests.get(peer_id, {})
         return peer_requests.get(request_id)
 
-    # === LIST QUERIES ===
     def get_peer_ids(self) -> list[str]:
         """Get all peer IDs that have tracked requests.
 

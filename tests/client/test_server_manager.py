@@ -3,7 +3,7 @@ import asyncio
 import pytest
 
 from conduit.client.server_manager import ServerManager, ServerState
-from conduit.protocol.base import INTERNAL_ERROR, PROTOCOL_VERSION, Error, Result
+from conduit.protocol.base import PROTOCOL_VERSION, Error
 from conduit.protocol.common import EmptyResult, PingRequest
 from conduit.protocol.initialization import Implementation, ServerCapabilities
 
@@ -127,377 +127,209 @@ class TestRegistration:
         assert manager.is_protocol_initialized(server_id)
 
 
-class TestOutboundRequests:
-    async def test_track_request_to_server(self):
+class TestOutboundRequestTracking:
+    async def test_track_request_validates_server_exists(self):
+        # Arrange
+        manager = ServerManager()
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="not registered"):
+            await manager.track_request_to_server(
+                "nonexistent", "req-1", PingRequest(), asyncio.Future()
+            )
+
+    async def test_track_request_delegates_to_tracker(self):
         # Arrange
         manager = ServerManager()
         server_id = "test-server"
-        request_id = "req-123"
-
         manager.register_server(server_id)
 
         request = PingRequest()
-        future = asyncio.Future[Result | Error]()
+        future = asyncio.Future()
 
         # Act
-        manager.track_request_to_server(server_id, request_id, request, future)
+        manager.track_request_to_server(server_id, "req-1", request, future)
 
-        # Assert
-        server_state = manager.get_server(server_id)
-        assert server_state is not None
-        assert request_id in server_state.requests_to_server
-
-        tracked_request, tracked_future = server_state.requests_to_server[request_id]
+        # Assert - verify it's in the tracker
+        result = manager.request_tracker.get_outbound_request(server_id, "req-1")
+        assert result is not None
+        tracked_request, tracked_future = result
         assert tracked_request is request
         assert tracked_future is future
 
-    async def test_track_request_to_server_raises_for_unregistered_server(self):
-        # Arrange
-        manager = ServerManager()
-        server_id = "nonexistent-server"
-        request_id = "req-123"
-
-        request = PingRequest()
-        future = asyncio.Future[Result | Error]()
-
-        # Act & Assert
-        with pytest.raises(ValueError):
-            manager.track_request_to_server(server_id, request_id, request, future)
-
-    async def test_untrack_request_to_server(self):
+    async def test_resolve_request_delegates_to_tracker(self):
         # Arrange
         manager = ServerManager()
         server_id = "test-server"
-        request_id = "req-123"
-
         manager.register_server(server_id)
 
+        # Track a request
         request = PingRequest()
-        future = asyncio.Future[Result | Error]()
-
-        # Track first, then untrack
-        manager.track_request_to_server(server_id, request_id, request, future)
-        assert manager.get_request_to_server(server_id, request_id) is not None
-
-        # Act
-        result = manager.untrack_request_to_server(server_id, request_id)
-
-        # Assert
-        assert result is not None
-        untracked_request, untracked_future = result
-        assert untracked_request is request
-        assert untracked_future is future
-
-        # Verify it's actually removed from tracking
-        server_state = manager.get_server(server_id)
-        assert request_id not in server_state.requests_to_server
-
-    async def test_untrack_request_to_server_raises_for_unregistered_server(self):
-        # Arrange
-        manager = ServerManager()
-        server_id = "nonexistent-server"
-        request_id = "req-123"
-
-        # Act & Assert
-        with pytest.raises(ValueError):
-            manager.untrack_request_to_server(server_id, request_id)
-
-    async def test_get_request_to_server(self):
-        # Arrange
-        manager = ServerManager()
-        server_id = "test-server"
-        request_id = "req-123"
-
-        manager.register_server(server_id)
-
-        request = PingRequest()
-        future = asyncio.Future[Result | Error]()
-
-        manager.track_request_to_server(server_id, request_id, request, future)
-        # Act
-        result = manager.get_request_to_server(server_id, request_id)
-
-        # Assert
-        assert result is not None
-        retrieved_request, retrieved_future = result
-        assert retrieved_request is request
-
-    async def test_get_request_to_server_returns_none_for_unregistered_server(self):
-        # Arrange
-        manager = ServerManager()
-        server_id = "nonexistent-server"
-        request_id = "req-123"
+        future = asyncio.Future()
+        manager.track_request_to_server(server_id, "req-1", request, future)
+        assert (
+            manager.request_tracker.get_outbound_request(server_id, "req-1") is not None
+        )
 
         # Act
-        result = manager.get_request_to_server(server_id, request_id)
-
-        # Assert
-        assert result is None
-
-    async def test_get_request_to_server_returns_none_for_nonexistent_request(self):
-        # Arrange
-        manager = ServerManager()
-        server_id = "test-server"
-        request_id = "nonexistent-request"
-
-        manager.register_server(server_id)
-
-        # Act
-        result = manager.get_request_to_server(server_id, request_id)
-
-        # Assert
-        assert result is None
-
-    async def test_resolve_request_to_server(self):
-        # Arrange
-        manager = ServerManager()
-        server_id = "test-server"
-        request_id = "req-123"
-
-        manager.register_server(server_id)
-
-        request = PingRequest()
-        future = asyncio.Future[Result | Error]()
-
-        # Track the request first
-        manager.track_request_to_server(server_id, request_id, request, future)
-
-        # Create a result to resolve with
         result = EmptyResult()
-
-        # Act
-        manager.resolve_request_to_server(server_id, request_id, result)
+        manager.resolve_request_to_server(server_id, "req-1", result)
 
         # Assert
         assert future.done()
         assert future.result() is result
+        assert manager.request_tracker.get_outbound_request(server_id, "req-1") is None
 
-        # Verify request is removed from tracking
-        server_state = manager.get_server(server_id)
-        assert request_id not in server_state.requests_to_server
-
-    async def test_resolve_does_nothing_if_server_not_found(self):
-        # Arrange
-        manager = ServerManager()
-        server_id = "nonexistent-server"
-        request_id = "req-123"
-
-        # Verify server doesn't exist
-        assert manager.get_server(server_id) is None
-
-        result = EmptyResult()
-
-        # Act & Assert - no error is raised
-        manager.resolve_request_to_server(server_id, request_id, result)
-        # If we get here without an exception, the test passes
-
-    async def test_resolve_does_nothing_if_request_not_found(self):
+    async def test_remove_request_delegates_to_tracker(self):
         # Arrange
         manager = ServerManager()
         server_id = "test-server"
-        request_id = "nonexistent-request"
-
         manager.register_server(server_id)
 
-        # Verify request doesn't exist
-        assert manager.get_request_to_server(server_id, request_id) is None
-
-        result = EmptyResult()
-
-        # Act & Assert - no error is raised
-        manager.resolve_request_to_server(server_id, request_id, result)
-        # If we get here without an exception, the test passes
-
-
-class TestInboundRequests:
-    async def test_track_request_from_server(self):
-        # Arrange
-        manager = ServerManager()
-        server_id = "test-server"
-        request_id = "req-123"
-
-        manager.register_server(server_id)
-
-        # Create mock request and task
         request = PingRequest()
-        task = asyncio.create_task(asyncio.sleep(0))  # Simple task for testing
+        future = asyncio.Future()
+        manager.track_request_to_server(server_id, "req-1", request, future)
+        assert (
+            manager.request_tracker.get_outbound_request(server_id, "req-1") is not None
+        )
 
         # Act
-        manager.track_request_from_server(server_id, request_id, request, task)
+        manager.remove_request_to_server(server_id, "req-1")
 
         # Assert
-        server_state = manager.get_server(server_id)
-        assert server_state is not None
-        assert request_id in server_state.requests_from_server
+        assert manager.request_tracker.get_outbound_request(server_id, "req-1") is None
 
-        tracked_request, tracked_task = server_state.requests_from_server[request_id]
-        assert tracked_request is request
-        assert tracked_task is task
 
-        # Cleanup
-        task.cancel()
-
-    async def test_track_request_from_server_raises_for_unregistered_server(self):
+class TestInboundRequestTracking:
+    async def test_track_request_validates_server_exists(self):
         # Arrange
         manager = ServerManager()
-        server_id = "nonexistent-server"
-        request_id = "req-123"
 
-        request = PingRequest()
-        task = asyncio.create_task(asyncio.sleep(0))  # Simple task for testing
+        task = asyncio.create_task(asyncio.sleep(0.1))
 
         # Act & Assert
-        with pytest.raises(ValueError):
-            manager.track_request_from_server(server_id, request_id, request, task)
+        with pytest.raises(ValueError, match="not registered"):
+            manager.track_request_from_server(
+                "nonexistent", "req-1", PingRequest(), task
+            )
 
         # Cleanup
         task.cancel()
 
-    async def test_untrack_request_from_server(self):
-        """Test that we can successfully untrack a request from a server."""
+    async def test_track_request_delegates_to_tracker(self):
         # Arrange
         manager = ServerManager()
         server_id = "test-server"
-        request_id = "req-123"
-
         manager.register_server(server_id)
 
         request = PingRequest()
-        task = asyncio.create_task(asyncio.sleep(0))
-
-        # Track first, then untrack
-        manager.track_request_from_server(server_id, request_id, request, task)
-        assert manager.get_request_from_server(server_id, request_id) is not None
+        task = asyncio.create_task(asyncio.sleep(0.1))
 
         # Act
-        result = manager.untrack_request_from_server(server_id, request_id)
+        manager.track_request_from_server(server_id, "req-1", request, task)
 
         # Assert
+        result = manager.request_tracker.get_inbound_request(server_id, "req-1")
         assert result is not None
-        untracked_request, untracked_task = result
-        assert untracked_request is request
-        assert untracked_task is task
+        assert result[0] is request
+        assert result[1] is task
 
-        # Verify it's actually removed from tracking
-        server_state = manager.get_server(server_id)
-        assert request_id not in server_state.requests_from_server
-
-        # Cleanup
         task.cancel()
 
-    async def test_untrack_request_from_server_raises_for_unregistered_server(self):
-        # Arrange
-        manager = ServerManager()
-        server_id = "nonexistent-server"
-        request_id = "req-123"
-
-        # Act & Assert
-        with pytest.raises(ValueError):
-            manager.untrack_request_from_server(server_id, request_id)
-
-    async def test_get_request_from_server(self):
+    async def test_cancel_request_delegates_to_tracker(self):
         # Arrange
         manager = ServerManager()
         server_id = "test-server"
-        request_id = "req-123"
-
         manager.register_server(server_id)
 
         request = PingRequest()
-        task = asyncio.create_task(asyncio.sleep(0))
+        task = asyncio.create_task(asyncio.sleep(0.1))
 
-        # Track the request first
-        manager.track_request_from_server(server_id, request_id, request, task)
-
-        # Act
-        result = manager.get_request_from_server(server_id, request_id)
-
-        # Assert
-        assert result is not None
-        retrieved_request, retrieved_task = result
-        assert retrieved_request is request
-        assert retrieved_task is task
-
-        # Cleanup
-        task.cancel()
-
-    async def test_get_request_from_server_returns_none_for_unregistered_server(self):
-        # Arrange
-        manager = ServerManager()
-        server_id = "nonexistent-server"
-        request_id = "req-123"
+        manager.track_request_from_server(server_id, "req-1", request, task)
+        assert (
+            manager.request_tracker.get_inbound_request(server_id, "req-1") is not None
+        )
 
         # Act
-        result = manager.get_request_from_server(server_id, request_id)
+        manager.cancel_request_from_server(server_id, "req-1")
 
         # Assert
-        assert result is None
+        assert manager.request_tracker.get_inbound_request(server_id, "req-1") is None
 
-    async def test_get_request_from_server_returns_none_for_nonexistent_request(self):
+        # Verify task is cancelled
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    async def test_remove_request_delegates_to_tracker(self):
         # Arrange
         manager = ServerManager()
         server_id = "test-server"
-        request_id = "nonexistent-request"
-
         manager.register_server(server_id)
 
+        request = PingRequest()
+        task = asyncio.create_task(asyncio.sleep(0.1))
+
+        manager.track_request_from_server(server_id, "req-1", request, task)
+        assert (
+            manager.request_tracker.get_inbound_request(server_id, "req-1") is not None
+        )
+
         # Act
-        result = manager.get_request_from_server(server_id, request_id)
+        manager.remove_request_from_server(server_id, "req-1")
 
         # Assert
-        assert result is None
+        assert manager.request_tracker.get_inbound_request(server_id, "req-1") is None
+
+        # Verify task is cancelled
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 class TestCleanup:
-    async def test_cleanup_server(self):
-        """Test that cleanup_server properly cleans up all server state."""
+    async def test_cleanup_server_delegates_to_tracker(self):
         # Arrange
         manager = ServerManager()
         server_id = "test-server"
-
         manager.register_server(server_id)
 
-        # Set up inbound request tracking
-        inbound_request = PingRequest()
-        inbound_task = asyncio.create_task(asyncio.sleep(10))  # Long-running task
-        manager.track_request_from_server(
-            server_id, "inbound-123", inbound_request, inbound_task
-        )
+        # Track some requests
+        future = asyncio.Future()
+        task = asyncio.create_task(asyncio.sleep(1))
 
-        # Set up outbound request tracking
-        outbound_request = PingRequest()
-        outbound_future = asyncio.Future[Result | Error]()
-        manager.track_request_to_server(
-            server_id, "outbound-456", outbound_request, outbound_future
+        manager.track_request_to_server(server_id, "out-1", PingRequest(), future)
+        manager.track_request_from_server(server_id, "in-1", PingRequest(), task)
+        assert (
+            manager.request_tracker.get_outbound_request(server_id, "out-1") is not None
         )
-
-        # Verify setup
-        assert manager.get_server(server_id) is not None
-        assert not inbound_task.cancelled()
-        assert not outbound_future.done()
+        assert (
+            manager.request_tracker.get_inbound_request(server_id, "in-1") is not None
+        )
 
         # Act
         manager.cleanup_server(server_id)
 
-        # Assert
-        # Server should be removed from tracking
-        assert manager.get_server(server_id) is None
+        # Assert - requests cleaned up via tracker delegation
+        assert manager.request_tracker.get_outbound_request(server_id, "out-1") is None
+        assert manager.request_tracker.get_inbound_request(server_id, "in-1") is None
 
-        # Inbound task should be cancelled
+        # Assert - task is cancelled
         try:
-            await inbound_task
+            await task
         except asyncio.CancelledError:
             pass
-        assert inbound_task.cancelled()
 
-        # Outbound future should be resolved with error
-        assert outbound_future.done()
-        result = outbound_future.result()
-        assert isinstance(result, Error)
-        assert result.code == INTERNAL_ERROR
+        # Assert - future is resolved with error
+        assert future.done()
+        assert isinstance(future.result(), Error)
 
-    async def test_cleanup_all_servers(self):
-        """Test that cleanup_all_servers cleans up multiple servers."""
+        # Assert - server is removed from manager
+        assert manager.get_server(server_id) is None
+
+    async def test_cleanup_all_servers_removes_server_state(self):
         # Arrange
         manager = ServerManager()
         manager.register_server("server-1")

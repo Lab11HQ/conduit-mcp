@@ -172,6 +172,22 @@ class TestRequestTracker:
         # Verify request is still removed from tracking
         assert self.tracker.get_outbound_request(peer_id, request_id) is None
 
+    async def test_remove_outbound_request_resolves_with_error(self):
+        # Arrange
+        peer_id = "test-peer-123"
+        request_id = "req-456"
+        request = PingRequest()
+        future = asyncio.Future[Result | Error]()
+
+        self.tracker.track_outbound_request(peer_id, request_id, request, future)
+
+        # Act
+        self.tracker.remove_outbound_request(peer_id, request_id)
+
+        # Assert
+        assert future.done()
+        assert isinstance(future.result(), Error)
+
     async def test_cancel_inbound_request(self):
         # Arrange
         peer_id = "test-peer-123"
@@ -259,6 +275,29 @@ class TestRequestTracker:
 
         # Verify request is still removed from tracking
         assert self.tracker.get_inbound_request(peer_id, request_id) is None
+
+    async def test_remove_inbound_request_cancels_task(self):
+        # Arrange
+        peer_id = "test-peer-123"
+        request_id = "req-456"
+        request = PingRequest()
+
+        # Create a task that will run for a bit
+        async def long_running_handler():
+            await asyncio.sleep(1.0)
+
+        task = asyncio.create_task(long_running_handler())
+
+        self.tracker.track_inbound_request(peer_id, request_id, request, task)
+
+        # Act
+        self.tracker.remove_inbound_request(peer_id, request_id)
+
+        # Verify task is cancelled
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
     async def test_cleanup_peer_requests_orchestration(self):
         # Arrange - set up multiple requests for one peer

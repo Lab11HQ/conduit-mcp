@@ -208,9 +208,12 @@ class TestRequestSending:
             await coordinator.send_request(server_id, PingRequest(), timeout=1.0)
 
         # Assert
-        server_state = coordinator.server_manager.get_server(server_id)
-        assert server_state is not None
-        assert len(server_state.requests_to_server) == 0
+        assert (
+            coordinator.server_manager.request_tracker.get_peer_outbound_request_ids(
+                server_id
+            )
+            == []
+        )
 
 
 class TestNotificationSending:

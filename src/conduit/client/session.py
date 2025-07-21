@@ -357,10 +357,17 @@ class ClientSession:
         self, server_id: str, notification: CancelledNotification
     ) -> None:
         """Cancels a request from the server and calls the registered callback."""
-        was_cancelled = await self._coordinator.cancel_request_from_server(
-            server_id, notification.request_id
+        # Query: Check if request exists before attempting cancellation
+        request_exists = (
+            self.server_manager.get_request_from_server(
+                server_id, notification.request_id
+            )
+            is not None
         )
-        if was_cancelled:
+        if request_exists:
+            await self._coordinator.cancel_request_from_server(
+                server_id, notification.request_id
+            )
             await self.callbacks.call_cancelled(server_id, notification)
 
     async def _handle_progress(
