@@ -72,6 +72,7 @@ from conduit.server.protocol.logging import LoggingManager
 from conduit.server.protocol.prompts import PromptManager
 from conduit.server.protocol.resources import ResourceManager
 from conduit.server.protocol.tools import ToolManager
+from conduit.server.request_context import RequestContext
 from conduit.transport.server import ServerTransport
 
 
@@ -176,7 +177,7 @@ class ServerSession:
     # ================================
 
     async def _handle_initialize(
-        self, client_id: str, request: InitializeRequest
+        self, context: RequestContext, request: InitializeRequest
     ) -> InitializeResult | Error:
         """Handle the first step of the MCP initialization handshake.
 
@@ -191,7 +192,7 @@ class ServerSession:
             Error: If the protocol version is incompatible or the client is already
                 initialized.
         """
-
+        client_id = context.client_id
         if request.protocol_version != self.server_config.protocol_version:
             return Error(
                 code=PROTOCOL_VERSION_MISMATCH,
@@ -224,13 +225,14 @@ class ServerSession:
         )
 
     async def _handle_initialized(
-        self, client_id: str, notification: InitializedNotification
+        self, context: RequestContext, notification: InitializedNotification
     ) -> None:
         """Complete the initialization handshake.
 
         Marks the client as fully initialized and calls any registered callbacks.
         After this point, the client is ready for normal operation.
         """
+        client_id = context.client_id
         state = self.client_manager.get_client(client_id)
         if state:
             state.initialized = True
@@ -241,7 +243,9 @@ class ServerSession:
     # Ping
     # ================================
 
-    async def _handle_ping(self, client_id: str, request: PingRequest) -> EmptyResult:
+    async def _handle_ping(
+        self, context: RequestContext, request: PingRequest
+    ) -> EmptyResult:
         """Always returns an empty result.
 
         Clients send pings to check connection health.
@@ -253,7 +257,7 @@ class ServerSession:
     # ================================
 
     async def _handle_list_tools(
-        self, client_id: str, request: ListToolsRequest
+        self, context: RequestContext, request: ListToolsRequest
     ) -> ListToolsResult | Error:
         """Return the list of available tools.
 
@@ -267,10 +271,10 @@ class ServerSession:
                 message="Server does not support tools capability",
             )
 
-        return await self.tools.handle_list(client_id, request)
+        return await self.tools.handle_list(context, request)
 
     async def _handle_call_tool(
-        self, client_id: str, request: CallToolRequest
+        self, context: RequestContext, request: CallToolRequest
     ) -> CallToolResult | Error:
         """Execute a tool call.
 
@@ -287,7 +291,7 @@ class ServerSession:
                 message="Server does not support tools capability",
             )
         try:
-            return await self.tools.handle_call(client_id, request)
+            return await self.tools.handle_call(context, request)
         except KeyError:
             return Error(code=METHOD_NOT_FOUND, message=f"Unknown tool: {request.name}")
 
@@ -296,7 +300,7 @@ class ServerSession:
     # ================================
 
     async def _handle_list_prompts(
-        self, client_id: str, request: ListPromptsRequest
+        self, context: RequestContext, request: ListPromptsRequest
     ) -> ListPromptsResult | Error:
         """Return the list of available prompts.
 
@@ -309,10 +313,10 @@ class ServerSession:
                 code=METHOD_NOT_FOUND,
                 message="Server does not support prompts capability",
             )
-        return await self.prompts.handle_list_prompts(client_id, request)
+        return await self.prompts.handle_list_prompts(context, request)
 
     async def _handle_get_prompt(
-        self, client_id: str, request: GetPromptRequest
+        self, context: RequestContext, request: GetPromptRequest
     ) -> GetPromptResult | Error:
         """Return the contents of a specific prompt.
 
@@ -327,7 +331,7 @@ class ServerSession:
                 message="Server does not support prompts capability",
             )
         try:
-            return await self.prompts.handle_get_prompt(client_id, request)
+            return await self.prompts.handle_get_prompt(context, request)
         except KeyError as e:
             return Error(code=METHOD_NOT_FOUND, message=str(e))
         except Exception:
@@ -341,7 +345,7 @@ class ServerSession:
     # ================================
 
     async def _handle_list_resources(
-        self, client_id: str, request: ListResourcesRequest
+        self, context: RequestContext, request: ListResourcesRequest
     ) -> ListResourcesResult | Error:
         """Return the list of available resources.
 
@@ -355,10 +359,10 @@ class ServerSession:
                 message="Server does not support resources capability",
             )
 
-        return await self.resources.handle_list_resources(client_id, request)
+        return await self.resources.handle_list_resources(context, request)
 
     async def _handle_list_resource_templates(
-        self, client_id: str, request: ListResourceTemplatesRequest
+        self, context: RequestContext, request: ListResourceTemplatesRequest
     ) -> ListResourceTemplatesResult | Error:
         """Return the list of available resource templates.
 
@@ -371,10 +375,10 @@ class ServerSession:
                 code=METHOD_NOT_FOUND,
                 message="Server does not support resources capability",
             )
-        return await self.resources.handle_list_templates(client_id, request)
+        return await self.resources.handle_list_templates(context, request)
 
     async def _handle_read_resource(
-        self, client_id: str, request: ReadResourceRequest
+        self, context: RequestContext, request: ReadResourceRequest
     ) -> ReadResourceResult | Error:
         """Return the contents of a specific resource.
 
@@ -389,7 +393,7 @@ class ServerSession:
                 message="Server does not support resources capability",
             )
         try:
-            return await self.resources.handle_read(client_id, request)
+            return await self.resources.handle_read(context, request)
         except KeyError as e:
             return Error(code=METHOD_NOT_FOUND, message=str(e))
         except Exception:
@@ -399,7 +403,7 @@ class ServerSession:
             )
 
     async def _handle_subscribe(
-        self, client_id: str, request: SubscribeRequest
+        self, context: RequestContext, request: SubscribeRequest
     ) -> EmptyResult | Error:
         """Subscribe to a resource.
 
@@ -417,12 +421,12 @@ class ServerSession:
                 message="Server does not support resource subscription",
             )
         try:
-            return await self.resources.handle_subscribe(client_id, request)
+            return await self.resources.handle_subscribe(context, request)
         except KeyError as e:
             return Error(code=METHOD_NOT_FOUND, message=str(e))
 
     async def _handle_unsubscribe(
-        self, client_id: str, request: UnsubscribeRequest
+        self, context: RequestContext, request: UnsubscribeRequest
     ) -> EmptyResult | Error:
         """Unsubscribe from a resource.
 
@@ -440,7 +444,7 @@ class ServerSession:
                 message="Server does not support resource subscription",
             )
         try:
-            return await self.resources.handle_unsubscribe(client_id, request)
+            return await self.resources.handle_unsubscribe(context, request)
         except KeyError as e:
             return Error(code=METHOD_NOT_FOUND, message=str(e))
 
@@ -449,7 +453,7 @@ class ServerSession:
     # ================================
 
     async def _handle_complete(
-        self, client_id: str, request: CompleteRequest
+        self, context: RequestContext, request: CompleteRequest
     ) -> CompleteResult | Error:
         """Generate a completion for a given prompt.
 
@@ -464,7 +468,7 @@ class ServerSession:
                 message="Server does not support completions capability",
             )
         try:
-            return await self.completions.handle_complete(client_id, request)
+            return await self.completions.handle_complete(context, request)
         except CompletionNotConfiguredError:
             return Error(
                 code=METHOD_NOT_FOUND,
@@ -481,7 +485,7 @@ class ServerSession:
     # ================================
 
     async def _handle_set_level(
-        self, client_id: str, request: SetLevelRequest
+        self, context: RequestContext, request: SetLevelRequest
     ) -> EmptyResult | Error:
         """Set the logging level for the given client.
 
@@ -495,35 +499,38 @@ class ServerSession:
                 code=METHOD_NOT_FOUND,
                 message="Server does not support logging capability",
             )
-        return await self.logging.handle_set_level(client_id, request)
+        return await self.logging.handle_set_level(context, request)
 
     # ================================
     # Notifications
     # ================================
 
     async def _handle_cancelled(
-        self, client_id: str, notification: CancelledNotification
+        self, context: RequestContext, notification: CancelledNotification
     ) -> None:
         """Cancels a request from a client and calls the registered callback."""
+        client_id = context.client_id
         was_cancelled = await self._coordinator.cancel_request_from_client(
             client_id, notification.request_id
         )
         await self.callbacks.call_cancelled(client_id, notification)
 
     async def _handle_progress(
-        self, client_id: str, notification: ProgressNotification
+        self, context: RequestContext, notification: ProgressNotification
     ) -> None:
         """Calls the registered callback for progress updates."""
+        client_id = context.client_id
         await self.callbacks.call_progress(client_id, notification)
 
     async def _handle_roots_list_changed(
-        self, client_id: str, notification: RootsListChangedNotification
+        self, context: RequestContext, notification: RootsListChangedNotification
     ) -> None:
         """Handle roots/list_changed notification.
 
         Fetch the updated list of roots from the client, update the client state,
         and call any registered callbacks.
         """
+        client_id = context.client_id
         try:
             result = await self._coordinator.send_request(client_id, ListRootsRequest())
 
