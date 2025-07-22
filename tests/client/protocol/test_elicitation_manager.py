@@ -6,6 +6,7 @@ from conduit.client.protocol.elicitation import (
     ElicitationManager,
     ElicitationNotConfiguredError,
 )
+from conduit.client.request_context import RequestContext
 from conduit.protocol.elicitation import (
     ElicitRequest,
     ElicitResult,
@@ -15,6 +16,14 @@ from conduit.protocol.elicitation import (
 
 
 class TestElicitationManager:
+    def setup_method(self):
+        self.context = RequestContext(
+            server_id="server_id",
+            server_state=AsyncMock(),
+            server_manager=AsyncMock(),
+            transport=AsyncMock(),
+        )
+
     async def test_init_creates_unconfigured_manager(self):
         # Arrange
         manager = ElicitationManager()
@@ -28,7 +37,7 @@ class TestElicitationManager:
 
         # Act & Assert
         with pytest.raises(ElicitationNotConfiguredError):
-            await manager.handle_elicitation("server_id", request)
+            await manager.handle_elicitation(self.context, request)
 
     async def test_handle_elicitation_calls_handler_and_returns_result(self):
         # Arrange
@@ -45,7 +54,7 @@ class TestElicitationManager:
 
         # Act
         manager.elicitation_handler = handler
-        result = await manager.handle_elicitation("server_id", request)
+        result = await manager.handle_elicitation(self.context, request)
 
         # Assert
         handler.assert_awaited_once_with(request)

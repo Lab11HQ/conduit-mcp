@@ -1,8 +1,19 @@
+from unittest.mock import AsyncMock
+
 from conduit.client.protocol.roots import RootsManager
+from conduit.client.request_context import RequestContext
 from conduit.protocol.roots import ListRootsRequest, ListRootsResult, Root
 
 
 class TestRootsManager:
+    def setup_method(self):
+        self.context = RequestContext(
+            server_id="server_id",
+            server_state=AsyncMock(),
+            server_manager=AsyncMock(),
+            transport=AsyncMock(),
+        )
+
     def test_add_root_appends_to_global_roots(self):
         # Arrange
         manager = RootsManager()
@@ -58,16 +69,6 @@ class TestRootsManager:
         # Assert
         assert manager.get_roots() == []
 
-    async def test_handle_list_roots_returns_empty_list_if_no_roots(self):
-        # Arrange
-        manager = RootsManager()
-
-        # Act
-        result = await manager.handle_list_roots("server_id", ListRootsRequest())
-
-        # Assert
-        assert result == ListRootsResult(roots=[])
-
     def test_add_root_to_server_appends_to_server_roots(self):
         # Arrange
         manager = RootsManager()
@@ -109,3 +110,13 @@ class TestRootsManager:
         # Assert
         assert manager.get_roots() == [global_root]
         assert manager.get_server_roots("server_id") == [global_root]
+
+    async def test_handle_list_roots_returns_empty_list_if_no_roots(self):
+        # Arrange
+        manager = RootsManager()
+
+        # Act
+        result = await manager.handle_list_roots(self.context, ListRootsRequest())
+
+        # Assert
+        assert result == ListRootsResult(roots=[])
