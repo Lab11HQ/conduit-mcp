@@ -3,11 +3,20 @@ from unittest.mock import AsyncMock
 import pytest
 
 from conduit.client.protocol.sampling import SamplingManager, SamplingNotConfiguredError
+from conduit.client.request_context import RequestContext
 from conduit.protocol.content import TextContent
 from conduit.protocol.sampling import CreateMessageRequest, CreateMessageResult
 
 
 class TestSamplingManager:
+    def setup_method(self):
+        self.context = RequestContext(
+            server_id="server_id",
+            server_state=AsyncMock(),
+            server_manager=AsyncMock(),
+            transport=AsyncMock(),
+        )
+
     async def test_init_creates_unconfigured_manager(self):
         # Arrange
         manager = SamplingManager()
@@ -20,7 +29,7 @@ class TestSamplingManager:
         with pytest.raises(
             SamplingNotConfiguredError, match="No sampling handler registered"
         ):
-            await manager.handle_create_message("server_id", request)
+            await manager.handle_create_message(self.context, request)
 
     async def test_handle_create_message_calls_handler_and_returns_result(self):
         # Arrange
@@ -38,7 +47,7 @@ class TestSamplingManager:
 
         # Act
         manager.sampling_handler = handler
-        result = await manager.handle_create_message("server_id", request)
+        result = await manager.handle_create_message(self.context, request)
 
         # Assert
         handler.assert_awaited_once_with(request)

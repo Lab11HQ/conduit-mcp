@@ -227,6 +227,7 @@ class MessageCoordinator:
                 message=f"Failed to build request context: {e}",
             )
             await self._send_error(client_id, request_id, error)
+            self.logger.error(f"Failed to build request context for {client_id}: {e}")
             return
 
         task = asyncio.create_task(
@@ -312,7 +313,6 @@ class MessageCoordinator:
             name=f"notify_{notification.method}_{client_id}",
         )
 
-        # Don't track notifications - they're fire-and-forget
         task.add_done_callback(self._on_notification_done)
 
     def _on_notification_done(self, task: asyncio.Task[None]) -> None:

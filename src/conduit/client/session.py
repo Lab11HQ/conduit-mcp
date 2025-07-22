@@ -20,6 +20,7 @@ from conduit.client.protocol.elicitation import (
 )
 from conduit.client.protocol.roots import RootsManager
 from conduit.client.protocol.sampling import SamplingManager, SamplingNotConfiguredError
+from conduit.client.request_context import RequestContext
 from conduit.client.server_manager import ServerManager
 from conduit.protocol.base import (
     INTERNAL_ERROR,
@@ -278,7 +279,9 @@ class ClientSession:
     # Ping
     # ================================
 
-    async def _handle_ping(self, server_id: str, request: PingRequest) -> EmptyResult:
+    async def _handle_ping(
+        self, context: RequestContext, request: PingRequest
+    ) -> EmptyResult:
         """Returns an empty result."""
 
         return EmptyResult()
@@ -288,7 +291,7 @@ class ClientSession:
     # ================================
 
     async def _handle_list_roots(
-        self, server_id: str, request: ListRootsRequest
+        self, context: RequestContext, request: ListRootsRequest
     ) -> ListRootsResult | Error:
         """Returns the roots available to the server.
 
@@ -301,14 +304,14 @@ class ClientSession:
                 code=METHOD_NOT_FOUND,
                 message="Client does not support roots capability",
             )
-        return await self.roots.handle_list_roots(server_id, request)
+        return await self.roots.handle_list_roots(context, request)
 
     # ================================
     # Sampling
     # ================================
 
     async def _handle_sampling(
-        self, server_id: str, request: CreateMessageRequest
+        self, context: RequestContext, request: CreateMessageRequest
     ) -> CreateMessageResult | Error:
         """Creates a message using the configured sampling handler.
 
@@ -323,7 +326,7 @@ class ClientSession:
                 message="Client does not support sampling capability",
             )
         try:
-            return await self.sampling.handle_create_message(server_id, request)
+            return await self.sampling.handle_create_message(context, request)
         except SamplingNotConfiguredError as e:
             return Error(code=METHOD_NOT_FOUND, message=str(e))
         except Exception:
@@ -338,7 +341,7 @@ class ClientSession:
     # ================================
 
     async def _handle_elicitation(
-        self, server_id: str, request: ElicitRequest
+        self, context: RequestContext, request: ElicitRequest
     ) -> ElicitResult | Error:
         """Returns an elicitation result using the configured elicitation handler
 
@@ -353,7 +356,7 @@ class ClientSession:
                 message="Client does not support elicitation capability",
             )
         try:
-            return await self.elicitation.handle_elicitation(server_id, request)
+            return await self.elicitation.handle_elicitation(context, request)
         except ElicitationNotConfiguredError as e:
             return Error(code=METHOD_NOT_FOUND, message=str(e))
         except Exception:
@@ -368,30 +371,30 @@ class ClientSession:
     # ================================
 
     async def _handle_cancelled(
-        self, server_id: str, notification: CancelledNotification
+        self, context: RequestContext, notification: CancelledNotification
     ) -> None:
         """Cancels a request from the server and calls the registered callback."""
         # Query: Check if request exists before attempting cancellation
         request_exists = (
             self.server_manager.get_request_from_server(
-                server_id, notification.request_id
+                context.server_id, notification.request_id
             )
             is not None
         )
         if request_exists:
             await self._coordinator.cancel_request_from_server(
-                server_id, notification.request_id
+                context.server_id, notification.request_id
             )
-            await self.callbacks.call_cancelled(server_id, notification)
+            await self.callbacks.call_cancelled(context.server_id, notification)
 
     async def _handle_progress(
-        self, server_id: str, notification: ProgressNotification
+        self, context: RequestContext, notification: ProgressNotification
     ) -> None:
         """Calls the registered callback for progress updates."""
-        await self.callbacks.call_progress(server_id, notification)
+        await self.callbacks.call_progress(context.server_id, notification)
 
     async def _handle_prompts_list_changed(
-        self, server_id: str, notification: PromptListChangedNotification
+        self, context: RequestContext, notification: PromptListChangedNotification
     ) -> None:
         """Fetches the updated prompts list and calls the registered callback.
 
@@ -402,20 +405,20 @@ class ClientSession:
         """
         try:
             list_prompts_result = await self.send_request(
-                server_id, ListPromptsRequest()
+                context.server_id, ListPromptsRequest()
             )
             if isinstance(list_prompts_result, ListPromptsResult):
-                server_state = self.server_manager.get_server(server_id)
+                server_state = self.server_manager.get_server(context.server_id)
                 if server_state is not None:
                     server_state.prompts = list_prompts_result.prompts
                 await self.callbacks.call_prompts_changed(
-                    server_id, list_prompts_result.prompts
+                    context.server_id, list_prompts_result.prompts
                 )
         except Exception:
             pass
 
     async def _handle_resources_list_changed(
-        self, server_id: str, notification: ResourceListChangedNotification
+        self, context: RequestContext, notification: ResourceListChangedNotification
     ) -> None:
         """Fetches the updated resources/templates and calls the registered callback.
 
@@ -425,11 +428,11 @@ class ClientSession:
         """
         resources: list[Resource] = []
         templates: list[ResourceTemplate] = []
-        server_state = self.server_manager.get_server(server_id)
+        server_state = self.server_manager.get_server(context.server_id)
 
         try:
             list_resources_result = await self.send_request(
-                server_id, ListResourcesRequest()
+                context.server_id, ListResourcesRequest()
             )
             if isinstance(list_resources_result, ListResourcesResult):
                 resources = list_resources_result.resources
@@ -440,7 +443,7 @@ class ClientSession:
 
         try:
             list_templates_result = await self.send_request(
-                server_id, ListResourceTemplatesRequest()
+                context.server_id, ListResourceTemplatesRequest()
             )
             if isinstance(list_templates_result, ListResourceTemplatesResult):
                 templates = list_templates_result.resource_templates
@@ -450,10 +453,12 @@ class ClientSession:
             pass
 
         if resources or templates:
-            await self.callbacks.call_resources_changed(server_id, resources, templates)
+            await self.callbacks.call_resources_changed(
+                context.server_id, resources, templates
+            )
 
     async def _handle_resources_updated(
-        self, server_id: str, notification: ResourceUpdatedNotification
+        self, context: RequestContext, notification: ResourceUpdatedNotification
     ) -> None:
         """Reads the updated resource content and calls the registered callback.
 
@@ -463,17 +468,17 @@ class ClientSession:
         """
         try:
             read_resource_result = await self.send_request(
-                server_id, ReadResourceRequest(uri=notification.uri)
+                context.server_id, ReadResourceRequest(uri=notification.uri)
             )
             if isinstance(read_resource_result, ReadResourceResult):
                 await self.callbacks.call_resource_updated(
-                    server_id, notification.uri, read_resource_result
+                    context.server_id, notification.uri, read_resource_result
                 )
         except Exception:
             pass
 
     async def _handle_tools_list_changed(
-        self, server_id: str, notification: ToolListChangedNotification
+        self, context: RequestContext, notification: ToolListChangedNotification
     ) -> None:
         """Fetches the updated tools list and calls the registered callback.
 
@@ -483,22 +488,24 @@ class ClientSession:
             disrupting the session.
         """
         try:
-            list_tools_result = await self.send_request(server_id, ListToolsRequest())
+            list_tools_result = await self.send_request(
+                context.server_id, ListToolsRequest()
+            )
             if isinstance(list_tools_result, ListToolsResult):
-                server_state = self.server_manager.get_server(server_id)
+                server_state = self.server_manager.get_server(context.server_id)
                 if server_state is not None:
                     server_state.tools = list_tools_result.tools
                 await self.callbacks.call_tools_changed(
-                    server_id, list_tools_result.tools
+                    context.server_id, list_tools_result.tools
                 )
         except Exception:
             pass
 
     async def _handle_logging_message(
-        self, server_id: str, notification: LoggingMessageNotification
+        self, context: RequestContext, notification: LoggingMessageNotification
     ) -> None:
         """Calls the registered callback for logging messages."""
-        await self.callbacks.call_logging_message(server_id, notification)
+        await self.callbacks.call_logging_message(context.server_id, notification)
 
     # ================================
     # Send messages

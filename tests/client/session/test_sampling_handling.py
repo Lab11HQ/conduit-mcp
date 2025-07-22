@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock
 
 from conduit.client.protocol.sampling import SamplingNotConfiguredError
+from conduit.client.request_context import RequestContext
 from conduit.client.session import ClientConfig, ClientSession
 from conduit.protocol.base import INTERNAL_ERROR, METHOD_NOT_FOUND, Error
 from conduit.protocol.content import TextContent
@@ -20,6 +21,12 @@ class TestSamplingRequestHandling:
         self.config_without_sampling = ClientConfig(
             client_info=Implementation(name="test-client", version="1.0.0"),
             capabilities=ClientCapabilities(sampling=False),
+        )
+        self.context = RequestContext(
+            server_id="server_id",
+            server_state=AsyncMock(),
+            server_manager=AsyncMock(),
+            transport=AsyncMock(),
         )
 
     _sampling_wire_message = {
@@ -53,7 +60,9 @@ class TestSamplingRequestHandling:
         )
 
         # Act
-        result = await self.session._handle_sampling("server_id", self.sampling_request)
+        result = await self.session._handle_sampling(
+            self.context, self.sampling_request
+        )
 
         # Assert
         assert result == mock_result
@@ -64,7 +73,9 @@ class TestSamplingRequestHandling:
         self.session = ClientSession(self.transport, self.config_without_sampling)
 
         # Act
-        result = await self.session._handle_sampling("server_id", self.sampling_request)
+        result = await self.session._handle_sampling(
+            self.context, self.sampling_request
+        )
 
         # Assert
         assert isinstance(result, Error)
@@ -80,7 +91,9 @@ class TestSamplingRequestHandling:
         )
 
         # Act
-        result = await self.session._handle_sampling("server_id", self.sampling_request)
+        result = await self.session._handle_sampling(
+            self.context, self.sampling_request
+        )
 
         # Assert
         assert isinstance(result, Error)
@@ -96,7 +109,9 @@ class TestSamplingRequestHandling:
         )
 
         # Act
-        result = await self.session._handle_sampling("server_id", self.sampling_request)
+        result = await self.session._handle_sampling(
+            self.context, self.sampling_request
+        )
 
         # Assert
         assert isinstance(result, Error)

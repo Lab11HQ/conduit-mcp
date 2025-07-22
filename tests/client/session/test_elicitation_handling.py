@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock
 
 from conduit.client.protocol.elicitation import ElicitationNotConfiguredError
+from conduit.client.request_context import RequestContext
 from conduit.client.session import ClientConfig, ClientSession
 from conduit.protocol.base import INTERNAL_ERROR, METHOD_NOT_FOUND, Error
 from conduit.protocol.elicitation import ElicitRequest, ElicitResult
@@ -19,6 +20,12 @@ class TestElicitationRequestHandling:
         self.config_without_elicitation = ClientConfig(
             client_info=Implementation(name="test-client", version="1.0.0"),
             capabilities=ClientCapabilities(elicitation=False),
+        )
+        self.context = RequestContext(
+            server_id="server_id",
+            server_state=AsyncMock(),
+            server_manager=AsyncMock(),
+            transport=AsyncMock(),
         )
 
     _elicitation_wire_message = {
@@ -50,7 +57,7 @@ class TestElicitationRequestHandling:
 
         # Act
         result = await self.session._handle_elicitation(
-            "server_id", self.elicitation_request
+            self.context, self.elicitation_request
         )
 
         # Assert
@@ -63,7 +70,7 @@ class TestElicitationRequestHandling:
 
         # Act
         result = await self.session._handle_elicitation(
-            "server_id", self.elicitation_request
+            self.context, self.elicitation_request
         )
 
         # Assert
@@ -81,7 +88,7 @@ class TestElicitationRequestHandling:
 
         # Act
         result = await self.session._handle_elicitation(
-            "server_id", self.elicitation_request
+            self.context, self.elicitation_request
         )
 
         # Assert
@@ -99,7 +106,7 @@ class TestElicitationRequestHandling:
 
         # Act
         result = await self.session._handle_elicitation(
-            "server_id", self.elicitation_request
+            self.context, self.elicitation_request
         )
 
         # Assert

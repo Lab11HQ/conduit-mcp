@@ -1,5 +1,6 @@
 import asyncio
 
+from conduit.client.request_context import RequestContext
 from conduit.protocol.base import INTERNAL_ERROR, METHOD_NOT_FOUND
 from conduit.protocol.common import EmptyResult, PingRequest
 from conduit.protocol.elicitation import ElicitRequest, ElicitResult
@@ -12,8 +13,10 @@ class TestRequestHandling:
         # Arrange: Set up a simple request handler
         handled_requests = []
 
-        async def mock_handler(server_id: str, request: PingRequest) -> EmptyResult:
-            handled_requests.append((server_id, request))
+        async def mock_handler(
+            context: RequestContext, request: PingRequest
+        ) -> EmptyResult:
+            handled_requests.append((context, request))
             return EmptyResult()
 
         # Register the handler
@@ -42,8 +45,9 @@ class TestRequestHandling:
 
         # Assert: Handler was called correctly
         assert len(handled_requests) == 1
-        server_id, request = handled_requests[0]
-        assert server_id == "test-server"
+        context, request = handled_requests[0]
+        assert isinstance(context, RequestContext)
+        assert context.server_id == "test-server"
         assert request.method == "ping"
 
         # Assert: Response was sent back to server
@@ -71,7 +75,7 @@ class TestRequestHandling:
         handler_called = False
 
         async def should_not_be_called(
-            server_id: str,
+            context: RequestContext,
             request: ElicitRequest,
         ) -> ElicitResult:
             nonlocal handler_called
@@ -131,7 +135,9 @@ class TestRequestHandling:
         self, coordinator, mock_transport, yield_loop
     ):
         # Arrange: Set up a handler that throws an exception
-        async def failing_handler(server_id: str, request: PingRequest) -> EmptyResult:
+        async def failing_handler(
+            context: RequestContext, request: PingRequest
+        ) -> EmptyResult:
             raise ValueError("Something went wrong in the handler")
 
         coordinator.register_request_handler("roots/list", failing_handler)
@@ -173,7 +179,9 @@ class TestRequestHandling:
         handler_started = asyncio.Event()
         handler_cancelled = False
 
-        async def slow_handler(server_id: str, request: PingRequest) -> EmptyResult:
+        async def slow_handler(
+            context: RequestContext, request: PingRequest
+        ) -> EmptyResult:
             nonlocal handler_cancelled
             handler_started.set()  # Signal that handler has started
             try:
