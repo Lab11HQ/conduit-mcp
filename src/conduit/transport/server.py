@@ -52,8 +52,5 @@ class ServerTransport(ABC):
 
         Args:
             client_id: Client connection ID to disconnect
-
-        Raises:
-            ValueError: If client_id is not connected
         """
         ...
