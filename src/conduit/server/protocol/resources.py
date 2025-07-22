@@ -3,7 +3,7 @@
 import logging
 import re
 from copy import deepcopy
-from typing import Awaitable, Callable
+from typing import TYPE_CHECKING, Awaitable, Callable
 
 from conduit.protocol.common import EmptyResult
 from conduit.protocol.resources import (
@@ -19,9 +19,16 @@ from conduit.protocol.resources import (
     UnsubscribeRequest,
 )
 
-# Type aliases for resource handlers
-ResourceHandler = Callable[[str, ReadResourceRequest], Awaitable[ReadResourceResult]]
-SubscriptionCallback = Callable[[str, str], Awaitable[None]]  # (client_id, uri)
+if TYPE_CHECKING:
+    from conduit.server.request_context import RequestContext
+
+
+ResourceHandler = Callable[
+    ["RequestContext", ReadResourceRequest], Awaitable[ReadResourceResult]
+]
+SubscriptionCallback = Callable[
+    [str, str], Awaitable[None]
+]  # (client_id, uri) - keeping this as-is for now
 
 
 class ResourceManager:
@@ -237,26 +244,26 @@ class ResourceManager:
     # ===============================
 
     async def handle_list_resources(
-        self, client_id: str, request: ListResourcesRequest
+        self, context: "RequestContext", request: ListResourcesRequest
     ) -> ListResourcesResult:
         """Lists all resources available to a specific client."""
-        resources = self.get_client_resources(client_id)
+        resources = self.get_client_resources(context.client_id)
         return ListResourcesResult(resources=list(resources.values()))
 
     async def handle_list_templates(
-        self, client_id: str, request: ListResourceTemplatesRequest
+        self, context: "RequestContext", request: ListResourceTemplatesRequest
     ) -> ListResourceTemplatesResult:
         """Lists all resource templates available to a specific client."""
-        templates = self.get_client_templates(client_id)
+        templates = self.get_client_templates(context.client_id)
         return ListResourceTemplatesResult(resource_templates=list(templates.values()))
 
     async def handle_read(
-        self, client_id: str, request: ReadResourceRequest
+        self, context: "RequestContext", request: ReadResourceRequest
     ) -> ReadResourceResult:
         """Reads a resource by URI for specific client.
 
         Args:
-            client_id: ID of the client reading the resource
+            context: Rich request context with client state and helpers
             request: Read resource request with URI
 
         Returns:
@@ -268,41 +275,48 @@ class ResourceManager:
         """
         uri = request.uri
 
-        if client_id in self.client_handlers and uri in self.client_handlers[client_id]:
-            return await self.client_handlers[client_id][uri](client_id, request)
+        # Check client-specific handlers first
+        if (
+            context.client_id in self.client_handlers
+            and uri in self.client_handlers[context.client_id]
+        ):
+            return await self.client_handlers[context.client_id][uri](context, request)
         elif uri in self.global_handlers:
-            return await self.global_handlers[uri](client_id, request)
+            return await self.global_handlers[uri](context, request)
 
-        if client_id in self.client_template_handlers:
+        # Check client-specific template handlers
+        if context.client_id in self.client_template_handlers:
             for template_pattern, handler in self.client_template_handlers[
-                client_id
+                context.client_id
             ].items():
                 if self._matches_template(uri=uri, template=template_pattern):
-                    return await handler(client_id, request)
+                    return await handler(context, request)
 
+        # Check global template handlers
         for template_pattern, handler in self.global_template_handlers.items():
             if self._matches_template(uri=uri, template=template_pattern):
-                return await handler(client_id, request)
+                return await handler(context, request)
 
-        raise KeyError(f"Unknown resource: {uri}")
+        raise KeyError(f"No resource or template handler found for URI: {uri}")
 
     async def handle_subscribe(
-        self, client_id: str, request: SubscribeRequest
+        self, context: "RequestContext", request: SubscribeRequest
     ) -> EmptyResult:
-        """Subscribes client to resource change notifications.
+        """Subscribe to resource updates for specific client.
 
         Args:
-            client_id: ID of the client subscribing
-            request: Subscribe request with resource URI
+            context: Rich request context with client state and helpers
+            request: Subscribe request with URI
 
         Returns:
-            EmptyResult: Subscription recorded successfully
+            EmptyResult: Subscription confirmation
 
         Raises:
-            KeyError: If the URI matches no static resource or template pattern
+            ValueError: If URI is not valid or subscription fails
         """
-        resource_exists = False
         uri = request.uri
+        client_id = context.client_id
+        resource_exists = False
 
         client_resources = self.get_client_resources(client_id)
         if uri in client_resources:
@@ -331,21 +345,20 @@ class ResourceManager:
         return EmptyResult()
 
     async def handle_unsubscribe(
-        self, client_id: str, request: UnsubscribeRequest
+        self, context: "RequestContext", request: UnsubscribeRequest
     ) -> EmptyResult:
-        """Unsubscribes client from resource change notifications.
+        """Unsubscribe from resource updates for specific client.
 
         Args:
-            client_id: ID of the client unsubscribing
-            request: Unsubscribe request with resource URI
+            context: Rich request context with client state and helpers
+            request: Unsubscribe request with URI
 
         Returns:
-            EmptyResult: Unsubscription completed successfully
-
-        Raises:
-            KeyError: If client not currently subscribed to the resource
+            EmptyResult: Unsubscription confirmation
         """
         uri = request.uri
+        client_id = context.client_id
+
         client_subscriptions = self._client_subscriptions.get(client_id, set())
 
         if uri not in client_subscriptions:

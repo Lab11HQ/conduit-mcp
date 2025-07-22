@@ -2,6 +2,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from conduit.protocol.base import PROTOCOL_VERSION
+from conduit.protocol.initialization import (
+    ClientCapabilities,
+    Implementation,
+)
 from conduit.protocol.resources import (
     EmptyResult,
     ListResourcesRequest,
@@ -16,7 +21,9 @@ from conduit.protocol.resources import (
     TextResourceContents,
     UnsubscribeRequest,
 )
+from conduit.server.client_manager import ClientState
 from conduit.server.protocol.resources import ResourceManager
+from conduit.server.request_context import RequestContext
 
 
 class TestHandleList:
@@ -24,6 +31,26 @@ class TestHandleList:
         # Arrange - consistent setup for all tests
         self.manager = ResourceManager()
         self.client_id = "test-client-123"
+
+        # Create a basic RequestContext for testing
+        self.client_state = ClientState(
+            capabilities=ClientCapabilities(),
+            info=Implementation(name="test-client", version="1.0.0"),
+            protocol_version=PROTOCOL_VERSION,
+            initialized=True,
+        )
+
+        # Mock the dependencies we don't need for these tests
+        mock_client_manager = AsyncMock()
+        mock_transport = AsyncMock()
+
+        self.context = RequestContext(
+            client_id=self.client_id,
+            client_state=self.client_state,
+            client_manager=mock_client_manager,
+            transport=mock_transport,
+        )
+
         self.global_resource = Resource(uri="file:///global.txt", name="Global File")
         self.client_resource = Resource(uri="file:///client.txt", name="Client File")
         self.global_template = ResourceTemplate(
@@ -43,7 +70,7 @@ class TestHandleList:
         request = ListResourcesRequest()
 
         # Act
-        result = await self.manager.handle_list_resources(self.client_id, request)
+        result = await self.manager.handle_list_resources(self.context, request)
 
         # Assert
         assert isinstance(result, ListResourcesResult)
@@ -61,7 +88,7 @@ class TestHandleList:
         request = ListResourceTemplatesRequest()
 
         # Act
-        result = await self.manager.handle_list_templates(self.client_id, request)
+        result = await self.manager.handle_list_templates(self.context, request)
 
         # Assert
         assert isinstance(result, ListResourceTemplatesResult)
@@ -77,7 +104,7 @@ class TestHandleList:
         request = ListResourcesRequest()
 
         # Act
-        result = await self.manager.handle_list_resources(self.client_id, request)
+        result = await self.manager.handle_list_resources(self.context, request)
 
         # Assert
         assert isinstance(result, ListResourcesResult)
@@ -91,7 +118,7 @@ class TestHandleList:
         request = ListResourcesRequest()
 
         # Act
-        result = await self.manager.handle_list_resources(self.client_id, request)
+        result = await self.manager.handle_list_resources(self.context, request)
 
         # Assert
         assert isinstance(result, ListResourcesResult)
@@ -103,7 +130,7 @@ class TestHandleList:
         request = ListResourceTemplatesRequest()
 
         # Act
-        result = await self.manager.handle_list_templates(self.client_id, request)
+        result = await self.manager.handle_list_templates(self.context, request)
 
         # Assert
         assert isinstance(result, ListResourceTemplatesResult)
@@ -117,7 +144,7 @@ class TestHandleList:
         request = ListResourceTemplatesRequest()
 
         # Act
-        result = await self.manager.handle_list_templates(self.client_id, request)
+        result = await self.manager.handle_list_templates(self.context, request)
 
         # Assert
         assert isinstance(result, ListResourceTemplatesResult)
@@ -138,7 +165,7 @@ class TestHandleList:
         request = ListResourcesRequest()
 
         # Act
-        result = await self.manager.handle_list_resources(self.client_id, request)
+        result = await self.manager.handle_list_resources(self.context, request)
 
         # Assert
         assert isinstance(result, ListResourcesResult)
@@ -165,7 +192,7 @@ class TestHandleList:
         request = ListResourceTemplatesRequest()
 
         # Act
-        result = await self.manager.handle_list_templates(self.client_id, request)
+        result = await self.manager.handle_list_templates(self.context, request)
 
         # Assert
         assert isinstance(result, ListResourceTemplatesResult)
@@ -192,17 +219,33 @@ class TestHandleRead:
         )
         self.mock_handler = AsyncMock(return_value=self.expected_result)
 
+        mock_client_manager = AsyncMock()
+        mock_transport = AsyncMock()
+        self.client_state = ClientState(
+            capabilities=ClientCapabilities(),
+            info=Implementation(name="test-client", version="1.0.0"),
+            protocol_version=PROTOCOL_VERSION,
+            initialized=True,
+        )
+
+        self.context = RequestContext(
+            client_id=self.client_id,
+            client_state=self.client_state,
+            client_manager=mock_client_manager,
+            transport=mock_transport,
+        )
+
     async def test_handle_read_calls_handler_and_returns_result(self):
         # Arrange
         self.manager.add_resource(self.test_resource, self.mock_handler)
         request = ReadResourceRequest(uri="file:///test.txt")
 
         # Act
-        result = await self.manager.handle_read(self.client_id, request)
+        result = await self.manager.handle_read(self.context, request)
 
         # Assert
         # Verify handler was called with correct parameters
-        self.mock_handler.assert_awaited_once_with(self.client_id, request)
+        self.mock_handler.assert_awaited_once_with(self.context, request)
 
         # Verify result matches expectations
         assert result == self.expected_result
@@ -226,11 +269,11 @@ class TestHandleRead:
         request = ReadResourceRequest(uri="file:///logs/2024-01-15.log")
 
         # Act
-        result = await self.manager.handle_read(self.client_id, request)
+        result = await self.manager.handle_read(self.context, request)
 
         # Assert
         # Verify template handler was called with correct parameters
-        template_handler.assert_awaited_once_with(self.client_id, request)
+        template_handler.assert_awaited_once_with(self.context, request)
 
         # Verify result matches expectations
         assert result == expected_result
@@ -241,7 +284,7 @@ class TestHandleRead:
 
         # Act & Assert
         with pytest.raises(KeyError):
-            await self.manager.handle_read(self.client_id, request)
+            await self.manager.handle_read(self.context, request)
 
     async def test_handle_read_propagates_handler_exception(self):
         # Arrange
@@ -251,10 +294,10 @@ class TestHandleRead:
 
         # Act & Assert
         with pytest.raises(RuntimeError):
-            await self.manager.handle_read(self.client_id, request)
+            await self.manager.handle_read(self.context, request)
 
         # Verify handler was called before it failed
-        failing_handler.assert_awaited_once_with(self.client_id, request)
+        failing_handler.assert_awaited_once_with(self.context, request)
 
 
 class TestHandleSubscription:
@@ -264,6 +307,20 @@ class TestHandleSubscription:
         self.client_id = "test-client-123"
         self.test_resource = Resource(uri="file:///test.txt", name="Test File")
         self.mock_handler = AsyncMock()
+        self.client_state = ClientState(
+            capabilities=ClientCapabilities(),
+            info=Implementation(name="test-client", version="1.0.0"),
+            protocol_version=PROTOCOL_VERSION,
+            initialized=True,
+        )
+        mock_client_manager = AsyncMock()
+        mock_transport = AsyncMock()
+        self.context = RequestContext(
+            client_id=self.client_id,
+            client_state=self.client_state,
+            client_manager=mock_client_manager,
+            transport=mock_transport,
+        )
 
     async def test_handle_subscribe_records_subscription_and_returns_empty_result(self):
         # Arrange
@@ -273,7 +330,7 @@ class TestHandleSubscription:
         request = SubscribeRequest(uri="file:///test.txt")
 
         # Act
-        result = await self.manager.handle_subscribe(self.client_id, request)
+        result = await self.manager.handle_subscribe(self.context, request)
 
         # Assert
         # Verify subscription was recorded
@@ -298,7 +355,7 @@ class TestHandleSubscription:
         request = UnsubscribeRequest(uri="file:///test.txt")
 
         # Act
-        result = await self.manager.handle_unsubscribe(self.client_id, request)
+        result = await self.manager.handle_unsubscribe(self.context, request)
 
         # Assert
         # Verify subscription was removed
@@ -320,7 +377,7 @@ class TestHandleSubscription:
 
         # Act & Assert
         with pytest.raises(KeyError):
-            await self.manager.handle_subscribe(self.client_id, request)
+            await self.manager.handle_subscribe(self.context, request)
 
         # Verify no subscription was recorded
         assert self.client_id not in self.manager._client_subscriptions
@@ -333,7 +390,7 @@ class TestHandleSubscription:
 
         # Act & Assert
         with pytest.raises(KeyError):
-            await self.manager.handle_unsubscribe(self.client_id, request)
+            await self.manager.handle_unsubscribe(self.context, request)
 
     async def test_handle_subscribe_continues_when_callback_raises(self):
         # Arrange
@@ -343,7 +400,7 @@ class TestHandleSubscription:
         request = SubscribeRequest(uri="file:///test.txt")
 
         # Act - should not raise the callback exception
-        result = await self.manager.handle_subscribe(self.client_id, request)
+        result = await self.manager.handle_subscribe(self.context, request)
 
         # Assert
         # Verify subscription was still recorded despite callback failure
@@ -366,7 +423,7 @@ class TestHandleSubscription:
         request = UnsubscribeRequest(uri="file:///test.txt")
 
         # Act - should not raise the callback exception
-        result = await self.manager.handle_unsubscribe(self.client_id, request)
+        result = await self.manager.handle_unsubscribe(self.context, request)
 
         # Assert
         # Verify subscription was still removed despite callback failure
