@@ -45,8 +45,8 @@ class MessageCoordinator:
     """Coordinates all message flow for client sessions.
 
     Handles bidirectional message coordination: routes inbound requests/notifications
-    from server, sends outbound requests to server, and manages response tracking.
-    Keeps the session focused on protocol logic.
+    from server, sends outbound requests to server, and enriches incoming messages with
+    server context.
     """
 
     def __init__(self, transport: ClientTransport, server_manager: ServerManager):
@@ -76,9 +76,6 @@ class MessageCoordinator:
         messages until stop() is called.
 
         Safe to call multiple times - subsequent calls are ignored if already running.
-
-        Raises:
-            ConnectionError: If the transport is closed or unavailable.
         """
         if self.running:
             return
@@ -87,7 +84,7 @@ class MessageCoordinator:
         self._message_loop_task.add_done_callback(self._on_message_loop_done)
 
     async def stop(self) -> None:
-        """Stop message processing and clean up all incoming and outgoing requests.
+        """Stop message processing and clean up all requests.
 
         Safe to call multiple times.
         """
@@ -111,9 +108,9 @@ class MessageCoordinator:
     async def _message_loop(self) -> None:
         """Processes incoming messages until cancelled or transport fails.
 
-        Runs continuously in the background and hands off messages to registered
-        handlers. Individual message handling errors are logged and don't interrupt
-        the loop, but transport failures will stop message processing entirely.
+        Runs continuously in the background and hands off messages to handlers.
+        Individual message handling errors are logged and don't interrupt the loop,
+        but transport failures will stop message processing entirely.
         """
         try:
             async for server_message in self.transport.server_messages():
@@ -128,11 +125,10 @@ class MessageCoordinator:
             self.logger.error(f"Transport error: {e}")
 
     def _on_message_loop_done(self, task: asyncio.Task[None]) -> None:
-        """Clean up when message loop task completes.
+        """Cleans up when message loop task completes.
 
-        Called whenever the message loop task finishes - whether due to normal
-        completion, cancellation, or unexpected errors. Ensures proper cleanup
-        of coordinator state.
+        Called whenever the message loop task finishes - ensures proper cleanup of
+        coordinator state.
         """
         self._message_loop_task = None
         self.server_manager.cleanup_all_servers()
@@ -142,13 +138,16 @@ class MessageCoordinator:
     # ================================
 
     def _build_context(self, server_id: str) -> RequestContext:
-        """Build rich context for a request.
+        """Builds context for a request.
 
         Args:
             server_id: ID of the server making the request
 
         Returns:
-            RequestContext: Rich context with server state and helpers
+            RequestContext: Context with server state and helpers
+
+        Raises:
+            ValueError: If the server is not registered with the client
         """
         server_state = self.server_manager.get_server(server_id)
         if server_state is None:
@@ -166,7 +165,7 @@ class MessageCoordinator:
     # ================================
 
     async def _route_server_message(self, server_message: ServerMessage) -> None:
-        """Route server message to appropriate handler with server context.
+        """Routes an incoming message to the appropriate handler.
 
         Args:
             server_message: Message from server with ID and payload
@@ -205,7 +204,15 @@ class MessageCoordinator:
         request_id: str | int,
         request: Request,
     ) -> None:
-        """Route request to the appropriate handler and execute it."""
+        """Routes an incoming request to the appropriate handler.
+
+        Creates request context and tracks request.
+
+        Args:
+            server_id: ID of the server that sent the request
+            request_id: ID of the request
+            request: The request object
+        """
         handler = self._request_handlers.get(request.method)
         if not handler:
             error = Error(
@@ -220,10 +227,10 @@ class MessageCoordinator:
         except ValueError as e:
             error = Error(
                 code=INTERNAL_ERROR,
-                message=f"Failed to build request context: {e}",
+                message="Server not registered. Can't build context.",
             )
             await self._send_error(server_id, request_id, error)
-            self.logger.error(f"Failed to build request context for {server_id}: {e}")
+            self.logger.warning(f"Failed to build request context for {server_id}: {e}")
             return
 
         task = asyncio.create_task(
@@ -247,7 +254,7 @@ class MessageCoordinator:
         request_id: str | int,
         request: Request,
     ) -> None:
-        """Execute handler and send response back to server."""
+        """Executes handler and sends response back to server."""
         try:
             result_or_error = await handler(context, request)
 
@@ -261,7 +268,7 @@ class MessageCoordinator:
         except Exception:
             error = Error(
                 code=INTERNAL_ERROR,
-                message="Problem handling request",
+                message="Request handler failed",
                 data={"request": request},
             )
             await self._send_error(context.server_id, request_id, error)
@@ -273,7 +280,7 @@ class MessageCoordinator:
     async def _handle_notification(
         self, server_id: str, payload: dict[str, Any]
     ) -> None:
-        """Parses and routes a typed notification to the appropriate handler."""
+        """Parses and routes an incoming notification from the server."""
         notification = self.parser.parse_notification(payload)
         if notification is None:
             return
@@ -285,13 +292,19 @@ class MessageCoordinator:
         server_id: str,
         notification: Notification,
     ) -> None:
-        """Route notification to appropriate handler."""
+        """Routes an incoming notification to the appropriate handler.
+
+        Creates request context. Failures silently if we can't build the context.
+
+        Args:
+            server_id: ID of the server that sent the notification
+            notification: The notification object
+        """
         handler = self._notification_handlers.get(notification.method)
         if not handler:
             self.logger.info(f"No handler for notification: {notification.method}")
             return
 
-        # Build context for notification
         try:
             context = self._build_context(server_id)
         except ValueError as e:

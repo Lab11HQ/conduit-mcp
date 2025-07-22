@@ -52,7 +52,7 @@ class RootsManager:
         if server_id in self._server_roots:
             for root in self._server_roots[server_id]:
                 if root.uri in roots_by_uri:
-                    self.logger.warning(
+                    self.logger.debug(
                         f"Server {server_id} overriding global root '{root.uri}'"
                     )
                 roots_by_uri[root.uri] = root
@@ -80,6 +80,6 @@ class RootsManager:
     async def handle_list_roots(
         self, context: RequestContext, request: ListRootsRequest
     ) -> ListRootsResult:
-        """Handle server request for filesystem roots."""
+        """Returns the list of roots available to the server making the request."""
         roots = self.get_server_roots(context.server_id)
         return ListRootsResult(roots=roots)

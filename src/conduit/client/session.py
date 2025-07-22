@@ -124,7 +124,7 @@ class ClientSession:
     # ================================
 
     async def _start(self) -> None:
-        """Start accepting and processing server messages.
+        """Starts accepting and processing server messages.
 
         Starts the background message loop that will handle incoming server
         messages and route them to the appropriate handlers.
@@ -132,11 +132,15 @@ class ClientSession:
         await self._coordinator.start()
 
     async def _stop(self) -> None:
-        """Stop accepting and processing server messages."""
+        """Stops accepting and processing server messages."""
         await self._coordinator.stop()
 
     async def _cleanup_server(self, server_id: str) -> None:
-        """Cleans up all state for a specific server."""
+        """Cleans up all state for a specific server.
+
+        Args:
+            server_id: ID of the server to cleanup
+        """
 
         # Clean up domain managers
         self.roots.cleanup_server(server_id)
@@ -145,7 +149,11 @@ class ClientSession:
         self.server_manager.cleanup_server(server_id)
 
     async def disconnect_server(self, server_id: str) -> None:
-        """Disconnects from a server and cleans up all state."""
+        """Disconnect from a server and clean up all state.
+
+        Args:
+            server_id: ID of the server to disconnect from
+        """
         await self._cleanup_server(server_id)
         try:
             await self.transport.disconnect_server(server_id)
@@ -155,7 +163,11 @@ class ClientSession:
             )
 
     async def disconnect_all_servers(self) -> None:
-        """Disconnects from all servers and cleans up all state."""
+        """Disconnect from all servers and clean up all state.
+
+        Args:
+            server_id: ID of the server to disconnect from
+        """
         await self._stop()
         for server_id in self.server_manager.get_server_ids():
             await self.disconnect_server(server_id)
@@ -166,7 +178,7 @@ class ClientSession:
     async def connect_server(
         self, server_id: str, connection_info: dict[str, Any], timeout: float = 30.0
     ) -> None:
-        """Connect to a server and perform MCP initialization handshake.
+        """Connect to a server and perform the MCP initialization handshake.
 
         Args:
             server_id: Unique identifier for this server connection
@@ -175,7 +187,6 @@ class ClientSession:
                 Defaults to 30 seconds.
 
         Raises:
-            ValueError: If server_id is already initialized
             TimeoutError: Server didn't respond within the timeout period.
             InvalidProtocolVersionError: Server uses an incompatible protocol version.
             ConnectionError: Network failure or server rejected the handshake.
@@ -240,7 +251,7 @@ class ClientSession:
 
         self._validate_protocol_version(response)
 
-        await self._coordinator.send_notification(server_id, InitializedNotification())
+        await self.send_notification(server_id, InitializedNotification())
         self.server_manager.initialize_server(
             server_id=server_id,
             capabilities=response.capabilities,
@@ -343,7 +354,7 @@ class ClientSession:
     async def _handle_elicitation(
         self, context: RequestContext, request: ElicitRequest
     ) -> ElicitResult | Error:
-        """Returns an elicitation result using the configured elicitation handler
+        """Returns an elicitation result using the configured elicitation handler.
 
         Returns:
             ElicitResult: The elicitation result.
@@ -374,7 +385,6 @@ class ClientSession:
         self, context: RequestContext, notification: CancelledNotification
     ) -> None:
         """Cancels a request from the server and calls the registered callback."""
-        # Query: Check if request exists before attempting cancellation
         request_exists = (
             self.server_manager.get_request_from_server(
                 context.server_id, notification.request_id
@@ -414,8 +424,11 @@ class ClientSession:
                 await self.callbacks.call_prompts_changed(
                     context.server_id, list_prompts_result.prompts
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.info(
+                f"Failed to handle prompts list changed notification from server"
+                f"{context.server_id}: {e!r}"
+            )
 
     async def _handle_resources_list_changed(
         self, context: RequestContext, notification: ResourceListChangedNotification
@@ -438,8 +451,11 @@ class ClientSession:
                 resources = list_resources_result.resources
                 if server_state is not None:
                     server_state.resources = resources
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.info(
+                f"Failed to handle resources list changed notification from server"
+                f"{context.server_id}: {e!r}"
+            )
 
         try:
             list_templates_result = await self.send_request(
@@ -449,8 +465,11 @@ class ClientSession:
                 templates = list_templates_result.resource_templates
                 if server_state is not None:
                     server_state.resource_templates = templates
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.info(
+                f"Failed to handle resource templates list changed notification from"
+                f" server {context.server_id}: {e!r}"
+            )
 
         if resources or templates:
             await self.callbacks.call_resources_changed(
@@ -474,8 +493,11 @@ class ClientSession:
                 await self.callbacks.call_resource_updated(
                     context.server_id, notification.uri, read_resource_result
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.info(
+                f"Failed to handle resources updated notification from server"
+                f"{context.server_id}: {e!r}"
+            )
 
     async def _handle_tools_list_changed(
         self, context: RequestContext, notification: ToolListChangedNotification
@@ -498,8 +520,11 @@ class ClientSession:
                 await self.callbacks.call_tools_changed(
                     context.server_id, list_tools_result.tools
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.info(
+                f"Failed to handle tools list changed notification from server"
+                f"{context.server_id}: {e!r}"
+            )
 
     async def _handle_logging_message(
         self, context: RequestContext, notification: LoggingMessageNotification

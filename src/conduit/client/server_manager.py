@@ -28,7 +28,7 @@ class ServerState:
 
 
 class ServerManager:
-    """Owns all server state and lifecycle."""
+    """Owns server state and does request tracking."""
 
     def __init__(self):
         self._servers: dict[str, ServerState] = {}
@@ -52,7 +52,7 @@ class ServerManager:
         return server_state
 
     def get_server(self, server_id: str) -> ServerState | None:
-        """Get a server state.
+        """Get server state by ID.
 
         Args:
             server_id: Server identifier
@@ -63,7 +63,7 @@ class ServerManager:
         return self._servers.get(server_id)
 
     def get_server_ids(self) -> list[str]:
-        """Get all server IDs.
+        """Get IDs of all registered servers.
 
         Returns:
             List of server IDs.
@@ -71,7 +71,7 @@ class ServerManager:
         return list(self._servers.keys())
 
     def server_count(self) -> int:
-        """Get number of active servers."""
+        """Get the number of registered servers."""
         return len(self._servers)
 
     # ================================
@@ -86,7 +86,15 @@ class ServerManager:
         protocol_version: str,
         instructions: str | None = None,
     ) -> None:
-        """Store the server's initialization data and mark it as initialized."""
+        """Store the server's initialization data and mark it as initialized.
+
+        Args:
+            server_id: Server identifier
+            capabilities: Server capabilities
+            info: Server implementation info
+            protocol_version: Protocol version
+            instructions: Server instructions
+        """
         server_state = self.get_server(server_id)
         if server_state is None:
             server_state = self.register_server(server_id)

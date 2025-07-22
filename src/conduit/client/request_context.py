@@ -14,8 +14,7 @@ if TYPE_CHECKING:
 class RequestContext:
     """Rich context for handling server -> client requests.
 
-    Provides immediate access to server state, capabilities, and helper methods
-    instead of requiring handlers to work with bare server_id strings.
+    Provides immediate access to server state, capabilities, and helper methods.
     """
 
     server_id: str
@@ -29,7 +28,7 @@ class RequestContext:
 
     @property
     def server_info(self) -> Implementation | None:
-        """Get server implementation info (name, version, etc.)."""
+        """Get server implementation info (name, version)."""
         return self.server_state.info
 
     @property
