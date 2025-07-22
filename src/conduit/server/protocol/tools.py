@@ -2,7 +2,7 @@
 
 import logging
 from copy import deepcopy
-from typing import Awaitable, Callable
+from typing import TYPE_CHECKING, Awaitable, Callable
 
 from conduit.protocol.content import TextContent
 from conduit.protocol.tools import (
@@ -13,8 +13,10 @@ from conduit.protocol.tools import (
     Tool,
 )
 
-# Type alias for tool handlers
-ToolHandler = Callable[[str, CallToolRequest], Awaitable[CallToolResult]]
+if TYPE_CHECKING:
+    from conduit.server.request_context import RequestContext
+
+ToolHandler = Callable[["RequestContext", CallToolRequest], Awaitable[CallToolResult]]
 
 
 class ToolManager:
@@ -167,11 +169,11 @@ class ToolManager:
         self.client_handlers.pop(client_id, None)
 
     # ================================
-    # Protocol handlers
+    # Protocol handlers (UPDATED)
     # ================================
 
     async def handle_list(
-        self, client_id: str, request: ListToolsRequest
+        self, context: "RequestContext", request: ListToolsRequest
     ) -> ListToolsResult:
         """Lists tools request for specific client.
 
@@ -179,17 +181,17 @@ class ToolManager:
         Client-specific tools override global tools with the same name.
 
         Args:
-            client_id: ID of the client requesting tools
+            context: Rich request context with client state and helpers
             request: List tools request with pagination support
 
         Returns:
             ListToolsResult: Available tools for this client
         """
-        tools = self.get_client_tools(client_id)
+        tools = self.get_client_tools(context.client_id)
         return ListToolsResult(tools=list(tools.values()))
 
     async def handle_call(
-        self, client_id: str, request: CallToolRequest
+        self, context: "RequestContext", request: CallToolRequest
     ) -> CallToolResult:
         """Executes a tool call request for specific client.
 
@@ -197,7 +199,7 @@ class ToolManager:
         can see what went wrong and potentially recover.
 
         Args:
-            client_id: ID of the client calling the tool
+            context: Rich request context with client state and helpers
             request: Tool call request with name and arguments
 
         Returns:
@@ -207,17 +209,19 @@ class ToolManager:
             KeyError: If the requested tool is not registered for this client
         """
         try:
+            # Look up handler (client-specific first, then global)
             if (
-                client_id in self.client_handlers
-                and request.name in self.client_handlers[client_id]
+                context.client_id in self.client_handlers
+                and request.name in self.client_handlers[context.client_id]
             ):
-                handler = self.client_handlers[client_id][request.name]
+                handler = self.client_handlers[context.client_id][request.name]
             elif request.name in self.global_handlers:
                 handler = self.global_handlers[request.name]
             else:
                 raise KeyError(f"Tool '{request.name}' not found")
 
-            return await handler(client_id, request)
+            # Execute handler with rich context
+            return await handler(context, request)
         except KeyError:
             raise
         except Exception as e:
