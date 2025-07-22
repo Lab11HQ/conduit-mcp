@@ -27,6 +27,7 @@ from conduit.protocol.jsonrpc import (
     JSONRPCResponse,
 )
 from conduit.server.client_manager import ClientManager
+from conduit.server.request_context import RequestContext
 from conduit.shared.message_parser import MessageParser
 from conduit.transport.server import ClientMessage, ServerTransport
 
@@ -34,8 +35,10 @@ TRequest = TypeVar("TRequest", bound=Request)
 TResult = TypeVar("TResult", bound=Result)
 TNotification = TypeVar("TNotification", bound=Notification)
 
-RequestHandler = Callable[[str, TRequest], Awaitable[TResult | Error]]
-NotificationHandler = Callable[[str, TNotification], Coroutine[Any, Any, None]]
+RequestHandler = Callable[[RequestContext, TRequest], Awaitable[TResult | Error]]
+NotificationHandler = Callable[
+    [RequestContext, TNotification], Coroutine[Any, Any, None]
+]
 
 
 class MessageCoordinator:
@@ -133,6 +136,33 @@ class MessageCoordinator:
         self.client_manager.cleanup_all_clients()
 
     # ================================
+    # Build context
+    # ================================
+
+    def _build_context(self, client_id: str) -> RequestContext:
+        """Build rich context for a request.
+
+        Args:
+            client_id: ID of the client making the request
+
+        Returns:
+            RequestContext: Rich context with client state and helpers
+
+        Raises:
+            ValueError: If client is not registered
+        """
+        client_state = self.client_manager.get_client(client_id)
+        if client_state is None:
+            raise ValueError(f"Client {client_id} not registered")
+
+        return RequestContext(
+            client_id=client_id,
+            client_state=client_state,
+            client_manager=self.client_manager,
+            transport=self.transport,
+        )
+
+    # ================================
     # Route messages
     # ================================
 
@@ -188,8 +218,19 @@ class MessageCoordinator:
             await self._send_error(client_id, request_id, error)
             return
 
+        # Build context once for this request
+        try:
+            context = self._build_context(client_id)
+        except ValueError as e:
+            error = Error(
+                code=INTERNAL_ERROR,
+                message=f"Failed to build request context: {e}",
+            )
+            await self._send_error(client_id, request_id, error)
+            return
+
         task = asyncio.create_task(
-            self._execute_request_handler(handler, client_id, request_id, request),
+            self._execute_request_handler(handler, context, request_id, request),
             name=f"handle_{request.method}_{client_id}_{request_id}",
         )
 
@@ -205,33 +246,31 @@ class MessageCoordinator:
     async def _execute_request_handler(
         self,
         handler: RequestHandler,
-        client_id: str,
+        context: RequestContext,
         request_id: str | int,
         request: Request,
     ) -> None:
         """Execute handler and send response back to client."""
         try:
-            result_or_error = await handler(client_id, request)
+            result_or_error = await handler(context, request)
 
             if isinstance(result_or_error, Error):
                 response = JSONRPCError.from_error(result_or_error, request_id)
             else:
                 response = JSONRPCResponse.from_result(result_or_error, request_id)
 
-            await self.transport.send(client_id, response.to_wire())
+            await self.transport.send(context.client_id, response.to_wire())
 
-            if isinstance(result_or_error, Error) and self._should_disconnect_for_error(
-                result_or_error
-            ):
-                self.client_manager.cleanup_client(client_id)
-
-        except Exception:
+        except Exception as e:
+            self.logger.exception(
+                f"Handler failed for {request.method} from {context}: {e}"
+            )
             error = Error(
                 code=INTERNAL_ERROR,
-                message="Problem handling request",
-                data={"request": request},
+                message=f"Handler execution failed: {str(e)}",
             )
-            await self._send_error(client_id, request_id, error)
+            response = JSONRPCError.from_error(error, request_id)
+            await self.transport.send(context.client_id, response.to_wire())
 
     # ================================
     # Handle notifications
@@ -241,21 +280,45 @@ class MessageCoordinator:
         self, client_id: str, payload: dict[str, Any]
     ) -> None:
         """Parse and route typed notification to handler."""
-        method = payload["method"]
-
         notification = self.parser.parse_notification(payload)
         if notification is None:
             return
 
-        handler = self._notification_handlers.get(method)
+        await self._route_notification(client_id, notification)
+
+    async def _route_notification(
+        self,
+        client_id: str,
+        notification: Notification,
+    ) -> None:
+        """Route notification to appropriate handler."""
+        handler = self._notification_handlers.get(notification.method)
         if not handler:
-            self.logger.info(f"Unknown notification '{method}' from {client_id}")
+            self.logger.info(f"No handler for notification: {notification.method}")
             return
 
-        asyncio.create_task(
-            handler(client_id, notification),
-            name=f"handle_{method}_{client_id}",
+        # Build context for notification
+        try:
+            context = self._build_context(client_id)
+        except ValueError as e:
+            self.logger.warning(
+                f"Failed to build context for {notification.method} notification "
+                f"from {client_id}: {e}"
+            )
+            return
+
+        task = asyncio.create_task(
+            handler(context, notification),
+            name=f"notify_{notification.method}_{client_id}",
         )
+
+        # Don't track notifications - they're fire-and-forget
+        task.add_done_callback(self._on_notification_done)
+
+    def _on_notification_done(self, task: asyncio.Task[None]) -> None:
+        """Handle completed notification tasks."""
+        if task.exception():
+            self.logger.exception(f"Notification handler failed: {task.exception()}")
 
     # ================================
     # Handle responses
