@@ -40,7 +40,7 @@ class RequestContext:
 
     @property
     def client_info(self) -> Implementation | None:
-        """Get client implementation info (name, version, etc.)."""
+        """Get client implementation info (name, version)."""
         return self.client_state.info
 
     @property

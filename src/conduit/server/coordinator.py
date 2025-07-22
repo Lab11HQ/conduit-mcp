@@ -13,7 +13,6 @@ from typing import Any, Awaitable, Callable, TypeVar
 from conduit.protocol.base import (
     INTERNAL_ERROR,
     METHOD_NOT_FOUND,
-    PROTOCOL_VERSION_MISMATCH,
     Error,
     Notification,
     Request,
@@ -106,7 +105,7 @@ class MessageCoordinator:
     # ================================
 
     async def _message_loop(self) -> None:
-        """Process incoming client messages until cancelled or transport fails.
+        """Processes incoming client messages until cancelled or transport fails.
 
         Runs continuously in the background and hands off messages to registered
         handlers. Individual message handling errors are logged and don't interrupt
@@ -125,7 +124,7 @@ class MessageCoordinator:
             self.logger.error(f"Transport error: {e}")
 
     def _on_message_loop_done(self, task: asyncio.Task[None]) -> None:
-        """Clean up when message loop task completes.
+        """Cleans up when message loop task completes.
 
         Called whenever the message loop task finishes - whether due to normal
         completion, cancellation, or unexpected errors. Ensures proper cleanup
@@ -140,7 +139,7 @@ class MessageCoordinator:
     # ================================
 
     def _build_context(self, client_id: str) -> RequestContext:
-        """Build rich context for a request.
+        """Builds context for a request.
 
         Args:
             client_id: ID of the client making the request
@@ -167,7 +166,7 @@ class MessageCoordinator:
     # ================================
 
     async def _route_client_message(self, client_message: ClientMessage) -> None:
-        """Route client message to appropriate handler with client context.
+        """Routes an incoming message to the appropriate handler.
 
         Args:
             client_message: Message from client with ID and payload
@@ -189,7 +188,7 @@ class MessageCoordinator:
     # ================================
 
     async def _handle_request(self, client_id: str, payload: dict[str, Any]) -> None:
-        """Handle an incoming request from a client."""
+        """Handles an incoming request from a client."""
         request_id = payload["id"]
 
         self._ensure_client_registered(client_id)
@@ -208,7 +207,15 @@ class MessageCoordinator:
         request_id: str | int,
         request: Request,
     ) -> None:
-        """Route request to appropriate handler and execute it."""
+        """Routes an incoming request to the appropriate handler.
+
+        Creates request context and tracks request.
+
+        Args:
+            client_id: ID of the client that sent the request
+            request_id: ID of the request
+            request: The request object
+        """
         handler = self._request_handlers.get(request.method)
         if not handler:
             error = Error(
@@ -218,16 +225,15 @@ class MessageCoordinator:
             await self._send_error(client_id, request_id, error)
             return
 
-        # Build context once for this request
         try:
             context = self._build_context(client_id)
         except ValueError as e:
             error = Error(
                 code=INTERNAL_ERROR,
-                message=f"Failed to build request context: {e}",
+                message="Client not registered. Can't build context.",
             )
             await self._send_error(client_id, request_id, error)
-            self.logger.error(f"Failed to build request context for {client_id}: {e}")
+            self.logger.warning(f"Failed to build request context for {client_id}: {e}")
             return
 
         task = asyncio.create_task(
@@ -251,7 +257,7 @@ class MessageCoordinator:
         request_id: str | int,
         request: Request,
     ) -> None:
-        """Execute handler and send response back to client."""
+        """Executes handler and sends response back to client."""
         try:
             result_or_error = await handler(context, request)
 
@@ -280,7 +286,7 @@ class MessageCoordinator:
     async def _handle_notification(
         self, client_id: str, payload: dict[str, Any]
     ) -> None:
-        """Parse and route typed notification to handler."""
+        """Parses and routes an incoming notification to the appropriate handler."""
         notification = self.parser.parse_notification(payload)
         if notification is None:
             return
@@ -292,7 +298,14 @@ class MessageCoordinator:
         client_id: str,
         notification: Notification,
     ) -> None:
-        """Route notification to appropriate handler."""
+        """Routes an incoming notification to the appropriate handler.
+
+        Creates request context. Fails silently if we can't build the context.
+
+        Args:
+            client_id: ID of the client that sent the notification
+            notification: The notification object
+        """
         handler = self._notification_handlers.get(notification.method)
         if not handler:
             self.logger.info(f"No handler for notification: {notification.method}")
@@ -316,7 +329,10 @@ class MessageCoordinator:
         task.add_done_callback(self._on_notification_done)
 
     def _on_notification_done(self, task: asyncio.Task[None]) -> None:
-        """Handle completed notification tasks."""
+        """Handles completed notification tasks.
+
+        Logs an error if the notification handler fails.
+        """
         if task.exception():
             self.logger.exception(f"Notification handler failed: {task.exception()}")
 
@@ -325,7 +341,7 @@ class MessageCoordinator:
     # ================================
 
     async def _handle_response(self, client_id: str, payload: dict[str, Any]) -> None:
-        """Matches a response to a pending request.
+        """Matches an incoming response to a pending request.
 
         Fulfills the waiting future if the response is for a known request.
         Logs an error if the response is for an unknown request.
@@ -417,7 +433,7 @@ class MessageCoordinator:
             self.client_manager.remove_request_to_client(client_id, request_id)
 
     async def _handle_request_timeout(self, client_id: str, request_id: str) -> None:
-        """Clean up and notify client when request times out."""
+        """Cleans up and notifies client when request times out."""
 
         try:
             cancelled_notification = CancelledNotification(
@@ -437,6 +453,10 @@ class MessageCoordinator:
     ) -> None:
         """Send a notification to a specific client.
 
+        Args:
+            client_id: ID of the client to send the notification to
+            notification: The notification object to send
+
         Raises:
             RuntimeError: If coordinator is not running
         """
@@ -454,7 +474,7 @@ class MessageCoordinator:
         """Register a handler for a specific method.
 
         Args:
-            method: JSON-RPC method name (e.g., "tools/list")
+            method: MCP method name (e.g., "tools/list")
             handler: Async function that takes (client_id, typed_request) and handles it
         """
         self._request_handlers[method] = handler
@@ -465,7 +485,7 @@ class MessageCoordinator:
         """Register a handler for a specific method.
 
         Args:
-            method: JSON-RPC method name (e.g., "tools/list")
+            method: MCP method name (e.g., "notifications/cancelled")
             handler: Async function that takes (client_id, typed_notification) and
                 handles it
         """
@@ -476,17 +496,13 @@ class MessageCoordinator:
     # ================================
 
     def _ensure_client_registered(self, client_id: str) -> None:
-        """Ensure client is registered with the client manager."""
+        """Ensures client is registered with the client manager."""
         if not self.client_manager.get_client(client_id):
             self.client_manager.register_client(client_id)
-
-    def _should_disconnect_for_error(self, error: Error) -> bool:
-        """Determine if a client should be disconnected for an error."""
-        return error.code == PROTOCOL_VERSION_MISMATCH
 
     async def _send_error(
         self, client_id: str, request_id: str | int, error: Error
     ) -> None:
-        """Send error response to client."""
+        """Sends error response to client."""
         response = JSONRPCError.from_error(error, request_id)
         await self.transport.send(client_id, response.to_wire())

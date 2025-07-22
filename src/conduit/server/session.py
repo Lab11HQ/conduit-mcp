@@ -259,7 +259,7 @@ class ServerSession:
     async def _handle_list_tools(
         self, context: RequestContext, request: ListToolsRequest
     ) -> ListToolsResult | Error:
-        """Return the list of available tools.
+        """Returns the list of available tools.
 
         Returns:
             ListToolsResult: The available tools and their metadata.
@@ -276,7 +276,7 @@ class ServerSession:
     async def _handle_call_tool(
         self, context: RequestContext, request: CallToolRequest
     ) -> CallToolResult | Error:
-        """Execute a tool call.
+        """Executes a tool call.
 
         Tool execution failures are returned as CallToolResult with is_error=True,
         allowing the LLM to see what went wrong and potentially recover.
@@ -302,7 +302,7 @@ class ServerSession:
     async def _handle_list_prompts(
         self, context: RequestContext, request: ListPromptsRequest
     ) -> ListPromptsResult | Error:
-        """Return the list of available prompts.
+        """Returns the list of available prompts.
 
         Returns:
             ListPromptsResult: The available prompts and their metadata.
@@ -318,7 +318,7 @@ class ServerSession:
     async def _handle_get_prompt(
         self, context: RequestContext, request: GetPromptRequest
     ) -> GetPromptResult | Error:
-        """Return the contents of a specific prompt.
+        """Returns the contents of a specific prompt.
 
         Returns:
             GetPromptResult: The contents of the prompt.
@@ -347,7 +347,7 @@ class ServerSession:
     async def _handle_list_resources(
         self, context: RequestContext, request: ListResourcesRequest
     ) -> ListResourcesResult | Error:
-        """Return the list of available resources.
+        """Returns the list of available resources.
 
         Returns:
             ListResourcesResult: The available resources.
@@ -364,7 +364,7 @@ class ServerSession:
     async def _handle_list_resource_templates(
         self, context: RequestContext, request: ListResourceTemplatesRequest
     ) -> ListResourceTemplatesResult | Error:
-        """Return the list of available resource templates.
+        """Returns the list of available resource templates.
 
         Returns:
             ListResourceTemplatesResult: The available resource templates.
@@ -380,7 +380,7 @@ class ServerSession:
     async def _handle_read_resource(
         self, context: RequestContext, request: ReadResourceRequest
     ) -> ReadResourceResult | Error:
-        """Return the contents of a specific resource.
+        """Returns the contents of a specific resource.
 
         Returns:
             ReadResourceResult: The contents of the resource.
@@ -405,7 +405,7 @@ class ServerSession:
     async def _handle_subscribe(
         self, context: RequestContext, request: SubscribeRequest
     ) -> EmptyResult | Error:
-        """Subscribe to a resource.
+        """Subscribes a client to a resource.
 
         Returns:
             EmptyResult: Successfully subscribed to the resource.
@@ -428,7 +428,7 @@ class ServerSession:
     async def _handle_unsubscribe(
         self, context: RequestContext, request: UnsubscribeRequest
     ) -> EmptyResult | Error:
-        """Unsubscribe from a resource.
+        """Unsubscribes a client from a resource.
 
         Returns:
             EmptyResult: Successfully unsubscribed from the resource.
@@ -455,7 +455,7 @@ class ServerSession:
     async def _handle_complete(
         self, context: RequestContext, request: CompleteRequest
     ) -> CompleteResult | Error:
-        """Generate a completion for a given prompt.
+        """Generates a completion for a given prompt.
 
         Returns:
             CompleteResult: The completion.
@@ -487,7 +487,7 @@ class ServerSession:
     async def _handle_set_level(
         self, context: RequestContext, request: SetLevelRequest
     ) -> EmptyResult | Error:
-        """Set the logging level for the given client.
+        """Sets the logging level for the given client.
 
         Returns:
             EmptyResult: Successfully set the logging level.
@@ -525,7 +525,7 @@ class ServerSession:
     async def _handle_roots_list_changed(
         self, context: RequestContext, notification: RootsListChangedNotification
     ) -> None:
-        """Handle roots/list_changed notification.
+        """Handles roots/list_changed notification.
 
         Fetch the updated list of roots from the client, update the client state,
         and call any registered callbacks.

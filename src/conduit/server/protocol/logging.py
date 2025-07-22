@@ -57,7 +57,7 @@ class LoggingManager:
     async def handle_set_level(
         self, context: "RequestContext", request: SetLevelRequest
     ) -> EmptyResult:
-        """Sets the MCP protocol logging level for specific client.
+        """Set the MCP protocol logging level for a specific client.
 
         Sets the logging level for a client and calls the level change handler.
 

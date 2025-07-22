@@ -11,8 +11,6 @@ from conduit.shared.request_tracker import RequestTracker
 
 @dataclass
 class ServerState:
-    """Complete server state in one place."""
-
     # Protocol state
     capabilities: ServerCapabilities | None = None
     info: Implementation | None = None
@@ -28,7 +26,7 @@ class ServerState:
 
 
 class ServerManager:
-    """Owns server state and does request tracking."""
+    """Owns server state and manages request tracking."""
 
     def __init__(self):
         self._servers: dict[str, ServerState] = {}

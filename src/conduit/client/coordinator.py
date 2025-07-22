@@ -294,7 +294,7 @@ class MessageCoordinator:
     ) -> None:
         """Routes an incoming notification to the appropriate handler.
 
-        Creates request context. Failures silently if we can't build the context.
+        Creates request context. Fails silently if we can't build the context.
 
         Args:
             server_id: ID of the server that sent the notification

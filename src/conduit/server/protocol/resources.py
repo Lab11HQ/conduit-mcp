@@ -244,21 +244,21 @@ class ResourceManager:
     async def handle_list_resources(
         self, context: "RequestContext", request: ListResourcesRequest
     ) -> ListResourcesResult:
-        """Lists all resources available to a specific client."""
+        """List all resources available to a specific client."""
         resources = self.get_client_resources(context.client_id)
         return ListResourcesResult(resources=list(resources.values()))
 
     async def handle_list_templates(
         self, context: "RequestContext", request: ListResourceTemplatesRequest
     ) -> ListResourceTemplatesResult:
-        """Lists all resource templates available to a specific client."""
+        """List all resource templates available to a specific client."""
         templates = self.get_client_templates(context.client_id)
         return ListResourceTemplatesResult(resource_templates=list(templates.values()))
 
     async def handle_read(
         self, context: "RequestContext", request: ReadResourceRequest
     ) -> ReadResourceResult:
-        """Reads a resource by URI for specific client.
+        """Read a resource by URI for a specific client.
 
         Args:
             context: Rich request context with client state and helpers
@@ -268,7 +268,7 @@ class ResourceManager:
             ReadResourceResult: Resource content from the handler
 
         Raises:
-            KeyError: If the URI matches no static resource or template pattern
+            KeyError: If there is no matching resource or template.
             Exception: Any exception from the resource handler
         """
         uri = request.uri
@@ -300,7 +300,7 @@ class ResourceManager:
     async def handle_subscribe(
         self, context: "RequestContext", request: SubscribeRequest
     ) -> EmptyResult:
-        """Subscribe to resource updates for specific client.
+        """Subscribe a client to resource updates for the given URI.
 
         Args:
             context: Rich request context with client state and helpers
@@ -345,7 +345,7 @@ class ResourceManager:
     async def handle_unsubscribe(
         self, context: "RequestContext", request: UnsubscribeRequest
     ) -> EmptyResult:
-        """Unsubscribe from resource updates for specific client.
+        """Unsubscribe a client from resource updates for the given URI.
 
         Args:
             context: Rich request context with client state and helpers
@@ -353,6 +353,9 @@ class ResourceManager:
 
         Returns:
             EmptyResult: Unsubscription confirmation
+
+        Raises:
+            KeyError: If the client is not subscribed to the given URI
         """
         uri = request.uri
         client_id = context.client_id

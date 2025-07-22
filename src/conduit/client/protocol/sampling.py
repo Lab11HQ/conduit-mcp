@@ -21,7 +21,7 @@ class SamplingManager:
     async def handle_create_message(
         self, context: RequestContext, request: CreateMessageRequest
     ) -> CreateMessageResult:
-        """Calls the sampling handler.
+        """Sample the host LLM for the server.
 
         Args:
             context: The request context with server state and helpers.

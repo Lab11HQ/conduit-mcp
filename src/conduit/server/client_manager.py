@@ -6,13 +6,9 @@ from conduit.protocol.initialization import ClientCapabilities, Implementation
 from conduit.protocol.roots import Root
 from conduit.shared.request_tracker import RequestTracker
 
-RequestId = str | int
-
 
 @dataclass
 class ClientState:
-    """Complete client state in one place."""
-
     # Protocol state
     capabilities: ClientCapabilities | None = None
     info: Implementation | None = None
@@ -24,7 +20,7 @@ class ClientState:
 
 
 class ClientManager:
-    """Owns all client state and lifecycle."""
+    """Owns all client state and manages request tracking."""
 
     def __init__(self):
         self._clients: dict[str, ClientState] = {}
@@ -201,6 +197,8 @@ class ClientManager:
 
     def remove_request_from_client(self, client_id: str, request_id: str | int) -> None:
         """Stop tracking a request from the client.
+
+        Cancels the request as well.
 
         Args:
             client_id: ID of the client

@@ -175,7 +175,7 @@ class ToolManager:
     async def handle_list(
         self, context: "RequestContext", request: ListToolsRequest
     ) -> ListToolsResult:
-        """Lists tools request for specific client.
+        """Lists tools for a specific client.
 
         Returns all tools available to this client (global + client-specific).
         Client-specific tools override global tools with the same name.
@@ -193,7 +193,7 @@ class ToolManager:
     async def handle_call(
         self, context: "RequestContext", request: CallToolRequest
     ) -> CallToolResult:
-        """Executes a tool call request for specific client.
+        """Execute a tool call request for a specific client.
 
         Tool execution failures return CallToolResult with is_error=True so the LLM
         can see what went wrong and potentially recover.
@@ -209,7 +209,6 @@ class ToolManager:
             KeyError: If the requested tool is not registered for this client
         """
         try:
-            # Look up handler (client-specific first, then global)
             if (
                 context.client_id in self.client_handlers
                 and request.name in self.client_handlers[context.client_id]
@@ -220,7 +219,6 @@ class ToolManager:
             else:
                 raise KeyError(f"Tool '{request.name}' not found")
 
-            # Execute handler with rich context
             return await handler(context, request)
         except KeyError:
             raise

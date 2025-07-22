@@ -21,7 +21,7 @@ class ElicitationManager:
     async def handle_elicitation(
         self, context: RequestContext, request: ElicitRequest
     ) -> ElicitResult:
-        """Calls the elicitation handler.
+        """Elicit a response from the user.
 
         Args:
             context: The request context with server state and helpers.

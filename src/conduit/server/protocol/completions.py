@@ -22,7 +22,7 @@ class CompletionManager:
     async def handle_complete(
         self, context: "RequestContext", request: CompleteRequest
     ) -> CompleteResult:
-        """Calls the completion handler.
+        """Generate a completion for a given argument.
 
         Args:
             context: Rich request context with client state and helpers
