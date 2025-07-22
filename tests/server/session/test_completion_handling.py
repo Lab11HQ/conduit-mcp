@@ -14,7 +14,9 @@ from conduit.protocol.completions import (
 )
 from conduit.protocol.initialization import Implementation, ServerCapabilities
 from conduit.protocol.prompts import PromptReference
+from conduit.server.client_manager import ClientState
 from conduit.server.protocol.completions import CompletionNotConfiguredError
+from conduit.server.request_context import RequestContext
 from conduit.server.session import ServerConfig, ServerSession
 
 
@@ -42,11 +44,16 @@ class TestCompletionHandling:
             total=2,
             has_more=False,
         )
+        self.context = RequestContext(
+            client_id="test-client",
+            client_state=ClientState(),
+            client_manager=AsyncMock(),
+            transport=self.transport,
+        )
 
     async def test_returns_result_when_capability_enabled(self):
         # Arrange
         session = ServerSession(self.transport, self.config_with_completions)
-        client_id = "test-client"
 
         # Mock the completions manager
         expected_result = CompleteResult(
@@ -56,24 +63,23 @@ class TestCompletionHandling:
 
         # Act
         result = await session._handle_complete(
-            client_id,
+            self.context,
             self.complete_request,
         )
 
         # Assert
         assert result == expected_result
         session.completions.handle_complete.assert_awaited_once_with(
-            client_id,
+            self.context,
             self.complete_request,
         )
 
     async def test_returns_error_when_capability_disabled(self):
         # Arrange
         session = ServerSession(self.transport, self.config_without_completions)
-        client_id = "test-client"
 
         # Act
-        result = await session._handle_complete(client_id, self.complete_request)
+        result = await session._handle_complete(self.context, self.complete_request)
 
         # Assert
         assert isinstance(result, Error)
@@ -82,7 +88,6 @@ class TestCompletionHandling:
     async def test_returns_error_when_no_completion_handler_registered(self):
         # Arrange
         session = ServerSession(self.transport, self.config_with_completions)
-        client_id = "test-client"
 
         # Mock the completions manager
         session.completions.handle_complete = AsyncMock(
@@ -90,7 +95,7 @@ class TestCompletionHandling:
         )
 
         # Act
-        result = await session._handle_complete(client_id, self.complete_request)
+        result = await session._handle_complete(self.context, self.complete_request)
 
         # Assert
         assert isinstance(result, Error)
@@ -99,7 +104,6 @@ class TestCompletionHandling:
     async def test_returns_error_when_handler_raises_exception(self):
         # Arrange
         session = ServerSession(self.transport, self.config_with_completions)
-        client_id = "test-client"
 
         # Mock the completions manager
         session.completions.handle_complete = AsyncMock(
@@ -107,7 +111,7 @@ class TestCompletionHandling:
         )
 
         # Act
-        result = await session._handle_complete(client_id, self.complete_request)
+        result = await session._handle_complete(self.context, self.complete_request)
 
         # Assert
         assert isinstance(result, Error)

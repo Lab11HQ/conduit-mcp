@@ -72,12 +72,13 @@ class TestSendMessage:
         session._coordinator.send_request = AsyncMock(return_value=expected_result)
 
         # Act
-        result = await session.send_request(client_id, request)
+        timeout = 30.0
+        result = await session.send_request(client_id, request, timeout)
 
         # Assert
         assert result == expected_result
         session._coordinator.send_request.assert_awaited_once_with(
-            client_id, request, 30.0
+            client_id, request, timeout
         )
 
     async def test_send_request_to_client_propagates_coordinator_error(self):

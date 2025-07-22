@@ -510,7 +510,7 @@ class ServerSession:
     ) -> None:
         """Cancels a request from a client and calls the registered callback."""
         client_id = context.client_id
-        was_cancelled = await self._coordinator.cancel_request_from_client(
+        await self._coordinator.cancel_request_from_client(
             client_id, notification.request_id
         )
         await self.callbacks.call_cancelled(client_id, notification)
@@ -532,7 +532,7 @@ class ServerSession:
         """
         client_id = context.client_id
         try:
-            result = await self._coordinator.send_request(client_id, ListRootsRequest())
+            result = await self.send_request(client_id, ListRootsRequest())
 
             if isinstance(result, ListRootsResult):
                 state = self.client_manager.get_client(client_id)

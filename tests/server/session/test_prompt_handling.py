@@ -19,6 +19,8 @@ from conduit.protocol.prompts import (
     ListPromptsResult,
     PromptMessage,
 )
+from conduit.server.client_manager import ClientState
+from conduit.server.request_context import RequestContext
 from conduit.server.session import ServerConfig, ServerSession
 
 
@@ -37,32 +39,36 @@ class TestPromptHandling:
             info=Implementation(name="test-server", version="1.0.0"),
             protocol_version=PROTOCOL_VERSION,
         )
+        self.context = RequestContext(
+            client_id="test-client",
+            client_state=ClientState(),
+            client_manager=AsyncMock(),
+            transport=self.transport,
+        )
 
     async def test_list_prompts_returns_result_when_capability_enabled(self):
         # Arrange
         session = ServerSession(self.transport, self.config_with_prompts)
-        client_id = "test-client"
 
         # Mock the prompts manager
         expected_result = ListPromptsResult(prompts=[])
         session.prompts.handle_list_prompts = AsyncMock(return_value=expected_result)
 
         # Act
-        result = await session._handle_list_prompts(client_id, ListPromptsRequest())
+        result = await session._handle_list_prompts(self.context, ListPromptsRequest())
 
         # Assert
         assert result == expected_result
         session.prompts.handle_list_prompts.assert_awaited_once_with(
-            client_id, ListPromptsRequest()
+            self.context, ListPromptsRequest()
         )
 
     async def test_list_prompts_returns_error_when_capability_disabled(self):
         # Arrange
         session = ServerSession(self.transport, self.config_without_prompts)
-        client_id = "test-client"
 
         # Act
-        result = await session._handle_list_prompts(client_id, ListPromptsRequest())
+        result = await session._handle_list_prompts(self.context, ListPromptsRequest())
 
         # Assert
         assert isinstance(result, Error)
@@ -71,7 +77,6 @@ class TestPromptHandling:
     async def test_get_prompt_returns_result_when_capability_enabled(self):
         # Arrange
         session = ServerSession(self.transport, self.config_with_prompts)
-        client_id = "test-client"
 
         # Mock the prompts manager
         expected_result = GetPromptResult(
@@ -84,23 +89,22 @@ class TestPromptHandling:
 
         # Act
         result = await session._handle_get_prompt(
-            client_id, GetPromptRequest(name="test-prompt")
+            self.context, GetPromptRequest(name="test-prompt")
         )
 
         # Assert
         assert result == expected_result
         session.prompts.handle_get_prompt.assert_awaited_once_with(
-            client_id, GetPromptRequest(name="test-prompt")
+            self.context, GetPromptRequest(name="test-prompt")
         )
 
     async def test_get_prompt_returns_error_when_capability_disabled(self):
         # Arrange
         session = ServerSession(self.transport, self.config_without_prompts)
-        client_id = "test-client"
 
         # Act
         result = await session._handle_get_prompt(
-            client_id, GetPromptRequest(name="test-prompt")
+            self.context, GetPromptRequest(name="test-prompt")
         )
 
         # Assert
@@ -110,7 +114,6 @@ class TestPromptHandling:
     async def test_get_prompt_returns_error_when_prompt_not_found(self):
         # Arrange
         session = ServerSession(self.transport, self.config_with_prompts)
-        client_id = "test-client"
 
         # Mock the prompts manager
         session.prompts.handle_get_prompt = AsyncMock(
@@ -119,7 +122,7 @@ class TestPromptHandling:
 
         # Act
         result = await session._handle_get_prompt(
-            client_id, GetPromptRequest(name="test-prompt")
+            self.context, GetPromptRequest(name="test-prompt")
         )
 
         # Assert
@@ -128,13 +131,12 @@ class TestPromptHandling:
 
         # Verify manager was called
         session.prompts.handle_get_prompt.assert_awaited_once_with(
-            client_id, GetPromptRequest(name="test-prompt")
+            self.context, GetPromptRequest(name="test-prompt")
         )
 
     async def test_returns_error_when_handler_raises_generic_exception(self):
         # Arrange
         session = ServerSession(self.transport, self.config_with_prompts)
-        client_id = "test-client"
 
         # Mock the prompts manager
         session.prompts.handle_get_prompt = AsyncMock(
@@ -143,7 +145,7 @@ class TestPromptHandling:
 
         # Act
         result = await session._handle_get_prompt(
-            client_id, GetPromptRequest(name="test-prompt")
+            self.context, GetPromptRequest(name="test-prompt")
         )
 
         # Assert
@@ -152,5 +154,5 @@ class TestPromptHandling:
 
         # Verify manager was called
         session.prompts.handle_get_prompt.assert_awaited_once_with(
-            client_id, GetPromptRequest(name="test-prompt")
+            self.context, GetPromptRequest(name="test-prompt")
         )
