@@ -1,8 +1,12 @@
 from unittest.mock import AsyncMock
 
+from conduit.protocol.base import PROTOCOL_VERSION
 from conduit.protocol.common import EmptyResult
+from conduit.protocol.initialization import ClientCapabilities, Implementation
 from conduit.protocol.logging import LoggingLevel, SetLevelRequest
+from conduit.server.client_manager import ClientState
 from conduit.server.protocol.logging import LoggingManager
+from conduit.server.request_context import RequestContext
 
 
 class TestLoggingManager:
@@ -12,13 +16,27 @@ class TestLoggingManager:
         # Arrange - consistent setup for all tests
         self.manager = LoggingManager()
         self.client_id = "test-client-123"
+        self.client_state = ClientState(
+            capabilities=ClientCapabilities(),
+            info=Implementation(name="test-client", version="1.0.0"),
+            protocol_version=PROTOCOL_VERSION,
+            initialized=True,
+        )
+        mock_client_manager = AsyncMock()
+        mock_transport = AsyncMock()
+        self.context = RequestContext(
+            client_id=self.client_id,
+            client_state=self.client_state,
+            client_manager=mock_client_manager,
+            transport=mock_transport,
+        )
 
     async def test_handle_set_level_stores_client_log_level(self):
         # Arrange
         request = SetLevelRequest(level=LoggingLevel.DEBUG)
 
         # Act
-        result = await self.manager.handle_set_level(self.client_id, request)
+        result = await self.manager.handle_set_level(self.context, request)
 
         # Assert
         assert isinstance(result, EmptyResult)
@@ -31,7 +49,7 @@ class TestLoggingManager:
         request = SetLevelRequest(level=LoggingLevel.INFO)
 
         # Act
-        result = await self.manager.handle_set_level(self.client_id, request)
+        result = await self.manager.handle_set_level(self.context, request)
 
         # Assert
         assert isinstance(result, EmptyResult)
@@ -43,7 +61,7 @@ class TestLoggingManager:
         # No handler configured (level_change_handler remains None)
 
         # Act & Assert - should not raise any exception
-        result = await self.manager.handle_set_level(self.client_id, request)
+        result = await self.manager.handle_set_level(self.context, request)
 
         assert isinstance(result, EmptyResult)
         assert self.manager.get_client_level(self.client_id) == "warning"
@@ -55,7 +73,7 @@ class TestLoggingManager:
         request = SetLevelRequest(level=LoggingLevel.ERROR)
 
         # Act - should not raise the handler exception
-        result = await self.manager.handle_set_level(self.client_id, request)
+        result = await self.manager.handle_set_level(self.context, request)
 
         # Assert - level still gets stored despite handler failure
         assert isinstance(result, EmptyResult)
@@ -103,7 +121,7 @@ class TestLoggingManager:
         request = SetLevelRequest(level=LoggingLevel.DEBUG)
 
         # Act
-        result = await self.manager.handle_set_level(self.client_id, request)
+        result = await self.manager.handle_set_level(self.context, request)
 
         # Assert - level gets updated
         assert isinstance(result, EmptyResult)

@@ -13,6 +13,8 @@ from conduit.protocol.tools import (
     ListToolsResult,
     TextContent,
 )
+from conduit.server.client_manager import ClientState
+from conduit.server.request_context import RequestContext
 from conduit.server.session import ServerConfig, ServerSession
 
 
@@ -33,14 +35,19 @@ class TestToolHandling:
         )
 
         self.list_request = ListToolsRequest()
+        self.context = RequestContext(
+            client_id="test-client",
+            client_state=ClientState(),
+            client_manager=AsyncMock(),
+            transport=self.transport,
+        )
 
     async def test_list_tools_capability_disabled(self):
         # Arrange
         session = ServerSession(self.transport, self.config_without_tools)
-        client_id = "test-client"
 
         # Act
-        result = await session._handle_list_tools(client_id, self.list_request)
+        result = await session._handle_list_tools(self.context, self.list_request)
 
         # Assert
         assert isinstance(result, Error)
@@ -50,23 +57,23 @@ class TestToolHandling:
     async def test_list_tools_capability_enabled(self):
         # Arrange
         session = ServerSession(self.transport, self.config_with_tools)
-        client_id = "test-client"
 
         # Mock the tools manager
         expected_result = ListToolsResult(tools=[])
         session.tools.handle_list = AsyncMock(return_value=expected_result)
 
         # Act
-        result = await session._handle_list_tools(client_id, self.list_request)
+        result = await session._handle_list_tools(self.context, self.list_request)
 
         # Assert
         assert result == expected_result
-        session.tools.handle_list.assert_called_once_with(client_id, self.list_request)
+        session.tools.handle_list.assert_called_once_with(
+            self.context, self.list_request
+        )
 
     async def test_returns_call_tool_result_when_capability_enabled(self):
         # Arrange
         session = ServerSession(self.transport, self.config_with_tools)
-        client_id = "test-client"
 
         expected_result = CallToolResult(
             content=[TextContent(text="Tool executed successfully")],
@@ -79,7 +86,7 @@ class TestToolHandling:
         request = CallToolRequest(name="test_tool", arguments={"arg1": "value1"})
 
         # Act
-        result = await session._handle_call_tool(client_id, request)
+        result = await session._handle_call_tool(self.context, request)
 
         # Assert
         assert isinstance(result, CallToolResult)
@@ -87,16 +94,15 @@ class TestToolHandling:
         assert result.is_error is False
 
         # Verify manager was called
-        session.tools.handle_call.assert_awaited_once_with(client_id, request)
+        session.tools.handle_call.assert_awaited_once_with(self.context, request)
 
     async def test_rejects_call_tool_when_capability_not_set(self):
         # Arrange
         session = ServerSession(self.transport, self.config_without_tools)
-        client_id = "test-client"
         request = CallToolRequest(name="test_tool", arguments={"arg1": "value1"})
 
         # Act
-        result = await session._handle_call_tool(client_id, request)
+        result = await session._handle_call_tool(self.context, request)
 
         # Assert
         assert isinstance(result, Error)
@@ -106,7 +112,6 @@ class TestToolHandling:
     async def test_returns_method_not_found_when_tool_unknown(self):
         # Arrange
         session = ServerSession(self.transport, self.config_with_tools)
-        client_id = "test-client"
 
         # Mock the manager to raise KeyError (unknown tool)
         session.tools.handle_call = AsyncMock(side_effect=KeyError("unknown_tool"))
@@ -114,11 +119,11 @@ class TestToolHandling:
         request = CallToolRequest(name="unknown_tool", arguments={"arg1": "value1"})
 
         # Act
-        result = await session._handle_call_tool(client_id, request)
+        result = await session._handle_call_tool(self.context, request)
 
         # Assert
         assert isinstance(result, Error)
         assert result.code == METHOD_NOT_FOUND
 
         # Verify manager was called
-        session.tools.handle_call.assert_awaited_once_with(client_id, request)
+        session.tools.handle_call.assert_awaited_once_with(self.context, request)

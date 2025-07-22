@@ -1,6 +1,6 @@
 import logging
 from copy import deepcopy
-from typing import Awaitable, Callable
+from typing import TYPE_CHECKING, Awaitable, Callable
 
 from conduit.protocol.prompts import (
     GetPromptRequest,
@@ -10,8 +10,12 @@ from conduit.protocol.prompts import (
     Prompt,
 )
 
-# Type alias for client-aware prompt handlers
-PromptHandler = Callable[[str, GetPromptRequest], Awaitable[GetPromptResult]]
+if TYPE_CHECKING:
+    from conduit.server.request_context import RequestContext
+
+PromptHandler = Callable[
+    ["RequestContext", GetPromptRequest], Awaitable[GetPromptResult]
+]
 
 
 class PromptManager:
@@ -166,7 +170,7 @@ class PromptManager:
     # ================================
 
     async def handle_list_prompts(
-        self, client_id: str, request: ListPromptsRequest
+        self, context: "RequestContext", request: ListPromptsRequest
     ) -> ListPromptsResult:
         """Returns all prompts available to this client.
 
@@ -174,24 +178,24 @@ class PromptManager:
         override global prompts with the same name.
 
         Args:
-            client_id: ID of the client requesting prompts
+            context: Request context with client state and helpers
             request: List prompts request with pagination support
 
         Returns:
             ListPromptsResult: Available prompts for this client
         """
-        prompts = self.get_client_prompts(client_id)
+        prompts = self.get_client_prompts(context.client_id)
         return ListPromptsResult(prompts=list(prompts.values()))
 
     async def handle_get_prompt(
-        self, client_id: str, request: GetPromptRequest
+        self, context: "RequestContext", request: GetPromptRequest
     ) -> GetPromptResult:
         """Executes a prompt request for specific client.
 
         Uses client-specific handler if available, otherwise falls back to global.
 
         Args:
-            client_id: ID of the client requesting the prompt
+            context: Request context with client state and helpers
             request: Get prompt request with name and arguments
 
         Returns:
@@ -201,6 +205,7 @@ class PromptManager:
             KeyError: If the requested prompt is not registered for this client
             Exception: Any exception from the prompt handler
         """
+        client_id = context.client_id
         try:
             if (
                 client_id in self.client_handlers
@@ -212,7 +217,7 @@ class PromptManager:
             else:
                 raise KeyError(f"Prompt '{request.name}' not found")
 
-            return await handler(client_id, request)
+            return await handler(context, request)
         except KeyError:
             raise
         except Exception:

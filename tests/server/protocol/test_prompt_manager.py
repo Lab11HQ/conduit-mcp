@@ -2,6 +2,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from conduit.protocol.base import PROTOCOL_VERSION
+from conduit.protocol.initialization import ClientCapabilities, Implementation
 from conduit.protocol.prompts import (
     GetPromptRequest,
     GetPromptResult,
@@ -9,7 +11,9 @@ from conduit.protocol.prompts import (
     ListPromptsResult,
     Prompt,
 )
+from conduit.server.client_manager import ClientState
 from conduit.server.protocol.prompts import PromptManager
+from conduit.server.request_context import RequestContext
 
 
 class TestGlobalPromptManagement:
@@ -272,6 +276,21 @@ class TestProtocolHandlers:
         self.client_prompt = Prompt(name="client_prompt", description="Client prompt")
         self.client_handler = AsyncMock(return_value=GetPromptResult(messages=[]))
 
+        self.client_state = ClientState(
+            capabilities=ClientCapabilities(),
+            info=Implementation(name="test-client", version="1.0.0"),
+            protocol_version=PROTOCOL_VERSION,
+            initialized=True,
+        )
+        mock_client_manager = AsyncMock()
+        mock_transport = AsyncMock()
+        self.context = RequestContext(
+            client_id=self.client_id,
+            client_state=self.client_state,
+            client_manager=mock_client_manager,
+            transport=mock_transport,
+        )
+
     async def test_handle_list_prompts_returns_client_available_prompts(self):
         # Arrange - add both global and client-specific prompts
         self.manager.add_prompt(self.global_prompt, self.global_handler)
@@ -281,7 +300,7 @@ class TestProtocolHandlers:
         request = ListPromptsRequest()
 
         # Act - handle list prompts request
-        result = await self.manager.handle_list_prompts(self.client_id, request)
+        result = await self.manager.handle_list_prompts(self.context, request)
 
         # Assert - verify all available prompts are returned for this client
         assert isinstance(result, ListPromptsResult)
@@ -296,10 +315,10 @@ class TestProtocolHandlers:
         request = GetPromptRequest(name="global_prompt", arguments={})
 
         # Act - handle get prompt request
-        result = await self.manager.handle_get_prompt(self.client_id, request)
+        result = await self.manager.handle_get_prompt(self.context, request)
 
         # Assert - verify global handler was called and result returned
-        self.global_handler.assert_awaited_once_with(self.client_id, request)
+        self.global_handler.assert_awaited_once_with(self.context, request)
         assert result == self.global_handler.return_value
 
     async def test_handle_get_prompt_uses_client_handler(self):
@@ -310,10 +329,10 @@ class TestProtocolHandlers:
         request = GetPromptRequest(name="client_prompt", arguments={})
 
         # Act - handle get prompt request
-        result = await self.manager.handle_get_prompt(self.client_id, request)
+        result = await self.manager.handle_get_prompt(self.context, request)
 
         # Assert - verify client handler was called and result returned
-        self.client_handler.assert_awaited_once_with(self.client_id, request)
+        self.client_handler.assert_awaited_once_with(self.context, request)
         assert result == self.client_handler.return_value
 
     async def test_handle_get_prompt_client_handler_overrides_global(self):
@@ -327,10 +346,10 @@ class TestProtocolHandlers:
         request = GetPromptRequest(name="override_prompt", arguments={})
 
         # Act - handle get prompt request
-        result = await self.manager.handle_get_prompt(self.client_id, request)
+        result = await self.manager.handle_get_prompt(self.context, request)
 
         # Assert - verify client handler was used, not global
-        client_handler.assert_awaited_once_with(self.client_id, request)
+        client_handler.assert_awaited_once_with(self.context, request)
         global_handler.assert_not_awaited()
         assert result == client_handler.return_value
 
@@ -340,7 +359,7 @@ class TestProtocolHandlers:
 
         # Act & Assert - verify KeyError is raised for unknown prompt
         with pytest.raises(KeyError, match="Prompt 'unknown_prompt' not found"):
-            await self.manager.handle_get_prompt(self.client_id, request)
+            await self.manager.handle_get_prompt(self.context, request)
 
     async def test_handle_get_prompt_reraises_handler_exceptions(self):
         # Arrange - add prompt with handler that raises exception
@@ -350,7 +369,7 @@ class TestProtocolHandlers:
 
         # Act & Assert - verify handler exception is re-raised
         with pytest.raises(ValueError):
-            await self.manager.handle_get_prompt(self.client_id, request)
+            await self.manager.handle_get_prompt(self.context, request)
 
         # Assert - verify handler was called before failing
-        failing_handler.assert_awaited_once_with(self.client_id, request)
+        failing_handler.assert_awaited_once_with(self.context, request)

@@ -22,6 +22,8 @@ from conduit.protocol.resources import (
     SubscribeRequest,
     UnsubscribeRequest,
 )
+from conduit.server.client_manager import ClientState
+from conduit.server.request_context import RequestContext
 from conduit.server.session import ServerConfig, ServerSession
 
 
@@ -56,6 +58,12 @@ class TestResourceHandling:
             info=Implementation(name="test-server", version="1.0.0"),
             protocol_version=PROTOCOL_VERSION,
         )
+        self.context = RequestContext(
+            client_id="test-client",
+            client_state=ClientState(),
+            client_manager=AsyncMock(),
+            transport=self.transport,
+        )
 
 
 class TestListResources(TestResourceHandling):
@@ -64,7 +72,6 @@ class TestListResources(TestResourceHandling):
     async def test_list_resources_returns_result_when_capability_enabled(self):
         # Arrange
         session = ServerSession(self.transport, self.config_with_resources)
-        client_id = "test-client"
 
         # Mock the resources manager
         expected_result = ListResourcesResult(resources=[])
@@ -73,21 +80,24 @@ class TestListResources(TestResourceHandling):
         )
 
         # Act
-        result = await session._handle_list_resources(client_id, ListResourcesRequest())
+        result = await session._handle_list_resources(
+            self.context, ListResourcesRequest()
+        )
 
         # Assert
         assert result == expected_result
         session.resources.handle_list_resources.assert_awaited_once_with(
-            client_id, ListResourcesRequest()
+            self.context, ListResourcesRequest()
         )
 
     async def test_list_resources_returns_error_when_capability_disabled(self):
         # Arrange
         session = ServerSession(self.transport, self.config_without_resources)
-        client_id = "test-client"
 
         # Act
-        result = await session._handle_list_resources(client_id, ListResourcesRequest())
+        result = await session._handle_list_resources(
+            self.context, ListResourcesRequest()
+        )
 
         # Assert
         assert isinstance(result, Error)
@@ -98,7 +108,6 @@ class TestListResources(TestResourceHandling):
     ):
         # Arrange
         session = ServerSession(self.transport, self.config_with_resources)
-        client_id = "test-client"
 
         # Mock the resources manager
         expected_result = ListResourceTemplatesResult(resource_templates=[])
@@ -108,13 +117,13 @@ class TestListResources(TestResourceHandling):
 
         # Act
         result = await session._handle_list_resource_templates(
-            client_id, ListResourceTemplatesRequest()
+            self.context, ListResourceTemplatesRequest()
         )
 
         # Assert
         assert result == expected_result
         session.resources.handle_list_templates.assert_awaited_once_with(
-            client_id, ListResourceTemplatesRequest()
+            self.context, ListResourceTemplatesRequest()
         )
 
     async def test_list_resource_templates_returns_error_when_capability_disabled(
@@ -122,11 +131,10 @@ class TestListResources(TestResourceHandling):
     ):
         # Arrange
         session = ServerSession(self.transport, self.config_without_resources)
-        client_id = "test-client"
 
         # Act
         result = await session._handle_list_resource_templates(
-            client_id, ListResourceTemplatesRequest()
+            self.context, ListResourceTemplatesRequest()
         )
 
         # Assert
@@ -140,30 +148,28 @@ class TestReadResource(TestResourceHandling):
     async def test_read_resource_returns_result_when_capability_enabled(self):
         # Arrange
         session = ServerSession(self.transport, self.config_with_resources)
-        client_id = "test-client"
 
         expected_result = ReadResourceResult(contents=[])
         session.resources.handle_read = AsyncMock(return_value=expected_result)
 
         # Act
         result = await session._handle_read_resource(
-            client_id, ReadResourceRequest(uri="test-uri")
+            self.context, ReadResourceRequest(uri="test-uri")
         )
 
         # Assert
         assert result == expected_result
         session.resources.handle_read.assert_awaited_once_with(
-            client_id, ReadResourceRequest(uri="test-uri")
+            self.context, ReadResourceRequest(uri="test-uri")
         )
 
     async def test_read_resource_returns_error_when_capability_disabled(self):
         # Arrange
         session = ServerSession(self.transport, self.config_without_resources)
-        client_id = "test-client"
 
         # Act
         result = await session._handle_read_resource(
-            client_id, ReadResourceRequest(uri="test-uri")
+            self.context, ReadResourceRequest(uri="test-uri")
         )
 
         # Assert
@@ -173,14 +179,13 @@ class TestReadResource(TestResourceHandling):
     async def test_read_resource_returns_error_when_resource_not_found(self):
         # Arrange
         session = ServerSession(self.transport, self.config_with_resources)
-        client_id = "test-client"
 
         # Mock the resources manager
         session.resources.handle_read = AsyncMock(side_effect=KeyError("test-uri"))
 
         # Act
         result = await session._handle_read_resource(
-            client_id, ReadResourceRequest(uri="test-uri")
+            self.context, ReadResourceRequest(uri="test-uri")
         )
 
         # Assert
@@ -189,13 +194,12 @@ class TestReadResource(TestResourceHandling):
 
         # Verify manager was called
         session.resources.handle_read.assert_awaited_once_with(
-            client_id, ReadResourceRequest(uri="test-uri")
+            self.context, ReadResourceRequest(uri="test-uri")
         )
 
     async def test_read_resource_returns_error_when_generic_exception_raised(self):
         # Arrange
         session = ServerSession(self.transport, self.config_with_resources)
-        client_id = "test-client"
 
         # Mock the resources manager
         session.resources.handle_read = AsyncMock(
@@ -204,7 +208,7 @@ class TestReadResource(TestResourceHandling):
 
         # Act
         result = await session._handle_read_resource(
-            client_id, ReadResourceRequest(uri="test-uri")
+            self.context, ReadResourceRequest(uri="test-uri")
         )
 
         # Assert
@@ -213,7 +217,7 @@ class TestReadResource(TestResourceHandling):
 
         # Verify manager was called
         session.resources.handle_read.assert_awaited_once_with(
-            client_id, ReadResourceRequest(uri="test-uri")
+            self.context, ReadResourceRequest(uri="test-uri")
         )
 
 
@@ -223,30 +227,28 @@ class TestSubscribeResource(TestResourceHandling):
     async def test_subscribe_returns_empty_result_when_capability_enabled(self):
         # Arrange
         session = ServerSession(self.transport, self.config_with_subscription)
-        client_id = "test-client"
 
         # Mock the resources manager
         session.resources.handle_subscribe = AsyncMock(return_value=EmptyResult())
 
         # Act
         result = await session._handle_subscribe(
-            client_id, SubscribeRequest(uri="test-uri")
+            self.context, SubscribeRequest(uri="test-uri")
         )
 
         # Assert
         assert result == EmptyResult()
         session.resources.handle_subscribe.assert_awaited_once_with(
-            client_id, SubscribeRequest(uri="test-uri")
+            self.context, SubscribeRequest(uri="test-uri")
         )
 
     async def test_subscribe_returns_error_when_capability_disabled(self):
         # Arrange
         session = ServerSession(self.transport, self.config_without_subscription)
-        client_id = "test-client"
 
         # Act
         result = await session._handle_subscribe(
-            client_id, SubscribeRequest(uri="test-uri")
+            self.context, SubscribeRequest(uri="test-uri")
         )
 
         # Assert
@@ -256,14 +258,13 @@ class TestSubscribeResource(TestResourceHandling):
     async def test_subscribe_returns_error_when_resource_not_found(self):
         # Arrange
         session = ServerSession(self.transport, self.config_with_subscription)
-        client_id = "test-client"
 
         # Mock the resources manager
         session.resources.handle_subscribe = AsyncMock(side_effect=KeyError("test-uri"))
 
         # Act
         result = await session._handle_subscribe(
-            client_id, SubscribeRequest(uri="test-uri")
+            self.context, SubscribeRequest(uri="test-uri")
         )
 
         # Assert
@@ -273,30 +274,28 @@ class TestSubscribeResource(TestResourceHandling):
     async def test_unsubscribe_returns_empty_result_when_capability_enabled(self):
         # Arrange
         session = ServerSession(self.transport, self.config_with_subscription)
-        client_id = "test-client"
 
         # Mock the resources manager
         session.resources.handle_unsubscribe = AsyncMock(return_value=EmptyResult())
 
         # Act
         result = await session._handle_unsubscribe(
-            client_id, UnsubscribeRequest(uri="test-uri")
+            self.context, UnsubscribeRequest(uri="test-uri")
         )
 
         # Assert
         assert result == EmptyResult()
         session.resources.handle_unsubscribe.assert_awaited_once_with(
-            client_id, UnsubscribeRequest(uri="test-uri")
+            self.context, UnsubscribeRequest(uri="test-uri")
         )
 
     async def test_unsubscribe_returns_error_when_capability_disabled(self):
         # Arrange
         session = ServerSession(self.transport, self.config_without_subscription)
-        client_id = "test-client"
 
         # Act
         result = await session._handle_unsubscribe(
-            client_id, UnsubscribeRequest(uri="test-uri")
+            self.context, UnsubscribeRequest(uri="test-uri")
         )
 
         # Assert
@@ -306,7 +305,6 @@ class TestSubscribeResource(TestResourceHandling):
     async def test_unsubscribe_returns_error_when_resource_not_found(self):
         # Arrange
         session = ServerSession(self.transport, self.config_with_subscription)
-        client_id = "test-client"
 
         # Mock the resources manager
         session.resources.handle_unsubscribe = AsyncMock(
@@ -315,7 +313,7 @@ class TestSubscribeResource(TestResourceHandling):
 
         # Act
         result = await session._handle_unsubscribe(
-            client_id, UnsubscribeRequest(uri="test-uri")
+            self.context, UnsubscribeRequest(uri="test-uri")
         )
 
         # Assert
