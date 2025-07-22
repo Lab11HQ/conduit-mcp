@@ -10,7 +10,7 @@ Welcome! We're building an SDK that's powerful and intuitive. These practices he
 
 **Setup:**
 ```bash
-git clone https://github.com/davenpi/conduit-mcp.git 
+git clone https://github.com/Lab11HQ/conduit-mcp.git
 cd conduit-mcp
 uv sync
 ```
