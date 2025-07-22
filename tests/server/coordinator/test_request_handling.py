@@ -4,6 +4,7 @@ from conduit.protocol.base import INTERNAL_ERROR, METHOD_NOT_FOUND
 from conduit.protocol.common import EmptyResult
 from conduit.protocol.jsonrpc import Request
 from conduit.protocol.resources import ReadResourceRequest, ReadResourceResult
+from conduit.server.request_context import RequestContext
 
 
 class TestRequestHandling:
@@ -14,8 +15,10 @@ class TestRequestHandling:
         # Arrange: Set up a simple request handler
         handled_requests = []
 
-        async def mock_handler(client_id: str, request: Request) -> EmptyResult:
-            handled_requests.append((client_id, request))
+        async def mock_handler(
+            context: RequestContext, request: Request
+        ) -> EmptyResult:
+            handled_requests.append((context, request))
             return EmptyResult()
 
         # Register the handler
@@ -37,8 +40,9 @@ class TestRequestHandling:
 
         # Assert: Handler was called correctly
         assert len(handled_requests) == 1
-        client_id, request = handled_requests[0]
-        assert client_id == "client-1"
+        context, request = handled_requests[0]
+        assert isinstance(context, RequestContext)
+        assert context.client_id == "client-1"
         assert request.method == "ping"
 
         # Assert: Response was sent back to client
@@ -57,6 +61,7 @@ class TestRequestHandling:
         # Assert: Client was tracked and request cleaned up
         await yield_loop()  # Let client manager clean up
         client = coordinator.client_manager.get_client("client-1")
+        assert client is not None
         assert (
             coordinator.client_manager.get_request_from_client("client-1", "test-123")
             is None
@@ -69,7 +74,7 @@ class TestRequestHandling:
         handler_called = False
 
         async def should_not_be_called(
-            client_id: str, request: ReadResourceRequest
+            context: RequestContext, request: ReadResourceRequest
         ) -> ReadResourceResult:
             nonlocal handler_called
             handler_called = True
@@ -123,7 +128,9 @@ class TestRequestHandling:
         """Test that handler exceptions return INTERNAL_ERROR responses."""
 
         # Arrange: Set up a handler that throws an exception
-        async def failing_handler(client_id: str, request: Request) -> EmptyResult:
+        async def failing_handler(
+            context: RequestContext, request: Request
+        ) -> EmptyResult:
             raise ValueError("Something went wrong in the handler")
 
         coordinator.register_request_handler("tools/list", failing_handler)
@@ -160,7 +167,9 @@ class TestRequestHandling:
         handler_started = asyncio.Event()
         handler_cancelled = False
 
-        async def slow_handler(client_id: str, request: Request) -> EmptyResult:
+        async def slow_handler(
+            context: RequestContext, request: Request
+        ) -> EmptyResult:
             nonlocal handler_cancelled
             handler_started.set()  # Signal that handler has started
             try:
