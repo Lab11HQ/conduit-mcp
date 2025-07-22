@@ -1,5 +1,6 @@
 from unittest.mock import AsyncMock
 
+from conduit.client.request_context import RequestContext
 from conduit.client.session import ClientConfig, ClientSession
 from conduit.protocol.base import METHOD_NOT_FOUND, Error
 from conduit.protocol.initialization import (
@@ -23,6 +24,12 @@ class TestRootsRequestHandling:
             client_info=Implementation(name="test-client", version="1.0.0"),
             capabilities=ClientCapabilities(roots=None),
         )
+        self.context = RequestContext(
+            server_id="server_id",
+            server_state=AsyncMock(),
+            server_manager=AsyncMock(),
+            transport=AsyncMock(),
+        )
 
     list_roots_request = ListRootsRequest()
 
@@ -37,7 +44,7 @@ class TestRootsRequestHandling:
 
         # Act
         result = await self.session._handle_list_roots(
-            "server_id", self.list_roots_request
+            self.context, self.list_roots_request
         )
 
         # Assert
@@ -51,7 +58,7 @@ class TestRootsRequestHandling:
 
         # Act
         result = await self.session._handle_list_roots(
-            "server_id", self.list_roots_request
+            self.context, self.list_roots_request
         )
 
         # Assert
