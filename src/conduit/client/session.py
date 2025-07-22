@@ -426,7 +426,7 @@ class ClientSession:
                 )
         except Exception as e:
             self.logger.info(
-                f"Failed to handle prompts list changed notification from server"
+                f"Failed to handle prompts list changed notification from server "
                 f"{context.server_id}: {e!r}"
             )
 
@@ -453,7 +453,7 @@ class ClientSession:
                     server_state.resources = resources
         except Exception as e:
             self.logger.info(
-                f"Failed to handle resources list changed notification from server"
+                f"Failed to handle resources list changed notification from server "
                 f"{context.server_id}: {e!r}"
             )
 
@@ -467,8 +467,8 @@ class ClientSession:
                     server_state.resource_templates = templates
         except Exception as e:
             self.logger.info(
-                f"Failed to handle resource templates list changed notification from"
-                f" server {context.server_id}: {e!r}"
+                f"Failed to handle resource templates list changed notification from "
+                f"server {context.server_id}: {e!r}"
             )
 
         if resources or templates:
@@ -495,7 +495,7 @@ class ClientSession:
                 )
         except Exception as e:
             self.logger.info(
-                f"Failed to handle resources updated notification from server"
+                f"Failed to handle resources updated notification from server "
                 f"{context.server_id}: {e!r}"
             )
 
@@ -522,7 +522,7 @@ class ClientSession:
                 )
         except Exception as e:
             self.logger.info(
-                f"Failed to handle tools list changed notification from server"
+                f"Failed to handle tools list changed notification from server "
                 f"{context.server_id}: {e!r}"
             )
 
