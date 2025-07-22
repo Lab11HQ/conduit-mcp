@@ -26,9 +26,7 @@ if TYPE_CHECKING:
 ResourceHandler = Callable[
     ["RequestContext", ReadResourceRequest], Awaitable[ReadResourceResult]
 ]
-SubscriptionCallback = Callable[
-    [str, str], Awaitable[None]
-]  # (client_id, uri) - keeping this as-is for now
+SubscriptionCallback = Callable[[str, str], Awaitable[None]]  # (client_id, uri)
 
 
 class ResourceManager:
