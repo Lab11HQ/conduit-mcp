@@ -1,8 +1,11 @@
 import logging
-from typing import Awaitable, Callable
+from typing import TYPE_CHECKING, Awaitable, Callable
 
 from conduit.protocol.common import EmptyResult
 from conduit.protocol.logging import LoggingLevel, SetLevelRequest
+
+if TYPE_CHECKING:
+    from conduit.server.request_context import RequestContext
 
 
 class LoggingManager:
@@ -52,19 +55,20 @@ class LoggingManager:
         self._client_log_levels.pop(client_id, None)
 
     async def handle_set_level(
-        self, client_id: str, request: SetLevelRequest
+        self, context: "RequestContext", request: SetLevelRequest
     ) -> EmptyResult:
         """Sets the MCP protocol logging level for specific client.
 
         Sets the logging level for a client and calls the level change handler.
 
         Args:
-            client_id: The client's unique identifier.
+            context: Rich request context with client state and helpers
             request: The request containing the new logging level.
 
         Returns:
             EmptyResult: Empty result indicating success.
         """
+        client_id = context.client_id
         self._client_log_levels[client_id] = request.level
 
         if self.level_change_handler:
