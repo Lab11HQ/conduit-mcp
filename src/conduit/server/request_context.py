@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class RequestContext:
-    """Rich context for handling server requests.
+    """Rich context for handling client -> server requests.
 
     Provides immediate access to client state, capabilities, and helper methods
     instead of requiring handlers to work with bare client_id strings.
