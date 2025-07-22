@@ -11,10 +11,10 @@ Model Context Protocol is a JSON-RPC 2.0 standard that connects LLMs to external
 The MCP specification is TypeScript-first, we're building a Python SDK that feels natural. We're focused on designing clean abstractions that make MCP development intuitive and powerful.
 
 **Key Design Principles:**
+- **Pythonic conventions** - Built for Python developers
 - **1:many architecture** - Explicit client/server context handling
 - **Rich context objects** - Full client/server state and capabilities available
 - **Layered design** - Transport, session, and protocol concerns properly separated
-- **Pythonic conventions** - Built for Python developers
 
 ## Architecture
 
@@ -30,16 +30,13 @@ Clean separation of concerns with explicit client context threading through the 
 
 🚧 **Pre-launch** - Core architecture complete, transport implementations coming next.
 
-We're currently implementing a [major improvement](https://github.com/Lab11HQ/conduit-mcp/issues/39) to replace client ID threading with rich context objects throughout the system.
-
 ## Development Goals
 
-- **Pythonic types** - snake_case, intuitive Python conventions
-- **Clean abstractions** - Single responsibilities, proper separation
+- **Intuitive APIs** - Works the way developers expect
 - **Narrative docs** - Confident and considerate tone  
 - **Comprehensive tests** - Every documented promise gets tested
-- **Intuitive APIs** - Works the way developers expect
+- **Clean abstractions** - Single responsibilities, proper separation
 
 ## Contributing
 
-Contributions welcome!
+Contributions welcome! Read our [contributing guide](./contributing.md) for more info.

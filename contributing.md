@@ -106,14 +106,18 @@ git commit  # hooks run automatically
 - Clear, narrative docs
 - Comprehensive tests for documented behavior
 
+**Note**
+I turned off Pyright since it won't recognize Pydantic aliases properly (grr). I run
+`npx pyright path/to/code` periodically to make sure the type checker is happy.
+
 ## Testing
 
 ```bash
 # Run the full test suite
-uv run pytest
+pytest
 
 # Run specific tests
-uv run pytest tests/client/session/
+pytest tests/client/session/
 ```
 
 ## Questions?
