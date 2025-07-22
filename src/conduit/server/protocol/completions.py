@@ -1,29 +1,31 @@
 import logging
-from typing import Awaitable, Callable
+from typing import TYPE_CHECKING, Awaitable, Callable
 
 from conduit.protocol.completions import CompleteRequest, CompleteResult
+
+if TYPE_CHECKING:
+    from conduit.server.request_context import RequestContext
 
 
 class CompletionNotConfiguredError(Exception):
     """Raised when completion is requested but no handler is configured."""
 
-    pass
-
 
 class CompletionManager:
     def __init__(self):
         self.completion_handler: (
-            Callable[[str, CompleteRequest], Awaitable[CompleteResult]] | None
+            Callable[["RequestContext", CompleteRequest], Awaitable[CompleteResult]]
+            | None
         ) = None
         self.logger = logging.getLogger("conduit.server.protocol.completions")
 
     async def handle_complete(
-        self, client_id: str, request: CompleteRequest
+        self, context: "RequestContext", request: CompleteRequest
     ) -> CompleteResult:
         """Calls the completion handler.
 
         Args:
-            client_id: The client's unique identifier.
+            context: Rich request context with client state and helpers
             request: Complete request with reference and arguments.
 
         Returns:
@@ -35,4 +37,4 @@ class CompletionManager:
         """
         if self.completion_handler is None:
             raise CompletionNotConfiguredError("No completion handler registered")
-        return await self.completion_handler(client_id, request)
+        return await self.completion_handler(context, request)
