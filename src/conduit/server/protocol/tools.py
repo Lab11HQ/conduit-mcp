@@ -169,7 +169,7 @@ class ToolManager:
         self.client_handlers.pop(client_id, None)
 
     # ================================
-    # Protocol handlers (UPDATED)
+    # Protocol handlers
     # ================================
 
     async def handle_list(

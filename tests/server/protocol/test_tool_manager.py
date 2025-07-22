@@ -2,7 +2,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from conduit.protocol.base import PROTOCOL_VERSION
 from conduit.protocol.content import TextContent
+from conduit.protocol.initialization import ClientCapabilities, Implementation
 from conduit.protocol.tools import (
     CallToolRequest,
     CallToolResult,
@@ -11,7 +13,9 @@ from conduit.protocol.tools import (
     ListToolsResult,
     Tool,
 )
+from conduit.server.client_manager import ClientState
 from conduit.server.protocol.tools import ToolManager
+from conduit.server.request_context import RequestContext
 
 
 class TestGlobalToolManagement:
@@ -321,6 +325,26 @@ class TestProtocolHandlers:
         # Arrange - consistent setup for all tests
         self.manager = ToolManager()
         self.client_id = "test-client-123"
+
+        # Create a basic RequestContext for testing
+        self.client_state = ClientState(
+            capabilities=ClientCapabilities(),
+            info=Implementation(name="test-client", version="1.0.0"),
+            protocol_version=PROTOCOL_VERSION,
+            initialized=True,
+        )
+
+        # Mock the dependencies we don't need for these tests
+        mock_client_manager = AsyncMock()
+        mock_transport = AsyncMock()
+
+        self.context = RequestContext(
+            client_id=self.client_id,
+            client_state=self.client_state,
+            client_manager=mock_client_manager,
+            transport=mock_transport,
+        )
+
         self.global_tool = Tool(
             name="calculator",
             description="A calculator tool",
@@ -347,7 +371,7 @@ class TestProtocolHandlers:
         request = ListToolsRequest()
 
         # Act
-        result = await self.manager.handle_list(self.client_id, request)
+        result = await self.manager.handle_list(self.context, request)
 
         # Assert
         assert isinstance(result, ListToolsResult)
@@ -362,7 +386,7 @@ class TestProtocolHandlers:
         request = ListToolsRequest()
 
         # Act
-        result = await self.manager.handle_list(self.client_id, request)
+        result = await self.manager.handle_list(self.context, request)
 
         # Assert
         assert isinstance(result, ListToolsResult)
@@ -374,7 +398,7 @@ class TestProtocolHandlers:
         request = ListToolsRequest()
 
         # Act
-        result = await self.manager.handle_list(self.client_id, request)
+        result = await self.manager.handle_list(self.context, request)
 
         # Assert
         assert isinstance(result, ListToolsResult)
@@ -383,30 +407,30 @@ class TestProtocolHandlers:
     async def test_handle_call_executes_global_tool_handler(self):
         # Arrange
         self.manager.add_tool(self.global_tool, self.global_handler)
-        request = CallToolRequest(name="calculator", arguments={})
+        request = CallToolRequest(name=self.global_tool.name, arguments={})
 
         # Act
-        result = await self.manager.handle_call(self.client_id, request)
+        result = await self.manager.handle_call(self.context, request)
 
         # Assert
         assert isinstance(result, CallToolResult)
         assert result.content[0].text == "global result"
-        self.global_handler.assert_awaited_once_with(self.client_id, request)
+        self.global_handler.assert_awaited_once_with(self.context, request)
 
     async def test_handle_call_executes_client_specific_handler(self):
         # Arrange
         self.manager.add_client_tool(
             self.client_id, self.client_tool, self.client_handler
         )
-        request = CallToolRequest(name="personal-files", arguments={})
+        request = CallToolRequest(name=self.client_tool.name, arguments={})
 
         # Act
-        result = await self.manager.handle_call(self.client_id, request)
+        result = await self.manager.handle_call(self.context, request)
 
         # Assert
         assert isinstance(result, CallToolResult)
         assert result.content[0].text == "client result"
-        self.client_handler.assert_awaited_once_with(self.client_id, request)
+        self.client_handler.assert_awaited_once_with(self.context, request)
 
     async def test_handle_call_client_handler_overrides_global_handler(self):
         # Arrange - same tool name, different handlers
@@ -419,15 +443,15 @@ class TestProtocolHandlers:
         self.manager.add_client_tool(
             self.client_id, client_tool_same_name, self.client_handler
         )
-        request = CallToolRequest(name="calculator", arguments={})
+        request = CallToolRequest(name=client_tool_same_name.name, arguments={})
 
         # Act
-        result = await self.manager.handle_call(self.client_id, request)
+        result = await self.manager.handle_call(self.context, request)
 
         # Assert
         assert isinstance(result, CallToolResult)
         assert result.content[0].text == "client result"  # Client handler wins
-        self.client_handler.assert_awaited_once_with(self.client_id, request)
+        self.client_handler.assert_awaited_once_with(self.context, request)
         self.global_handler.assert_not_called()
 
     async def test_handle_call_raises_keyerror_for_unknown_tool(self):
@@ -436,18 +460,18 @@ class TestProtocolHandlers:
 
         # Act & Assert
         with pytest.raises(KeyError):
-            await self.manager.handle_call(self.client_id, request)
+            await self.manager.handle_call(self.context, request)
 
     async def test_handle_call_returns_error_result_for_handler_exception(self):
         # Arrange - handler that raises an exception
         failing_handler = AsyncMock(side_effect=RuntimeError("Handler failed"))
         self.manager.add_tool(self.global_tool, failing_handler)
-        request = CallToolRequest(name="calculator", arguments={})
+        request = CallToolRequest(name=self.global_tool.name, arguments={})
 
         # Act
-        result = await self.manager.handle_call(self.client_id, request)
+        result = await self.manager.handle_call(self.context, request)
 
         # Assert
-        failing_handler.assert_awaited_once_with(self.client_id, request)
+        failing_handler.assert_awaited_once_with(self.context, request)
         assert isinstance(result, CallToolResult)
         assert result.is_error is True
