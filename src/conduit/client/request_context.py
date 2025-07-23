@@ -7,7 +7,7 @@ from conduit.protocol.initialization import Implementation, ServerCapabilities
 
 if TYPE_CHECKING:
     from conduit.client.server_manager import ServerManager, ServerState
-    from conduit.transport.client_v2 import ClientTransport
+    from conduit.transport.client import ClientTransport
 
 
 @dataclass

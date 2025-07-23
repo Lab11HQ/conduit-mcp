@@ -70,7 +70,7 @@ from conduit.protocol.tools import (
     ListToolsResult,
     ToolListChangedNotification,
 )
-from conduit.transport.client_v2 import ClientTransport
+from conduit.transport.client import ClientTransport
 
 
 class InvalidProtocolVersionError(Exception):
