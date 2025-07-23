@@ -15,9 +15,7 @@ class ServerProcess:
     """Manages a single server subprocess with its full lifecycle."""
 
     server_command: list[str]
-    stderr_file: str | None = None
     process: asyncio.subprocess.Process | None = None
-    stderr_handle: Any = None
     _is_spawned: bool = False
 
 
@@ -38,7 +36,6 @@ class StdioClientTransport(ClientTransport):
         self._servers: dict[str, ServerProcess] = {}
         self._message_queue: asyncio.Queue[ServerMessage] = asyncio.Queue()
         self._reader_tasks: dict[str, asyncio.Task] = {}
-        self._shutdown_event = asyncio.Event()
 
     async def add_server(self, server_id: str, connection_info: dict[str, Any]) -> None:
         """Register how to reach a server (doesn't connect yet).
@@ -48,7 +45,6 @@ class StdioClientTransport(ClientTransport):
             connection_info: Transport-specific connection details
                 Expected keys:
                 - "command": list[str] - Command to spawn the server subprocess
-                - "stderr_file": str | None (optional) - File to redirect stderr to
 
         Raises:
             ValueError: If server_id already registered or connection_info invalid
@@ -64,15 +60,7 @@ class StdioClientTransport(ClientTransport):
         if not isinstance(server_command, list) or not server_command:
             raise ValueError("'command' must be a non-empty list of strings")
 
-        stderr_file = connection_info.get("stderr_file")
-        if stderr_file is not None and not isinstance(stderr_file, str):
-            raise ValueError("'stderr_file' must be a string or None")
-
-        # Create ServerProcess but don't spawn yet
-        server_process = ServerProcess(
-            server_command=server_command, stderr_file=stderr_file
-        )
-
+        server_process = ServerProcess(server_command=server_command)
         self._servers[server_id] = server_process
         logger.debug(f"Registered server '{server_id}' with command: {server_command}")
 
@@ -94,47 +82,80 @@ class StdioClientTransport(ClientTransport):
 
         server_process = self._servers[server_id]
 
-        # Lazy spawn - start the subprocess on first send
-        if not server_process._is_spawned:
-            await self._spawn_server(server_id, server_process)
-            # Start background task to read messages from this server
-            self._reader_tasks[server_id] = asyncio.create_task(
-                self._read_from_server(server_id, server_process)
-            )
+        await self._ensure_server_running(server_id, server_process)
 
         try:
-            # Serialize message to JSON (reuse existing logic)
             json_str = serialize_message(message)
-
-            # Add newline delimiter and encode to bytes
             message_bytes = (json_str + "\n").encode("utf-8")
-
-            # Write to this server's stdin
             await self._write_to_server_stdin(server_process, message_bytes)
-
             logger.debug(f"Sent message to server '{server_id}': {json_str}")
-
         except ConnectionError:
-            # Re-raise connection errors as-is
+            await self._mark_server_dead(server_id, server_process)
             raise
         except ValueError:
-            # Re-raise serialization errors as-is
             raise
         except Exception as e:
-            # Other errors (encoding, etc.)
             raise ConnectionError(
                 f"Failed to send message to server '{server_id}': {e}"
             ) from e
 
+    async def _ensure_server_running(
+        self, server_id: str, server_process: ServerProcess
+    ) -> None:
+        """Ensure server is spawned and running, spawn if needed."""
+        if server_process._is_spawned and server_process.process is not None:
+            return
+
+        await self._spawn_server(server_id, server_process)
+
+        task = asyncio.create_task(
+            self._read_from_server(server_id, server_process),
+            name=f"reader_task_{server_id}",
+        )
+        task.add_done_callback(
+            lambda t: asyncio.create_task(
+                self._on_reader_done(server_id, server_process, t)
+            )
+        )
+        self._reader_tasks[server_id] = task
+
+    async def _on_reader_done(
+        self, server_id: str, server_process: ServerProcess, task: asyncio.Task
+    ) -> None:
+        """Handle reader task completion - always mark server as dead."""
+        if server_id in self._reader_tasks:
+            del self._reader_tasks[server_id]
+
+        if task.cancelled():
+            logger.debug(f"Reader task for server '{server_id}' was cancelled")
+        elif task.exception():
+            logger.error(
+                f"Reader task for server '{server_id}' failed: {task.exception()}"
+            )
+        else:
+            logger.debug(f"Reader task for server '{server_id}' completed normally")
+
+        await self._mark_server_dead(server_id, server_process)
+
+    async def _mark_server_dead(
+        self, server_id: str, server_process: ServerProcess
+    ) -> None:
+        """Handle server death - cleanup state but keep registration."""
+        server_process._is_spawned = False
+        server_process.process = None
+
+        if server_id in self._reader_tasks:
+            self._reader_tasks[server_id].cancel()
+            try:
+                await self._reader_tasks[server_id]
+            except asyncio.CancelledError:
+                pass
+            del self._reader_tasks[server_id]
+
     async def _spawn_server(
         self, server_id: str, server_process: ServerProcess
     ) -> None:
-        """Spawn a server subprocess (extracted from old implementation)."""
-        if server_process.stderr_file:
-            server_process.stderr_handle = open(server_process.stderr_file, "w")
-            stderr_target = server_process.stderr_handle
-        else:
-            stderr_target = None
+        """Spawn a server subprocess."""
 
         try:
             logger.debug(
@@ -145,7 +166,7 @@ class StdioClientTransport(ClientTransport):
                 *server_process.server_command,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=stderr_target,
+                stderr=None,
             )
 
             server_process._is_spawned = True
@@ -163,21 +184,11 @@ class StdioClientTransport(ClientTransport):
     async def _write_to_server_stdin(
         self, server_process: ServerProcess, data: bytes
     ) -> None:
-        """Write data to a server's stdin (adapted from old implementation)."""
-        if not server_process._is_spawned or server_process.process is None:
-            raise ConnectionError("Server process is not running")
-
-        if server_process.process.returncode is not None:
-            raise ConnectionError("Server process has died")
-
-        if server_process.process.stdin is None:
-            raise ConnectionError("Server stdin is not available")
-
+        """Write data to a server's stdin."""
         try:
             server_process.process.stdin.write(data)
-            await server_process.process.stdin.drain()  # Ensure data is flushed
+            await server_process.process.stdin.drain()
         except (BrokenPipeError, ConnectionResetError) as e:
-            server_process._is_spawned = False
             raise ConnectionError("Server process closed connection") from e
 
     def server_messages(self) -> AsyncIterator[ServerMessage]:
@@ -190,14 +201,10 @@ class StdioClientTransport(ClientTransport):
 
     async def _message_queue_iterator(self) -> AsyncIterator[ServerMessage]:
         """Async iterator that yields messages from the multiplexed queue."""
-        while not self._shutdown_event.is_set():
+        while True:
             try:
-                # Wait for next message with a timeout to check shutdown
-                message = await asyncio.wait_for(self._message_queue.get(), timeout=1.0)
+                message = await self._message_queue.get()
                 yield message
-            except asyncio.TimeoutError:
-                # Check if we should continue waiting
-                continue
             except Exception as e:
                 logger.error(f"Error reading from message queue: {e}")
                 break
@@ -206,43 +213,29 @@ class StdioClientTransport(ClientTransport):
         self, server_id: str, server_process: ServerProcess
     ) -> None:
         """Background task to read messages from one server."""
-        try:
-            while (
-                server_process._is_spawned
-                and server_process.process is not None
-                and server_process.process.returncode is None
-                and not self._shutdown_event.is_set()
-            ):
-                # Read one line from this server's stdout
-                line = await self._read_line_from_server_stdout(server_process)
-                if line is None:
-                    # EOF - server closed stdout
-                    logger.debug(f"Server '{server_id}' closed stdout")
-                    break
+        while (
+            server_process._is_spawned
+            and server_process.process is not None
+            and server_process.process.returncode is None
+        ):
+            line = await self._read_line_from_server_stdout(server_process)
+            if line is None:
+                logger.debug(f"Server '{server_id}' closed stdout")
+                break
 
-                # Parse as JSON message
-                message = parse_json_message(line)
-                if message is None:
-                    logger.warning(f"Invalid JSON from server '{server_id}': {line}")
-                    continue
+            message = parse_json_message(line)
+            if message is None:
+                logger.warning(f"Invalid JSON from server '{server_id}': {line}")
+                continue
 
-                # Wrap in ServerMessage with context
-                server_message = ServerMessage(
-                    server_id=server_id,
-                    payload=message,
-                    timestamp=time.time(),
-                )
+            server_message = ServerMessage(
+                server_id=server_id,
+                payload=message,
+                timestamp=time.time(),
+            )
 
-                await self._message_queue.put(server_message)
-                logger.debug(
-                    f"Received message from server '{server_id}': {line.strip()}"
-                )
-
-        except Exception as e:
-            logger.error(f"Error reading from server '{server_id}': {e}")
-        finally:
-            # Mark server as no longer spawned
-            server_process._is_spawned = False
+            await self._message_queue.put(server_message)
+            logger.debug(f"Received message from server '{server_id}': {line.strip()}")
 
     async def _read_line_from_server_stdout(
         self, server_process: ServerProcess
@@ -253,26 +246,15 @@ class StdioClientTransport(ClientTransport):
             Decoded line string, or None if EOF
 
         Raises:
-            ConnectionError: If process died or stdout unavailable
+            ConnectionError: If read fails
         """
-        if not server_process._is_spawned or server_process.process is None:
-            raise ConnectionError("Server process is not running")
-
-        if server_process.process.returncode is not None:
-            raise ConnectionError("Server process has died")
-
-        if server_process.process.stdout is None:
-            raise ConnectionError("Server stdout is not available")
-
-        # Read line as bytes
-        line_bytes = await server_process.process.stdout.readline()
-
-        # Check for EOF
-        if not line_bytes:
-            return None
-
-        # Decode to string
-        return line_bytes.decode("utf-8")
+        try:
+            line_bytes = await server_process.process.stdout.readline()
+            if not line_bytes:
+                return None
+            return line_bytes.decode("utf-8")
+        except Exception as e:
+            raise ConnectionError(f"Failed to read from server stdout: {e}") from e
 
     async def disconnect_server(self, server_id: str) -> None:
         """Disconnect from specific server.
@@ -283,11 +265,10 @@ class StdioClientTransport(ClientTransport):
             server_id: Server connection ID to disconnect
         """
         if server_id not in self._servers:
-            return  # No-op if not registered
+            return
 
         server_process = self._servers[server_id]
 
-        # Cancel reader task if it exists
         if server_id in self._reader_tasks:
             self._reader_tasks[server_id].cancel()
             try:
@@ -296,10 +277,8 @@ class StdioClientTransport(ClientTransport):
                 pass
             del self._reader_tasks[server_id]
 
-        # Shutdown the subprocess
         await self._shutdown_server_process(server_id, server_process)
 
-        # Remove from registry
         del self._servers[server_id]
         logger.debug(f"Disconnected from server '{server_id}'")
 
@@ -358,18 +337,12 @@ class StdioClientTransport(ClientTransport):
                 await asyncio.wait_for(server_process.process.wait(), timeout=2.0)
                 logger.debug(f"Server '{server_id}' killed")
             except asyncio.TimeoutError:
-                logger.error(
-                    f"Server '{server_id}' didn't die after SIGKILL - "
-                    "this should never happen!"
-                )
+                logger.error(f"Server '{server_id}' didn't die after SIGKILL ")
                 # At this point we've done everything we can
                 # - just mark it as dead and move on
 
         except Exception as e:
             logger.error(f"Error during shutdown of server '{server_id}': {e}")
         finally:
-            if server_process.stderr_handle:
-                server_process.stderr_handle.close()
-                server_process.stderr_handle = None
             server_process.process = None
             server_process._is_spawned = False
