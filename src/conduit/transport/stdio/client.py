@@ -16,7 +16,11 @@ class ServerProcess:
 
     server_command: list[str]
     process: asyncio.subprocess.Process | None = None
-    _is_spawned: bool = False
+
+    @property
+    def is_running(self) -> bool:
+        """True if the subprocess is alive and communicating."""
+        return self.process is not None and self.process.returncode is None
 
 
 class StdioClientTransport(ClientTransport):
@@ -88,9 +92,14 @@ class StdioClientTransport(ClientTransport):
             message_bytes = (json_str + "\n").encode("utf-8")
             await self._write_to_server_stdin(server_process, message_bytes)
             logger.debug(f"Sent message to server '{server_id}': {json_str}")
-        except ConnectionError:
+        except (ConnectionError, OSError) as e:
             await self._mark_server_dead(server_id, server_process)
-            raise
+            if isinstance(e, ConnectionError):
+                raise
+            else:
+                raise ConnectionError(
+                    f"Failed to send message to server '{server_id}': {e}"
+                ) from e
         except ValueError:
             raise
         except Exception as e:
@@ -102,7 +111,7 @@ class StdioClientTransport(ClientTransport):
         self, server_id: str, server_process: ServerProcess
     ) -> None:
         """Ensure server is spawned and running, spawn if needed."""
-        if server_process._is_spawned and server_process.process is not None:
+        if server_process.is_running:
             return
 
         await self._spawn_server(server_id, server_process)
@@ -140,7 +149,6 @@ class StdioClientTransport(ClientTransport):
         self, server_id: str, server_process: ServerProcess
     ) -> None:
         """Handle server death - cleanup state but keep registration."""
-        server_process._is_spawned = False
         server_process.process = None
 
         if server_id in self._reader_tasks:
@@ -168,7 +176,6 @@ class StdioClientTransport(ClientTransport):
                 stderr=None,
             )
 
-            server_process._is_spawned = True
             logger.debug(
                 f"Server '{server_id}' subprocess started"
                 f"(PID: {server_process.process.pid})"
@@ -177,16 +184,18 @@ class StdioClientTransport(ClientTransport):
         except Exception as e:
             logger.error(f"Failed to start server '{server_id}': {e}")
             server_process.process = None
-            server_process._is_spawned = False
             raise ConnectionError(f"Failed to start server '{server_id}': {e}") from e
 
     async def _write_to_server_stdin(
         self, server_process: ServerProcess, data: bytes
     ) -> None:
         """Write data to a server's stdin."""
+        if server_process.process is None:
+            raise ConnectionError("Cannot write to non-running server process")
+
         try:
-            server_process.process.stdin.write(data)
-            await server_process.process.stdin.drain()
+            server_process.process.stdin.write(data)  # type: ignore[union-attr]
+            await server_process.process.stdin.drain()  # type: ignore[union-attr]
         except (BrokenPipeError, ConnectionResetError) as e:
             raise ConnectionError("Server process closed connection") from e
 
@@ -212,11 +221,7 @@ class StdioClientTransport(ClientTransport):
         self, server_id: str, server_process: ServerProcess
     ) -> None:
         """Background task to read messages from one server."""
-        while (
-            server_process._is_spawned
-            and server_process.process is not None
-            and server_process.process.returncode is None
-        ):
+        while server_process.is_running:
             line = await self._read_line_from_server_stdout(server_process)
             if line is None:
                 logger.debug(f"Server '{server_id}' closed stdout")
@@ -247,8 +252,11 @@ class StdioClientTransport(ClientTransport):
         Raises:
             ConnectionError: If read fails
         """
+        if server_process.process is None:
+            raise ConnectionError("Cannot read from non-running server process")
+
         try:
-            line_bytes = await server_process.process.stdout.readline()
+            line_bytes = await server_process.process.stdout.readline()  # type: ignore[union-attr]
             if not line_bytes:
                 return None
             return line_bytes.decode("utf-8")
@@ -344,4 +352,3 @@ class StdioClientTransport(ClientTransport):
             logger.error(f"Error during shutdown of server '{server_id}': {e}")
         finally:
             server_process.process = None
-            server_process._is_spawned = False

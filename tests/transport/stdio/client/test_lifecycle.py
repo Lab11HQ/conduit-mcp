@@ -20,8 +20,7 @@ class TestAddServer:
         assert server_id in transport._servers
         server_process = transport._servers[server_id]
         assert server_process.server_command == ["python", "-m", "some.server"]
-        assert server_process.process is None  # Not spawned yet (lazy connection)
-        assert server_process._is_spawned is False
+        assert not server_process.is_running
 
     async def test_add_server_missing_command_key(self):
         """Test that missing 'command' key raises ValueError."""
@@ -132,10 +131,9 @@ for line in sys.stdin:
         # Verify server state is properly cleaned up
         assert server_id in transport._servers
         server_process = transport._servers[server_id]
-        assert server_process.process is None
-        assert server_process._is_spawned is False
+        assert not server_process.is_running
 
-    async def test_server_process_crash_recovery(self):
+    async def test_send_to_respawns_server_and_gets_response(self):
         """Test that client handles server crashes and can recover."""
         # Arrange - server that crashes after first message
         transport = StdioClientTransport()
@@ -171,8 +169,7 @@ sys.exit(1)  # Then crash
 
         # Assert server is marked as dead
         server_process = transport._servers[server_id]
-        assert server_process._is_spawned is False
-        assert server_process.process is None
+        assert not server_process.is_running
         assert server_id not in transport._reader_tasks
 
         # Act 2: Send another message - should respawn server and get response
@@ -185,6 +182,58 @@ sys.exit(1)  # Then crash
         )
         assert received_message_2.payload == test_message_2
 
+        # Wait for crash detection and automatic cleanup
+        await asyncio.sleep(0.05)
+
+        # Verify automatic cleanup happened (no manual disconnect needed)
+        server_process = transport._servers[server_id]
+        assert server_process.process is None
+
+    async def test_send_serialization_failure_keeps_server_alive(self):
+        # Arrange
+        transport = StdioClientTransport()
+        server_id = "echo-server"
+        connection_info = {
+            "command": [
+                "python",
+                "-c",
+                """
+import sys
+for line in sys.stdin:
+    line = line.strip()
+    if line:
+        print(line, flush=True)
+""",
+            ]
+        }
+
+        await transport.add_server(server_id, connection_info)
+
+        # Send valid message first to spawn server
+        valid_message = {"jsonrpc": "2.0", "method": "test", "id": 1}
+        await transport.send(server_id, valid_message)
+
+        # Get reference to spawned process
+        process = transport._servers[server_id].process
+
+        # Try to send unserializable message
+        bad_message = {
+            "jsonrpc": "2.0",
+            "method": lambda: None,
+        }  # Functions aren't JSON serializable
+
+        with pytest.raises(ValueError):
+            await transport.send(server_id, bad_message)
+
+        # Assert server is still alive
+        server_process = transport._servers[server_id]
+        assert server_process.process is process  # Same process instance
+        assert server_process.is_running
+
+        # Verify we can still send valid messages
+        valid_message_2 = {"jsonrpc": "2.0", "method": "test2", "id": 2}
+        await transport.send(server_id, valid_message_2)
+
         # Cleanup
-        await asyncio.sleep(0.1)  # Let second crash be detected
         await transport.disconnect_server(server_id)
+        await process.wait()
