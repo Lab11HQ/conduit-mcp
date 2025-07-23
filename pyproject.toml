@@ -12,6 +12,10 @@ dependencies = [
     "starlette>=0.47.1",
     "uvicorn>=0.35.0",
 ]
+authors = [
+    {name = "Ian Davenport", email = "davenport.ianc@gmail.com"}
+]
+keywords = ["mcp", "Model Context Protocol", "sdk"]
 
 [dependency-groups]
 dev = [
