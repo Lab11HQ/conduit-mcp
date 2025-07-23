@@ -17,3 +17,6 @@ pyright-output.txt
 
 # notes
 notes/
+
+# env
+.env
