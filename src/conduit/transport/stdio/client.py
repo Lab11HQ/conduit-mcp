@@ -47,17 +47,16 @@ class StdioClientTransport(ClientTransport):
                 - "command": list[str] - Command to spawn the server subprocess
 
         Raises:
-            ValueError: If server_id already registered or connection_info invalid
+            ValueError: If connection_info is invalid
         """
-        if server_id in self._servers:
-            raise ValueError(f"Server '{server_id}' is already registered")
-
-        # Validate required connection info
         if "command" not in connection_info:
             raise ValueError("connection_info must contain 'command' key")
 
         server_command = connection_info["command"]
         if not isinstance(server_command, list) or not server_command:
+            raise ValueError("'command' must be a non-empty list of strings")
+
+        if not all(isinstance(item, str) for item in server_command):
             raise ValueError("'command' must be a non-empty list of strings")
 
         server_process = ServerProcess(server_command=server_command)
