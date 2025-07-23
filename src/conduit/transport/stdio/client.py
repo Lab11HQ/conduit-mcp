@@ -92,14 +92,9 @@ class StdioClientTransport(ClientTransport):
             message_bytes = (json_str + "\n").encode("utf-8")
             await self._write_to_server_stdin(server_process, message_bytes)
             logger.debug(f"Sent message to server '{server_id}': {json_str}")
-        except (ConnectionError, OSError) as e:
+        except ConnectionError:
             await self._mark_server_dead(server_id, server_process)
-            if isinstance(e, ConnectionError):
-                raise
-            else:
-                raise ConnectionError(
-                    f"Failed to send message to server '{server_id}': {e}"
-                ) from e
+            raise
         except ValueError:
             raise
         except Exception as e:
@@ -191,7 +186,7 @@ class StdioClientTransport(ClientTransport):
     ) -> None:
         """Write data to a server's stdin."""
         if server_process.process is None:
-            raise ConnectionError("Cannot write to non-running server process")
+            raise ConnectionError("Server process is not running")
 
         try:
             server_process.process.stdin.write(data)  # type: ignore[union-attr]
@@ -253,7 +248,7 @@ class StdioClientTransport(ClientTransport):
             ConnectionError: If read fails
         """
         if server_process.process is None:
-            raise ConnectionError("Cannot read from non-running server process")
+            raise ConnectionError("Server process is not running")
 
         try:
             line_bytes = await server_process.process.stdout.readline()  # type: ignore[union-attr]
