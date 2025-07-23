@@ -37,10 +37,8 @@ def serialize_message(message: dict[str, Any]) -> str:
         ValueError: If message contains embedded newlines
     """
     try:
-        # Serialize to JSON with no extra whitespace
         json_str = json.dumps(message, separators=(",", ":"), ensure_ascii=False)
 
-        # Validate no embedded newlines (spec requirement)
         if "\n" in json_str or "\r" in json_str:
             raise ValueError(
                 "Message contains embedded newlines, which violates MCP spec"
