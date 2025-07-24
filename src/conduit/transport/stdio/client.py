@@ -185,8 +185,6 @@ class StdioClientTransport(ClientTransport):
         self, server_process: ServerProcess, data: bytes
     ) -> None:
         """Write data to a server's stdin."""
-        if server_process.process is None:
-            raise ConnectionError("Server process is not running")
 
         try:
             server_process.process.stdin.write(data)  # type: ignore[union-attr]

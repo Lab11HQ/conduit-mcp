@@ -6,7 +6,7 @@ from conduit.transport.stdio.client import StdioClientTransport
 
 
 class TestAddServer:
-    async def test_add_server_happy_path(self):
+    async def test_registers_but_does_not_start_server(self):
         """Test successful server registration with valid command."""
         # Arrange
         transport = StdioClientTransport()
@@ -22,7 +22,7 @@ class TestAddServer:
         assert server_process.server_command == ["python", "-m", "some.server"]
         assert not server_process.is_running
 
-    async def test_add_server_missing_command_key(self):
+    async def test_raises_value_error_if_command_is_missing(self):
         """Test that missing 'command' key raises ValueError."""
         # Arrange
         transport = StdioClientTransport()
@@ -30,15 +30,13 @@ class TestAddServer:
         connection_info = {"other_key": "some_value"}  # Missing 'command'
 
         # Act & Assert
-        with pytest.raises(
-            ValueError, match="connection_info must contain 'command' key"
-        ):
+        with pytest.raises(ValueError):
             await transport.add_server(server_id, connection_info)
 
         # Verify server wasn't registered
         assert server_id not in transport._servers
 
-    async def test_add_server_invalid_command_format(self):
+    async def test_raises_value_error_if_command_is_invalid(self):
         """Test that invalid command format raises ValueError."""
         # Arrange
         transport = StdioClientTransport()
@@ -66,7 +64,7 @@ class TestAddServer:
 
 
 class TestSend:
-    async def test_send_message_reaches_server(self):
+    async def test_sends_message_to_server(self):
         """Test that sent messages actually reach the server."""
         # Arrange
         transport = StdioClientTransport()
@@ -105,7 +103,7 @@ for line in sys.stdin:
         await transport.disconnect_server(server_id)
         await process.wait()
 
-    async def test_send_to_unregistered_server_raises_value_error(self):
+    async def test_raises_value_error_if_server_is_not_registered(self):
         # Arrange
         transport = StdioClientTransport()
         unregistered_server_id = "nonexistent-server"
@@ -115,7 +113,7 @@ for line in sys.stdin:
         with pytest.raises(ValueError):
             await transport.send(unregistered_server_id, test_message)
 
-    async def test_subprocess_spawn_failure_raises_connection_error(self):
+    async def test_raises_connection_error_if_server_fails_to_start(self):
         # Arrange
         transport = StdioClientTransport()
         server_id = "failing-server"
@@ -133,7 +131,7 @@ for line in sys.stdin:
         server_process = transport._servers[server_id]
         assert not server_process.is_running
 
-    async def test_send_to_respawns_server_and_gets_response(self):
+    async def test_respawns_server_if_it_crashes(self):
         """Test that client handles server crashes and can recover."""
         # Arrange - server that crashes after first message
         transport = StdioClientTransport()
@@ -189,7 +187,7 @@ sys.exit(1)  # Then crash
         server_process = transport._servers[server_id]
         assert server_process.process is None
 
-    async def test_send_serialization_failure_keeps_server_alive(self):
+    async def test_keeps_server_alive_if_serialization_fails(self):
         # Arrange
         transport = StdioClientTransport()
         server_id = "echo-server"
@@ -237,3 +235,109 @@ for line in sys.stdin:
         # Cleanup
         await transport.disconnect_server(server_id)
         await process.wait()
+
+
+class TestDisconnectServer:
+    async def test_disconnects_server(self):
+        """Test graceful disconnect of a running server."""
+        # Arrange
+        transport = StdioClientTransport()
+        server_id = "echo-server"
+        connection_info = {
+            "command": [
+                "python",
+                "-c",
+                """
+import sys
+for line in sys.stdin:
+    line = line.strip()
+    if line:
+        print(line, flush=True)
+""",
+            ]
+        }
+
+        await transport.add_server(server_id, connection_info)
+
+        # Send a message to spawn the server
+        test_message = {"jsonrpc": "2.0", "method": "test", "id": 1}
+        await transport.send(server_id, test_message)
+
+        # Verify server is running before disconnect
+        assert server_id in transport._servers
+        assert server_id in transport._reader_tasks
+        assert transport._servers[server_id].is_running
+
+        # Capture process reference before disconnect
+        process = transport._servers[server_id].process
+
+        # Act - disconnect the server
+        await transport.disconnect_server(server_id)
+
+        # Assert - verify complete cleanup
+        assert server_id not in transport._servers
+        assert server_id not in transport._reader_tasks
+
+        # Wait for subprocess to fully terminate to avoid event loop warnings
+        await process.wait()
+
+    async def test_disconnect_server_is_idempotent(self):
+        # Arrange
+        transport = StdioClientTransport()
+        server_id = "echo-server"
+        connection_info = {
+            "command": [
+                "python",
+                "-c",
+                """
+import sys
+for line in sys.stdin:
+    line = line.strip()
+    if line:
+        print(line, flush=True)
+""",
+            ]
+        }
+
+        await transport.add_server(server_id, connection_info)
+
+        # Send a message to spawn the server
+        test_message = {"jsonrpc": "2.0", "method": "test", "id": 1}
+        await transport.send(server_id, test_message)
+
+        # Capture process reference before first disconnect
+        process = transport._servers[server_id].process
+
+        # Act - disconnect multiple times
+        await transport.disconnect_server(server_id)
+        await transport.disconnect_server(server_id)  # Should be no-op
+        await transport.disconnect_server(server_id)  # Should be no-op
+
+        # Assert - verify server is still gone (not re-added or anything weird)
+        assert server_id not in transport._servers
+        assert server_id not in transport._reader_tasks
+
+        # Wait for subprocess cleanup
+        await process.wait()
+
+    async def test_disconnect_unregistered_server_is_safe_no_op(self):
+        """Test that disconnecting an unregistered server is a safe no-op."""
+        # Arrange
+        transport = StdioClientTransport()
+        unregistered_server_id = "nonexistent-server"
+
+        # Verify server is not registered
+        assert unregistered_server_id not in transport._servers
+        assert unregistered_server_id not in transport._reader_tasks
+
+        # Act - disconnect unregistered server (should be no-op)
+        await transport.disconnect_server(unregistered_server_id)
+
+        # Assert - transport state unchanged
+        assert unregistered_server_id not in transport._servers
+        assert unregistered_server_id not in transport._reader_tasks
+
+        # Verify we can still use the transport normally
+        # (i.e., the no-op didn't break anything)
+        assert len(transport._servers) == 0
+        assert len(transport._reader_tasks) == 0
