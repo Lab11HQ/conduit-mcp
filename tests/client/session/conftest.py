@@ -4,7 +4,7 @@ from typing import Any, AsyncIterator
 
 import pytest
 
-from conduit.transport.client_v2 import ClientTransport, ServerMessage
+from conduit.transport.client import ClientTransport, ServerMessage
 
 
 class MockClientTransport(ClientTransport):

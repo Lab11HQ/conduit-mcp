@@ -6,7 +6,7 @@ import pytest
 
 from conduit.client.coordinator import MessageCoordinator
 from conduit.client.server_manager import ServerManager
-from conduit.transport.client_v2 import ClientTransport, ServerMessage
+from conduit.transport.client import ClientTransport, ServerMessage
 
 
 class MockClientTransport(ClientTransport):

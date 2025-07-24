@@ -29,7 +29,7 @@ from conduit.protocol.jsonrpc import (
     JSONRPCResponse,
 )
 from conduit.shared.message_parser import MessageParser
-from conduit.transport.client_v2 import ClientTransport, ServerMessage
+from conduit.transport.client import ClientTransport, ServerMessage
 
 TRequest = TypeVar("TRequest", bound=Request)
 TResult = TypeVar("TResult", bound=Result)
