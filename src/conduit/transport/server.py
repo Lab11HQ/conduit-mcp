@@ -15,6 +15,11 @@ class ClientMessage:
     metadata: dict[str, Any] | None = None
 
 
+@dataclass
+class TransportContext:
+    originating_request_id: str | int | None = None
+
+
 class ServerTransport(ABC):
     """Transport for server communicating with multiple clients.
 
@@ -24,12 +29,19 @@ class ServerTransport(ABC):
     """
 
     @abstractmethod
-    async def send(self, client_id: str, message: dict[str, Any]) -> None:
+    async def send(
+        self,
+        client_id: str,
+        message: dict[str, Any],
+        transport_context: TransportContext | None = None,
+    ) -> None:
         """Send message to specific client.
 
         Args:
             client_id: Target client connection ID
             message: JSON-RPC message to send
+            transport_context: Context for the transport. For example, this helps route
+                messages along specific streams.
 
         Raises:
             ValueError: If client_id is not connected
