@@ -137,15 +137,19 @@ class StreamableHttpServerTransport(ServerTransport):
         await self._message_queue.put(client_message)
 
         # Route based on message type
-        request_id = message_data.get("id")
-        if request_id:
+        if self.is_request(message_data):
             # ALWAYS create SSE stream for requests
+            request_id = message_data.get("id")
             return await self._create_request_stream(
                 client_id, request_id, response_headers
             )
         else:
             # Notifications and responses get 202 Accepted
             return Response(status_code=202, headers=response_headers)
+
+    def is_request(self, message_data: dict[str, Any]) -> bool:
+        """Check if message is a request."""
+        return message_data.get("method") is not None
 
     async def _handle_get_request(self, request: Request) -> Response:
         """Handle HTTP GET request for SSE streams."""
