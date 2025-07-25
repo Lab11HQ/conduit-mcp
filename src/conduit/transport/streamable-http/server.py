@@ -13,7 +13,7 @@ from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
 from starlette.routing import Route
 
-from conduit.transport.server import ClientMessage, ServerTransport
+from conduit.transport.server import ClientMessage, ServerTransport, TransportContext
 
 logger = logging.getLogger(__name__)
 
@@ -257,30 +257,26 @@ class StreamableHttpServerTransport(ServerTransport):
             stream.event_generator(), media_type="text/event-stream", headers=headers
         )
 
-    async def send(self, client_id: str, message: dict[str, Any]) -> None:
-        """Send message to client via appropriate stream.
-
-        STREAM ROUTING LOGIC:
-        - If message is response to a request, send on that request's stream
-        - If message is server-initiated, send on... TBD (Phase 3)
-        - Auto-close stream after sending response to original request
-        """
-        request_id = message.get("id")
-
-        if request_id:
-            # This is a response - find the stream for this request
-            stream_id = f"{client_id}:{request_id}"
+    async def send(
+        self,
+        client_id: str,
+        message: dict[str, Any],
+        transport_context: TransportContext | None = None,
+    ) -> None:
+        if transport_context and (
+            originating_request_id := transport_context.originating_request_id
+        ):
+            # Route to the stream for the originating request
+            stream_id = f"{client_id}:{originating_request_id}"
             if stream_id in self._active_streams:
-                stream = self._active_streams[stream_id]
-                await stream.send_message(message)
-
-                # If this is the final response, close the stream
+                await self._active_streams[stream_id].send_message(message)
+                # Auto-close stream after sending response
                 if "result" in message or "error" in message:
                     await self._close_stream(stream_id)
                 return
 
-        # TODO: Handle server-initiated messages (Phase 3)
-        logger.warning(f"No stream found for message to client {client_id}: {message}")
+        # Fallback: server-initiated message (Phase 3)
+        await self._route_to_server_stream(client_id, message)
 
     async def _close_stream(self, stream_id: str) -> None:
         """Close and cleanup a stream."""

@@ -6,7 +6,7 @@ import pytest
 
 from conduit.server.client_manager import ClientManager
 from conduit.server.coordinator import MessageCoordinator
-from conduit.transport.server import ClientMessage, ServerTransport
+from conduit.transport.server import ClientMessage, ServerTransport, TransportContext
 
 
 class MockServerTransport(ServerTransport):
@@ -17,7 +17,12 @@ class MockServerTransport(ServerTransport):
         self.client_message_queue: asyncio.Queue[ClientMessage] = asyncio.Queue()
         self._should_raise_error = False
 
-    async def send(self, client_id: str, message: dict[str, Any]) -> None:
+    async def send(
+        self,
+        client_id: str,
+        message: dict[str, Any],
+        transport_context: TransportContext | None = None,
+    ) -> None:
         if self._should_raise_error:
             raise ConnectionError("Transport error")
         if client_id not in self.sent_messages:

@@ -28,7 +28,7 @@ from conduit.protocol.jsonrpc import (
 from conduit.server.client_manager import ClientManager
 from conduit.server.request_context import RequestContext
 from conduit.shared.message_parser import MessageParser
-from conduit.transport.server import ClientMessage, ServerTransport
+from conduit.transport.server import ClientMessage, ServerTransport, TransportContext
 
 TRequest = TypeVar("TRequest", bound=Request)
 TResult = TypeVar("TResult", bound=Result)
@@ -261,6 +261,8 @@ class MessageCoordinator:
         request: Request,
     ) -> None:
         """Executes handler and sends response back to client."""
+        transport_context = TransportContext(originating_request_id=request_id)
+
         try:
             result_or_error = await handler(context, request)
 
@@ -269,7 +271,11 @@ class MessageCoordinator:
             else:
                 response = JSONRPCResponse.from_result(result_or_error, request_id)
 
-            await self.transport.send(context.client_id, response.to_wire())
+            await self.transport.send(
+                context.client_id,
+                response.to_wire(),
+                transport_context=transport_context,
+            )
 
         except Exception as e:
             self.logger.exception(
@@ -280,7 +286,11 @@ class MessageCoordinator:
                 message=f"Handler execution failed: {str(e)}",
             )
             response = JSONRPCError.from_error(error, request_id)
-            await self.transport.send(context.client_id, response.to_wire())
+            await self.transport.send(
+                context.client_id,
+                response.to_wire(),
+                transport_context=transport_context,
+            )
 
     # ================================
     # Handle notifications
