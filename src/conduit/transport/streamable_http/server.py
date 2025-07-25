@@ -14,6 +14,7 @@ from starlette.responses import Response, StreamingResponse
 from starlette.routing import Route
 
 from conduit.transport.server import ClientMessage, ServerTransport, TransportContext
+from conduit.transport.streamable_http.streams import StreamManager
 
 logger = logging.getLogger(__name__)
 
@@ -47,14 +48,13 @@ class StreamableHttpServerTransport(ServerTransport):
         self.host = host
         self.port = port
 
+        # Stream management
+        self._stream_manager = StreamManager()
+
         # Client and session management
         self._sessions: dict[str, str] = {}  # session_id -> client_id
         self._client_sessions: dict[str, str] = {}  # client_id -> session_id
         self._message_queue: asyncio.Queue[ClientMessage] = asyncio.Queue()
-
-        # Stream management (Phase 2)
-        self._active_streams: dict[str, "RequestStream"] = {}  # stream_id -> stream
-        self._client_streams: dict[str, set[str]] = {}  # client_id -> set of stream_ids
 
         # HTTP server setup
         self._app = Starlette(
@@ -137,6 +137,7 @@ class StreamableHttpServerTransport(ServerTransport):
         await self._message_queue.put(client_message)
 
         # Route based on message type
+        # TODO: Add message validation. Respond with 400 Bad Request if invalid.
         if self.is_request(message_data):
             # ALWAYS create SSE stream for requests
             request_id = message_data.get("id")
@@ -153,8 +154,47 @@ class StreamableHttpServerTransport(ServerTransport):
 
     async def _handle_get_request(self, request: Request) -> Response:
         """Handle HTTP GET request for SSE streams."""
-        # Phase 1: Not implemented yet
-        return Response("Method not allowed", status_code=405)
+        # Validate headers
+        if not self._validate_headers(request):
+            return Response("Bad request", status_code=400)
+
+        # Check Accept header includes text/event-stream
+        accept_header = request.headers.get("Accept", "")
+        if "text/event-stream" not in accept_header:
+            return Response("Method not allowed", status_code=405)
+
+        # Get or create client ID from session
+        client_id = await self._get_or_create_client_id(request)
+
+        # Build response headers (without session creation -
+        # GET doesn't create sessions)
+        headers = {
+            "Access-Control-Allow-Origin": request.headers.get("Origin", "*"),
+            "Cache-Control": "no-cache",
+            "Content-Type": "text/event-stream",
+            "Connection": "keep-alive",
+        }
+
+        # Add existing session ID if we have one
+        session_id = request.headers.get("Mcp-Session-Id")
+        if session_id and session_id in self._sessions:
+            headers["Mcp-Session-Id"] = session_id
+
+        # Create server stream
+        try:
+            stream = await self._stream_manager.create_server_stream(client_id)
+            logger.debug(
+                f"Created server stream {stream.stream_id} for client {client_id}"
+            )
+
+            return StreamingResponse(
+                stream.event_generator(),
+                media_type="text/event-stream",
+                headers=headers,
+            )
+        except Exception as e:
+            logger.error(f"Failed to create server stream for client {client_id}: {e}")
+            return Response("Internal server error", status_code=500)
 
     async def _handle_delete_request(self, request: Request) -> Response:
         """Handle session termination."""
@@ -232,30 +272,7 @@ class StreamableHttpServerTransport(ServerTransport):
         2. Send the final response to the original request
         3. Auto-close after sending the response
         """
-        stream_id = f"{client_id}:{request_id}"
-
-        # Create stream context
-        stream = RequestStream(
-            stream_id=stream_id,
-            client_id=client_id,
-            request_id=request_id,
-        )
-
-        # Register stream
-        self._active_streams[stream_id] = stream
-        if client_id not in self._client_streams:
-            self._client_streams[client_id] = set()
-        self._client_streams[client_id].add(stream_id)
-
-        logger.debug(f"Created SSE stream {stream_id} for client {client_id}")
-
-        # Return SSE streaming response
-        headers.update(
-            {
-                "Content-Type": "text/event-stream",
-                "Connection": "keep-alive",
-            }
-        )
+        stream = await self._stream_manager.create_request_stream(client_id, request_id)
 
         return StreamingResponse(
             stream.event_generator(), media_type="text/event-stream", headers=headers
@@ -267,37 +284,18 @@ class StreamableHttpServerTransport(ServerTransport):
         message: dict[str, Any],
         transport_context: TransportContext | None = None,
     ) -> None:
-        if transport_context and (
-            originating_request_id := transport_context.originating_request_id
+        originating_request_id = (
+            transport_context.originating_request_id if transport_context else None
+        )
+
+        # Try to route to existing stream
+        if await self._stream_manager.route_message(
+            client_id, message, originating_request_id
         ):
-            # Route to the stream for the originating request
-            stream_id = f"{client_id}:{originating_request_id}"
-            if stream_id in self._active_streams:
-                await self._active_streams[stream_id].send_message(message)
-                # Auto-close stream after sending response
-                if "result" in message or "error" in message:
-                    await self._close_stream(stream_id)
-                return
-
-        # Fallback: server-initiated message (Phase 3)
-        await self._route_to_server_stream(client_id, message)
-
-    async def _close_stream(self, stream_id: str) -> None:
-        """Close and cleanup a stream."""
-        if stream_id not in self._active_streams:
             return
 
-        stream = self._active_streams[stream_id]
-        await stream.close()
-
-        # Cleanup tracking
-        del self._active_streams[stream_id]
-        if stream.client_id in self._client_streams:
-            self._client_streams[stream.client_id].discard(stream_id)
-            if not self._client_streams[stream.client_id]:
-                del self._client_streams[stream.client_id]
-
-        logger.debug(f"Closed stream {stream_id}")
+        # Fallback: server-initiated message (Phase 3)
+        await self._handle_server_initiated_message(client_id, message)
 
     def client_messages(self) -> AsyncIterator[ClientMessage]:
         """Stream of messages from all clients."""
@@ -321,50 +319,3 @@ class StreamableHttpServerTransport(ServerTransport):
             del self._sessions[session_id]
             del self._client_sessions[client_id]
             logger.debug(f"Disconnected client {client_id} (session {session_id})")
-
-
-class RequestStream:
-    """Manages a single SSE stream for a request.
-
-    Handles the stream lifecycle:
-    1. Created when request arrives
-    2. Sends server messages and final response
-    3. Auto-closes after response sent
-    """
-
-    def __init__(self, stream_id: str, client_id: str, request_id: str):
-        self.stream_id = stream_id
-        self.client_id = client_id
-        self.request_id = request_id
-        self.message_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
-        self.closed = False
-
-    async def send_message(self, message: dict[str, Any]) -> None:
-        """Send a message on this stream."""
-        if not self.closed:
-            await self.message_queue.put(message)
-
-    async def close(self) -> None:
-        """Close the stream."""
-        self.closed = True
-        # Send sentinel to stop the generator
-        await self.message_queue.put({"__close__": True})
-
-    async def event_generator(self):
-        """Generate SSE events for this stream."""
-        try:
-            while not self.closed:
-                message = await self.message_queue.get()
-
-                # Check for close sentinel
-                if message.get("__close__"):
-                    break
-
-                # Format as SSE event
-                event_data = json.dumps(message, separators=(",", ":"))
-                yield f"data: {event_data}\n\n"
-
-        except Exception as e:
-            logger.error(f"Error in stream {self.stream_id}: {e}")
-        finally:
-            logger.debug(f"Stream {self.stream_id} generator closed")
