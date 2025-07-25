@@ -14,7 +14,7 @@ from conduit.protocol.roots import Root
 
 if TYPE_CHECKING:
     from conduit.server.client_manager import ClientManager, ClientState
-    from conduit.transport.server import ServerTransport
+    from conduit.transport.server import ServerTransport, TransportContext
 
 
 @dataclass
@@ -33,6 +33,7 @@ class RequestContext:
     client_state: ClientState
     client_manager: ClientManager
     transport: ServerTransport
+    originating_request_id: str | int | None = None
 
     # ================================
     # Client Information
@@ -71,7 +72,7 @@ class RequestContext:
     # Communication Helpers
     # ================================
 
-    async def send_to_client(self, message: dict[str, Any]) -> None:
+    async def send(self, message: dict[str, Any]) -> None:
         """Send a message directly to this client.
 
         Args:
@@ -80,7 +81,12 @@ class RequestContext:
         Raises:
             ConnectionError: If transport fails to send
         """
-        await self.transport.send(self.client_id, message)
+        transport_context = TransportContext(
+            originating_request_id=self.originating_request_id
+        )
+        await self.transport.send(
+            self.client_id, message, transport_context=transport_context
+        )
 
     # ================================
     # Context Helpers

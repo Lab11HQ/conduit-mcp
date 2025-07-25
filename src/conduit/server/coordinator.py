@@ -138,7 +138,9 @@ class MessageCoordinator:
     # Build context
     # ================================
 
-    def _build_context(self, client_id: str) -> RequestContext:
+    def _build_context(
+        self, client_id: str, originating_request_id: str | int | None = None
+    ) -> RequestContext:
         """Builds context for a request.
 
         Args:
@@ -159,6 +161,7 @@ class MessageCoordinator:
             client_state=client_state,
             client_manager=self.client_manager,
             transport=self.transport,
+            originating_request_id=originating_request_id,
         )
 
     # ================================
@@ -226,7 +229,7 @@ class MessageCoordinator:
             return
 
         try:
-            context = self._build_context(client_id)
+            context = self._build_context(client_id, request_id)
         except ValueError as e:
             error = Error(
                 code=INTERNAL_ERROR,
