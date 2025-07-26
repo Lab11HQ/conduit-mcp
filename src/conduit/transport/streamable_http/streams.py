@@ -85,19 +85,19 @@ class StreamManager:
 
         return await self._create_and_register_stream(stream_id, client_id, None)
 
-    async def route_message(
+    async def send_to_existing_stream(
         self,
         client_id: str,
         message: dict[str, Any],
         originating_request_id: str | None = None,
     ) -> bool:
-        """Route message to appropriate stream. Returns True if routed."""
+        """Send message to existing stream if available. Returns True if sent."""
         if originating_request_id:
-            # Route to request-specific stream
+            # Send to request-specific stream
             stream_id = f"{client_id}:request:{originating_request_id}"
             return await self._send_to_stream(stream_id, message, auto_cleanup=True)
         else:
-            # Route to any available server stream (pick first one)
+            # Send to any available server stream (pick first one)
             server_streams = [
                 sid
                 for sid in self._client_streams.get(client_id, set())
@@ -114,7 +114,7 @@ class StreamManager:
             return False
 
     async def _create_and_register_stream(
-        self, stream_id: str, client_id: str, request_id: str | None
+        self, stream_id: str, client_id: str, request_id: str | int | None
     ) -> SSEStream:
         """Create and register a stream."""
         stream = SSEStream(stream_id, client_id, request_id or "server")
@@ -123,9 +123,7 @@ class StreamManager:
         self._streams[stream_id] = stream
 
         # Track by client
-        if client_id not in self._client_streams:
-            self._client_streams[client_id] = set()
-        self._client_streams[client_id].add(stream_id)
+        self._client_streams.setdefault(client_id, set()).add(stream_id)
 
         logger.debug(f"Created stream {stream_id} for client {client_id}")
         return stream
