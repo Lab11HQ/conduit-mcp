@@ -85,19 +85,19 @@ class StreamManager:
 
         return await self._create_and_register_stream(stream_id, client_id, None)
 
-    async def route_message(
+    async def send_to_existing_stream(
         self,
         client_id: str,
         message: dict[str, Any],
         originating_request_id: str | None = None,
     ) -> bool:
-        """Route message to appropriate stream. Returns True if routed."""
+        """Send message to existing stream if available. Returns True if sent."""
         if originating_request_id:
-            # Route to request-specific stream
+            # Send to request-specific stream
             stream_id = f"{client_id}:request:{originating_request_id}"
             return await self._send_to_stream(stream_id, message, auto_cleanup=True)
         else:
-            # Route to any available server stream (pick first one)
+            # Send to any available server stream (pick first one)
             server_streams = [
                 sid
                 for sid in self._client_streams.get(client_id, set())

@@ -9,7 +9,7 @@ from typing import Any, AsyncIterator
 import uvicorn
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import Response, StreamingResponse
 from starlette.routing import Route
 
 from conduit.protocol.base import PROTOCOL_VERSION
@@ -123,11 +123,16 @@ class StreamableHttpServerTransport(ServerTransport):
         await self._message_queue.put(client_message)
 
         if self._is_mcp_request(message_data):
-            # TODO: Phase 2 - SSE stream for requests
-            return Response(
-                "Request handling not implemented",
-                status_code=501,
-                headers=response_headers,
+            request_id = message_data.get("id")
+            if request_id is None:
+                return Response(
+                    "Request missing id field",
+                    status_code=400,
+                    headers=response_headers,
+                )
+
+            return await self._create_request_stream(
+                client_id, request_id, response_headers
             )
         else:
             return Response(status_code=202, headers=response_headers)
@@ -285,8 +290,49 @@ class StreamableHttpServerTransport(ServerTransport):
         transport_context: TransportContext | None = None,
     ) -> None:
         """Send message to specific client."""
-        # TODO: Implement message sending via streams
-        logger.warning(f"Message sending not yet implemented for client {client_id}")
+        originating_request_id = (
+            transport_context.originating_request_id if transport_context else None
+        )
+
+        # Try to send to existing stream
+        if await self._stream_manager.send_to_existing_stream(
+            client_id, message, originating_request_id
+        ):
+            return
+
+        # Fallback: server-initiated message (Phase 3)
+        await self._handle_server_initiated_message(client_id, message)
+
+    async def _create_request_stream(
+        self, client_id: str, request_id: str | int, headers: dict[str, str]
+    ) -> StreamingResponse:
+        """Create SSE stream for a request.
+
+        The stream will:
+        1. Send any server-initiated messages (requests/notifications)
+        2. Send the final response to the original request
+        3. Auto-close after sending the response
+        """
+        stream = await self._stream_manager.create_request_stream(
+            client_id, str(request_id)
+        )
+
+        return StreamingResponse(
+            stream.event_generator(), media_type="text/event-stream", headers=headers
+        )
+
+    async def _handle_server_initiated_message(
+        self, client_id: str, message: dict[str, Any]
+    ) -> None:
+        """Handle server-initiated messages when no request stream exists.
+
+        TODO: Phase 3 - Route to server streams or buffer for later delivery.
+        For now, log and drop the message.
+        """
+        logger.warning(
+            f"Dropping server-initiated message for client {client_id}: "
+            f"no active streams and server streams not yet implemented"
+        )
 
     def client_messages(self) -> AsyncIterator[ClientMessage]:
         """Stream of messages from all clients."""
