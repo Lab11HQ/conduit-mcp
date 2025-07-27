@@ -78,9 +78,8 @@ class StreamManager:
 
     async def create_server_stream(self, client_id: str) -> SSEStream:
         """Create and register a new stream for server-initiated messages."""
-        # Generate unique ID for this server stream
 
-        stream_uuid = str(uuid.uuid4())[:8]  # Short UUID for readability
+        stream_uuid = str(uuid.uuid4())[:8]
         stream_id = f"{client_id}:server:{stream_uuid}"
 
         return await self._create_and_register_stream(stream_id, client_id, None)
