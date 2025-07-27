@@ -67,7 +67,7 @@ class StreamableHttpServerTransport(ServerTransport):
         self._stream_manager = StreamManager()
         self._message_parser = MessageParser()
 
-        # Message queue for client messages. Infinite size by default.
+        # Message queue for client messages
         self._message_queue: asyncio.Queue[ClientMessage] = asyncio.Queue()
 
         # HTTP server setup
@@ -125,7 +125,9 @@ class StreamableHttpServerTransport(ServerTransport):
         ):
             return
 
-        await self._handle_server_initiated_message(client_id, message)
+        logger.warning(
+            f"No server streams available for client {client_id}, dropping message."
+        )
 
     def client_messages(self) -> AsyncIterator[ClientMessage]:
         """Stream of messages from all clients."""
@@ -190,7 +192,6 @@ class StreamableHttpServerTransport(ServerTransport):
             payload=message_data,
             timestamp=time.time(),
         )
-        # Note: Will block if the queue is full (infinite size by default)
         await self._message_queue.put(client_message)
 
         response_headers = self._build_response_headers(request, session_id)
@@ -380,25 +381,6 @@ class StreamableHttpServerTransport(ServerTransport):
 
         return StreamingResponse(
             stream.event_generator(), media_type="text/event-stream", headers=headers
-        )
-
-    async def _handle_server_initiated_message(
-        self, client_id: str, message: dict[str, Any]
-    ) -> None:
-        """Handle server-initiated messages by routing to server streams.
-
-        Per spec: server MAY send requests and notifications unrelated to client
-        requests.
-        """
-        # Try to send to any available server stream
-        if await self._stream_manager.send_to_existing_stream(client_id, message, None):
-            logger.debug(f"Sent server-initiated message to client {client_id}")
-            return
-
-        # No server streams available - could buffer for later delivery (Phase 4)
-        logger.warning(
-            f"No server streams available for client {client_id}, dropping message. "
-            f"Consider implementing message buffering for better reliability."
         )
 
     # ================================

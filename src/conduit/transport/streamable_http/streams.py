@@ -4,6 +4,8 @@ import logging
 import uuid
 from typing import Any, AsyncIterator
 
+from conduit.shared.message_parser import MessageParser
+
 logger = logging.getLogger(__name__)
 
 
@@ -15,6 +17,7 @@ class SSEStream:
         self.client_id = client_id
         self.request_id = request_id
         self._message_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        self._message_parser = MessageParser()
 
     async def send_message(self, message: dict[str, Any]) -> None:
         """Send message on this stream."""
@@ -32,7 +35,7 @@ class SSEStream:
 
     def is_response(self, message: dict[str, Any]) -> bool:
         """Check if message is the final response."""
-        return "result" in message or "error" in message
+        return self._message_parser.is_valid_response(message)
 
     async def event_generator(self) -> AsyncIterator[str]:
         """Generate SSE events for this stream."""
@@ -92,11 +95,12 @@ class StreamManager:
     ) -> bool:
         """Send message to existing stream if available. Returns True if sent."""
         if originating_request_id:
-            # Send to request-specific stream
-            stream_id = f"{client_id}:request:{originating_request_id}"
-            return await self._send_to_stream(stream_id, message, auto_cleanup=True)
+            stream = self.get_request_stream(client_id, originating_request_id)
+            if stream:
+                return await self._send_to_stream(stream, message, auto_cleanup=True)
+            else:
+                return False
         else:
-            # Send to any available server stream (pick first one)
             server_streams = [
                 sid
                 for sid in self._client_streams.get(client_id, set())
@@ -105,7 +109,8 @@ class StreamManager:
 
             if server_streams:
                 # For now, just use the first available server stream
-                # Could add more sophisticated routing later
+                # Don't auto-cleanup even though responses should not be sent on
+                # server streams
                 return await self._send_to_stream(
                     server_streams[0], message, auto_cleanup=False
                 )
@@ -128,19 +133,13 @@ class StreamManager:
         return stream
 
     async def _send_to_stream(
-        self, stream_id: str, message: dict[str, Any], auto_cleanup: bool
+        self, stream: SSEStream, message: dict[str, Any], auto_cleanup: bool
     ) -> bool:
         """Send message to a specific stream."""
-        stream = self._streams.get(stream_id)
-        if not stream:
-            logger.warning(f"No stream found for {stream_id}")
-            return False
-
         await stream.send_message(message)
 
-        # Clean up stream if this was a response and auto_cleanup is enabled
         if auto_cleanup and stream.is_response(message):
-            await self._cleanup_stream(stream_id)
+            await self._cleanup_stream(stream.stream_id)
 
         return True
 
