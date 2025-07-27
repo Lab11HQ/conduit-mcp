@@ -62,9 +62,11 @@ class StreamableHttpServerTransport(ServerTransport):
         self.host = host
         self.port = port
 
-        # Core managers
+        # Core managers - will inject these in the future as needed
         self._session_manager = SessionManager()
         self._stream_manager = StreamManager()
+
+        # Message parser - always default
         self._message_parser = MessageParser()
 
         # Message queue for client messages

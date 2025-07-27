@@ -6,6 +6,7 @@ from typing import Any, AsyncIterator
 
 import httpx
 
+from conduit.protocol.base import PROTOCOL_VERSION
 from conduit.transport.client import ClientTransport, ServerMessage
 
 logger = logging.getLogger(__name__)
@@ -78,7 +79,7 @@ class StreamableHttpClientTransport(ClientTransport):
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
-            "MCP-Protocol-Version": "2025-06-18",  # TODO: Make configurable
+            "MCP-Protocol-Version": PROTOCOL_VERSION,
             **server_config["headers"],
         }
 
