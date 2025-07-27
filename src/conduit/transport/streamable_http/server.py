@@ -43,7 +43,6 @@ class StreamableHttpServerTransport(ServerTransport):
     - Immediate 202 responses for notifications and responses
     - SSE streams for requests with auto-cleanup after responses
     - Server-initiated message streams via GET endpoint
-    - Full resumability support (future enhancement)
 
     Message Flow:
         1. POST /mcp → Validate → Route by type → Stream/202 response
@@ -66,7 +65,9 @@ class StreamableHttpServerTransport(ServerTransport):
         # Core managers
         self._session_manager = SessionManager()
         self._stream_manager = StreamManager()
-        self._message_parser = MessageParser()  # Add message parser
+        self._message_parser = MessageParser()
+
+        # Message queue for client messages. Infinite size by default.
         self._message_queue: asyncio.Queue[ClientMessage] = asyncio.Queue()
 
         # HTTP server setup
@@ -82,7 +83,7 @@ class StreamableHttpServerTransport(ServerTransport):
         self._server = None
 
     # ================================
-    # Public Interface
+    # Lifecycle
     # ================================
 
     async def start(self) -> None:
@@ -103,6 +104,10 @@ class StreamableHttpServerTransport(ServerTransport):
         if self._server:
             self._server.should_exit = True
             await self._server.shutdown()
+
+    # ================================
+    # Server Transport Interface
+    # ================================
 
     async def send(
         self,
@@ -154,43 +159,44 @@ class StreamableHttpServerTransport(ServerTransport):
 
     async def _handle_post_request(self, request: Request) -> Response:
         """Handle HTTP POST request with JSON-RPC message."""
-        # Validate HTTP protocol headers
-        if not self._has_valid_protocol_headers(request):
-            return Response("Bad request", status_code=400)
+        headers_error = self._validate_protocol_headers(request)
+        if headers_error:
+            return headers_error
 
         try:
             message_data = await request.json()
+            if not isinstance(message_data, dict):
+                return Response("Invalid JSON", status_code=400)
         except json.JSONDecodeError:
             return Response("Invalid JSON", status_code=400)
 
-        # Validate JSON-RPC message structure
-        if not self._is_valid_jsonrpc_message(message_data):
-            return Response("Invalid JSON-RPC message", status_code=400)
+        jsonrpc_error = self._validate_jsonrpc_message(message_data)
+        if jsonrpc_error:
+            return jsonrpc_error
 
-        # Validate session requirements
-        if not self._has_valid_session(request, message_data):
-            return self._build_session_error_response(request, message_data)
+        session_error = self._validate_session(request, message_data)
+        if session_error:
+            return session_error
 
-        client_id, session_id = await self._get_or_create_client(request, message_data)
-
-        response_headers = self._build_response_headers(request, session_id)
+        try:
+            client_id, session_id = await self._get_or_create_client(
+                request, message_data
+            )
+        except ValueError as e:
+            return Response(str(e), status_code=500)
 
         client_message = ClientMessage(
             client_id=client_id,
             payload=message_data,
             timestamp=time.time(),
         )
+        # Note: Will block if the queue is full (infinite size by default)
         await self._message_queue.put(client_message)
 
-        if self._is_mcp_request(message_data):
-            request_id = message_data.get("id")
-            if request_id is None:
-                return Response(
-                    "Request missing id field",
-                    status_code=400,
-                    headers=response_headers,
-                )
+        response_headers = self._build_response_headers(request, session_id)
 
+        if self._is_mcp_request(message_data):
+            request_id = message_data["id"]
             return await self._create_request_stream(
                 client_id, request_id, response_headers
             )
@@ -200,8 +206,9 @@ class StreamableHttpServerTransport(ServerTransport):
     async def _handle_get_request(self, request: Request) -> Response:
         """Handle HTTP GET request for SSE streams."""
         # Validate headers
-        if not self._has_valid_protocol_headers(request):
-            return Response("Bad request", status_code=400)
+        headers_error = self._validate_protocol_headers(request)
+        if headers_error:
+            return headers_error
 
         # Check Accept header includes text/event-stream
         accept_header = request.headers.get("Accept", "")
@@ -250,31 +257,34 @@ class StreamableHttpServerTransport(ServerTransport):
     # Validation Helpers
     # ================================
 
-    def _has_valid_protocol_headers(self, request: Request) -> bool:
+    def _validate_protocol_headers(self, request: Request) -> Response | None:
         """Validate required MCP protocol headers (Protocol-Version, Accept, Origin)."""
         protocol_version = request.headers.get("MCP-Protocol-Version")
         if protocol_version != PROTOCOL_VERSION:
             logger.warning("Invalid MCP-Protocol-Version header")
-            return False
+            return Response("Invalid MCP-Protocol-Version header", status_code=400)
 
         accept = request.headers.get("Accept")
-        if "text/event-stream" not in accept and "application/json" not in accept:
+        if "text/event-stream" not in accept or "application/json" not in accept:
             logger.warning("Invalid Accept header")
-            return False
+            return Response("Invalid Accept header", status_code=400)
 
         # TODO: Implement proper Origin validation to prevent DNS rebinding attacks
         # For now, we accept all origins (development mode)
         origin = request.headers.get("Origin")
         if not self._is_valid_origin(origin):
             logger.warning(f"Invalid Origin header: {origin}")
-            return False
+            return Response("Invalid Origin header", status_code=400)
 
-        return True
+        return None
 
-    def _has_valid_session(self, request: Request, message_data: dict) -> bool:
-        """Check if the request meets session ID requirements.
+    def _validate_session(
+        self, request: Request, message_data: dict
+    ) -> Response | None:
+        """Validate session ID requirements for MCP requests.
 
-        Returns True if session requirements are met, False otherwise.
+        Returns None if session requirements are met, otherwise returns an error
+        response.
         """
         session_id = request.headers.get("Mcp-Session-Id")
         is_initialize = (
@@ -284,25 +294,33 @@ class StreamableHttpServerTransport(ServerTransport):
 
         if is_initialize:
             # Initialize requests should NOT have a session ID
-            return session_id is None
+            if session_id:
+                return Response(
+                    "Initialize request must not include session ID", status_code=400
+                )
+            return None
         else:
             # All other messages MUST have a valid session ID
-            return session_id is not None and self._session_manager.session_exists(
-                session_id
-            )
+            if not session_id:
+                return Response(
+                    "Missing required Mcp-Session-Id header", status_code=400
+                )
+            if not self._session_manager.session_exists(session_id):
+                return Response("Invalid or expired session", status_code=404)
+            return None
 
-    def _is_valid_jsonrpc_message(self, message_data: dict) -> bool:
+    def _validate_jsonrpc_message(self, message_data: dict) -> Response | None:
         """Validate JSON-RPC message structure.
 
-        Returns True if valid, False otherwise.
+        Returns None if valid, otherwise returns an error response.
         """
         is_request = self._message_parser.is_valid_request(message_data)
         is_response = self._message_parser.is_valid_response(message_data)
         is_notification = self._message_parser.is_valid_notification(message_data)
 
         if not (is_request or is_response or is_notification):
-            return False
-        return True
+            return Response("Invalid JSON-RPC message", status_code=400)
+        return None
 
     def _is_valid_origin(self, origin: str | None) -> bool:
         """Validate Origin header to prevent DNS rebinding attacks.
@@ -328,6 +346,9 @@ class StreamableHttpServerTransport(ServerTransport):
 
         Returns:
             Tuple of (client_id, session_id)
+
+        Raises:
+            ValueError: If client ID is not found for the session
         """
         session_id = request.headers.get("Mcp-Session-Id")
         is_initialize = (
@@ -336,12 +357,12 @@ class StreamableHttpServerTransport(ServerTransport):
         )
 
         if is_initialize:
-            # Create new session for initialize request
-            session_id, client_id = self._session_manager.create_session()
+            client_id, session_id = self._session_manager.create_session()
             return client_id, session_id
         else:
-            # Use existing session (we've already validated it exists)
             client_id = self._session_manager.get_client_id(session_id)
+            if not client_id:
+                raise ValueError(f"Client ID not found for session {session_id}")
             return client_id, session_id
 
     # ================================
@@ -388,28 +409,6 @@ class StreamableHttpServerTransport(ServerTransport):
     # ================================
     # Response Builders
     # ================================
-
-    def _build_session_error_response(
-        self, request: Request, message_data: dict
-    ) -> Response:
-        """Build appropriate error response for session validation failures."""
-        session_id = request.headers.get("Mcp-Session-Id")
-        is_initialize = (
-            self._is_mcp_request(message_data)
-            and message_data.get("method") == "initialize"
-        )
-
-        if is_initialize and session_id:
-            return Response(
-                "Initialize request must not include session ID", status_code=400
-            )
-        elif not is_initialize and not session_id:
-            return Response("Missing required Mcp-Session-Id header", status_code=400)
-        elif not is_initialize and not self._session_manager.session_exists(session_id):
-            return Response("Invalid or expired session", status_code=404)
-        else:
-            # Shouldn't reach here, but safe fallback
-            return Response("Session validation failed", status_code=400)
 
     def _build_response_headers(
         self, request: Request, session_id: str

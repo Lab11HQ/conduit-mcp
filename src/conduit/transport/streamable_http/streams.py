@@ -117,7 +117,7 @@ class StreamManager:
         self, stream_id: str, client_id: str, request_id: str | int | None
     ) -> SSEStream:
         """Create and register a stream."""
-        stream = SSEStream(stream_id, client_id, request_id or "server")
+        stream = SSEStream(stream_id, client_id, request_id or "GET")
 
         # Register it
         self._streams[stream_id] = stream

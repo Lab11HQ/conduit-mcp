@@ -22,16 +22,16 @@ class SessionManager:
         """Create a new session and client ID pair.
 
         Returns:
-            Tuple of (session_id, client_id)
+            Tuple of (client_id, session_id)
         """
-        session_id = self._generate_session_id()
         client_id = str(uuid.uuid4())
+        session_id = self._generate_session_id()
 
         self._sessions[session_id] = client_id
         self._client_sessions[client_id] = session_id
 
         logger.debug(f"Created session {session_id} for client {client_id}")
-        return session_id, client_id
+        return client_id, session_id
 
     def get_client_id(self, session_id: str) -> str | None:
         """Get client ID for a session.
