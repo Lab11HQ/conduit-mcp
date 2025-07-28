@@ -78,6 +78,10 @@ class MockClientTransport(ClientTransport):
         )
         self.server_message_queue.put_nowait(message)
 
+    async def close(self) -> None:
+        """Close the transport and clean up all resources."""
+        pass
+
 
 @pytest.fixture
 async def mock_transport():

@@ -66,3 +66,12 @@ class ServerTransport(ABC):
             client_id: Client connection ID to disconnect
         """
         ...
+
+    @abstractmethod
+    async def close(self) -> None:
+        """Close the transport and clean up all resources.
+
+        Should be called when the transport is no longer needed.
+        Safe to call multiple times - subsequent calls are no-ops.
+        """
+        ...

@@ -15,3 +15,7 @@ class MockServerTransport(ServerTransport):
 
     async def disconnect_client(self, client_id: str) -> None:
         self.registered_clients.pop(client_id, None)
+
+    async def close(self) -> None:
+        """Close the transport and clean up all resources."""
+        pass

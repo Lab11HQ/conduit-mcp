@@ -201,3 +201,8 @@ class StreamManager:
     def get_client_stream_count(self, client_id: str) -> int:
         """Get number of active streams for a client."""
         return len(self._client_streams.get(client_id, set()))
+
+    async def close_all_streams(self) -> None:
+        """Close all streams."""
+        for stream_id in list(self._streams):
+            await self._cleanup_stream(stream_id)

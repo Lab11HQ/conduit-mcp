@@ -77,6 +77,10 @@ class MockClientTransport(ClientTransport):
         """Clear all sent message history."""
         self.sent_messages.clear()
 
+    async def close(self) -> None:
+        """Close the transport and clean up all resources."""
+        pass
+
 
 async def yield_to_event_loop(seconds: float = 0.01) -> None:
     """Let the event loop process pending tasks and callbacks.

@@ -107,6 +107,18 @@ class StreamableHttpServerTransport(ServerTransport):
             self._server.should_exit = True
             await self._server.shutdown()
 
+    async def close(self) -> None:
+        """Close the transport and clean up all resources.
+
+        For HTTP transport, this stops the HTTP server and cleans up all sessions.
+        Safe to call multiple times.
+        """
+        await self.stop()
+
+        # Clean up sessions and streams
+        self._session_manager.terminate_all_sessions()
+        await self._stream_manager.close_all_streams()
+
     # ================================
     # Server Transport Interface
     # ================================

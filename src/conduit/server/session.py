@@ -172,6 +172,8 @@ class ServerSession:
         for client_id in self.client_manager.get_client_ids():
             await self.disconnect_client(client_id)
 
+        await self.transport.close()
+
     # ================================
     # Initialization
     # ================================

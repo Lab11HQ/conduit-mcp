@@ -69,3 +69,8 @@ class SessionManager:
     def _generate_session_id(self) -> str:
         """Generate cryptographically secure session ID."""
         return secrets.token_urlsafe(32)
+
+    def terminate_all_sessions(self) -> None:
+        """Terminate all sessions."""
+        for session_id in list(self._sessions):
+            self.terminate_session(session_id)
