@@ -237,14 +237,14 @@ class HttpServerTransport(ServerTransport):
         if headers_error:
             return headers_error
 
-        # Get client from existing session (GET doesn't create sessions)
+        # First check: Is session ID present?
         session_id = request.headers.get("Mcp-Session-Id")
-        if not session_id or not self._session_manager.session_exists(session_id):
-            return Response("Missing or invalid session", status_code=400)
+        if not session_id:
+            return Response("Missing session ID", status_code=400)
 
         client_id = self._session_manager.get_client_id(session_id)
         if not client_id:
-            return Response("Client not found", status_code=404)
+            return Response("Invalid or expired session", status_code=404)
 
         headers = self._build_server_stream_headers(request, session_id)
 
