@@ -91,7 +91,7 @@ class StreamManager:
         self,
         client_id: str,
         message: dict[str, Any],
-        originating_request_id: str | None = None,
+        originating_request_id: str | int | None = None,
     ) -> bool:
         """Send message to existing stream if available. Returns True if sent."""
         if originating_request_id:

@@ -300,6 +300,11 @@ class HttpServerTransport(ServerTransport):
             )
 
         accept = request.headers.get("Accept")
+        if not accept:
+            return Response(
+                "Missing Accept header, expected: text/event-stream, application/json",
+                status_code=400,
+            )
         if "text/event-stream" not in accept or "application/json" not in accept:
             return Response(
                 "Invalid Accept header, expected: text/event-stream, application/json"
@@ -386,7 +391,7 @@ class HttpServerTransport(ServerTransport):
             Tuple of (client_id, session_id)
 
         Raises:
-            ValueError: If client ID is not found for the session
+            ValueError: If missing session ID or client not found
         """
         session_id = request.headers.get("Mcp-Session-Id")
         is_initialize = (
@@ -398,6 +403,9 @@ class HttpServerTransport(ServerTransport):
             client_id, session_id = self._session_manager.create_session()
             return client_id, session_id
         else:
+            if session_id is None:
+                raise ValueError("Session ID is required for non-initialize requests")
+
             client_id = self._session_manager.get_client_id(session_id)
             if not client_id:
                 raise ValueError("Client not found for session")
@@ -409,7 +417,7 @@ class HttpServerTransport(ServerTransport):
 
     async def _create_request_stream(
         self, client_id: str, request_id: str | int, headers: dict[str, str]
-    ) -> StreamingResponse:
+    ) -> StreamingResponse | Response:
         """Create SSE stream for a request.
 
         The stream will:
