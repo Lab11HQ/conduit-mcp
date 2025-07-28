@@ -9,7 +9,7 @@ from conduit.transport.streamable_http.server.transport import HttpServerTranspo
 
 
 class TestHttpServerTransportSend:
-    """Test the send method of HttpServerTransport."""
+    """Orchestration tests for HttpServerTransport.send."""
 
     @pytest.fixture
     def transport(self):
