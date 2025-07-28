@@ -345,3 +345,8 @@ class StdioClientTransport(ClientTransport):
             logger.error(f"Error during shutdown of server '{server_id}': {e}")
         finally:
             server_process.process = None
+
+    async def close(self) -> None:
+        """Close the transport and clean up all resources."""
+        for server_id in list(self._servers):
+            await self.disconnect_server(server_id)
