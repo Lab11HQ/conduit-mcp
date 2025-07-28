@@ -13,7 +13,7 @@ from conduit.transport.streamable_http.client.stream_manager import StreamManage
 logger = logging.getLogger(__name__)
 
 
-class StreamableHttpClientTransport(ClientTransport):
+class HttpClientTransport(ClientTransport):
     """HTTP client transport supporting multiple server connections.
 
     Implements the Streamable HTTP transport specification, supporting:

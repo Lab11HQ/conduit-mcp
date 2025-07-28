@@ -35,7 +35,7 @@ from conduit.transport.streamable_http.server.streams import StreamManager
 logger = logging.getLogger(__name__)
 
 
-class StreamableHttpServerTransport(ServerTransport):
+class HttpServerTransport(ServerTransport):
     """HTTP server transport supporting multiple client connections.
 
     Implements the MCP Streamable HTTP transport specification with:
