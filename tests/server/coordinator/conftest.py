@@ -56,6 +56,10 @@ class MockServerTransport(ServerTransport):
             except asyncio.CancelledError:
                 break
 
+    async def close(self) -> None:
+        """Close the transport and clean up all resources."""
+        pass
+
     # Test helpers
     def add_client_message(self, client_id: str, payload: dict[str, Any]) -> None:
         """Add a message to the client message queue for testing."""

@@ -101,3 +101,12 @@ class StdioServerTransport(ServerTransport):
             pass
 
         sys.exit(0)
+
+    async def close(self) -> None:
+        """Close the transport and clean up all resources."""
+        try:
+            sys.stdout.close()
+        except Exception:
+            pass
+
+        sys.exit(0)
