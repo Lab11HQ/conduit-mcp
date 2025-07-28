@@ -8,7 +8,7 @@ import httpx
 
 from conduit.protocol.base import PROTOCOL_VERSION
 from conduit.transport.client import ClientTransport, ServerMessage
-from conduit.transport.streamable_http.client_stream_manager import ClientStreamManager
+from conduit.transport.streamable_http.client.stream_manager import StreamManager
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ class StreamableHttpClientTransport(ClientTransport):
         self._http_client = httpx.AsyncClient()
         self._message_queue: asyncio.Queue[ServerMessage] = asyncio.Queue()
         # server_id -> stream manager
-        self._stream_managers: dict[str, ClientStreamManager] = {}
+        self._stream_managers: dict[str, StreamManager] = {}
 
     async def add_server(self, server_id: str, connection_info: dict[str, Any]) -> None:
         """Register HTTP server endpoint.
@@ -137,7 +137,7 @@ class StreamableHttpClientTransport(ClientTransport):
             elif "text/event-stream" in content_type:
                 # Get or create stream manager for this server
                 if server_id not in self._stream_managers:
-                    self._stream_managers[server_id] = ClientStreamManager(
+                    self._stream_managers[server_id] = StreamManager(
                         server_id, self._http_client
                     )
 
@@ -396,7 +396,7 @@ class StreamableHttpClientTransport(ClientTransport):
 
             # Create stream manager if needed and start the server stream
             if server_id not in self._stream_managers:
-                self._stream_managers[server_id] = ClientStreamManager(
+                self._stream_managers[server_id] = StreamManager(
                     server_id, self._http_client
                 )
 

@@ -29,8 +29,8 @@ from starlette.routing import Route
 from conduit.protocol.base import PROTOCOL_VERSION
 from conduit.shared.message_parser import MessageParser
 from conduit.transport.server import ClientMessage, ServerTransport, TransportContext
-from conduit.transport.streamable_http.session_manager import SessionManager
-from conduit.transport.streamable_http.streams import StreamManager
+from conduit.transport.streamable_http.server.session_manager import SessionManager
+from conduit.transport.streamable_http.server.streams import StreamManager
 
 logger = logging.getLogger(__name__)
 

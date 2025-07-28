@@ -13,7 +13,7 @@ from conduit.transport.client import ServerMessage
 logger = logging.getLogger(__name__)
 
 
-class ClientStreamManager:
+class StreamManager:
     """Manages SSE streams for a single server connection.
 
     Handles multiple concurrent streams per server, including:
