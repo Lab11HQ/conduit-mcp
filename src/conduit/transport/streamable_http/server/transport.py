@@ -107,6 +107,52 @@ class HttpServerTransport(ServerTransport):
             self._server.should_exit = True
             await self._server.shutdown()
 
+    # ================================
+    # Server Transport Interface
+    # ================================
+
+    async def send(
+        self,
+        client_id: str,
+        message: dict[str, Any],
+        transport_context: TransportContext | None = None,
+    ) -> None:
+        """Send message to specific client.
+
+        Args:
+            client_id: Target client connection ID
+            message: JSON-RPC message to send
+            transport_context: Context for the transport. For example, this helps route
+                messages along specific streams.
+
+        Raises:
+            ValueError: If client_id is not connected
+            ConnectionError: If connection failed during send
+        """
+        if not self._session_manager.get_session_id(client_id):
+            raise ValueError(f"Client {client_id} is not connected")
+
+        originating_request_id = (
+            transport_context.originating_request_id if transport_context else None
+        )
+
+        if await self._stream_manager.send_to_existing_stream(
+            client_id, message, originating_request_id
+        ):
+            return
+
+        raise ConnectionError(f"No active streams available for client {client_id}")
+
+    def client_messages(self) -> AsyncIterator[ClientMessage]:
+        """Stream of messages from all clients."""
+        return self._message_queue_iterator()
+
+    async def disconnect_client(self, client_id: str) -> None:
+        """Disconnect specific client."""
+        session_id = self._session_manager.get_session_id(client_id)
+        if session_id:
+            self._session_manager.terminate_session(session_id)
+
     async def close(self) -> None:
         """Close the transport and clean up all resources.
 
@@ -118,40 +164,6 @@ class HttpServerTransport(ServerTransport):
         # Clean up sessions and streams
         self._session_manager.terminate_all_sessions()
         await self._stream_manager.close_all_streams()
-
-    # ================================
-    # Server Transport Interface
-    # ================================
-
-    async def send(
-        self,
-        client_id: str,
-        message: dict[str, Any],
-        transport_context: TransportContext | None = None,
-    ) -> None:
-        """Send message to specific client."""
-        originating_request_id = (
-            transport_context.originating_request_id if transport_context else None
-        )
-
-        if await self._stream_manager.send_to_existing_stream(
-            client_id, message, originating_request_id
-        ):
-            return
-
-        logger.warning(
-            f"No server streams available for client {client_id}, dropping message."
-        )
-
-    def client_messages(self) -> AsyncIterator[ClientMessage]:
-        """Stream of messages from all clients."""
-        return self._message_queue_iterator()
-
-    async def disconnect_client(self, client_id: str) -> None:
-        """Disconnect specific client."""
-        session_id = self._session_manager.get_session_id(client_id)
-        if session_id:
-            self._session_manager.terminate_session(session_id)
 
     # ================================
     # HTTP Request Handlers
