@@ -274,8 +274,7 @@ class HttpServerTransport(ServerTransport):
         if not session_id:
             return Response("Missing session ID", status_code=400)
 
-        client_id = self._session_manager.terminate_session(session_id)
-        if client_id is None:
+        if not self._session_manager.terminate_session(session_id):
             return Response("Session not found", status_code=404)
 
         return Response(status_code=200)
