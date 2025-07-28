@@ -10,7 +10,7 @@ from conduit.protocol.base import PROTOCOL_VERSION
 from conduit.transport.streamable_http.server.transport import HttpServerTransport
 
 
-class TestHttpServerTransportGetHandler:
+class TestGetHandler:
     @pytest.fixture
     def transport(self):
         # Arrange
@@ -65,7 +65,6 @@ class TestHttpServerTransportGetHandler:
         )
 
     async def test_get_request_invalid_accept_header_returns_400(self, transport):
-        """Test GET request with invalid Accept header returns 400."""
         # Arrange
         client_id, session_id = transport._session_manager.create_session()
 
@@ -84,13 +83,12 @@ class TestHttpServerTransportGetHandler:
 
         # Assert
         assert response.status_code == 400
-        assert response.body.decode() == "Invalid Accept header"
+        assert "Invalid Accept header" in response.body.decode()
 
         # Verify stream creation was never attempted
         transport._stream_manager.create_server_stream.assert_not_awaited()
 
     async def test_get_request_missing_session_id_returns_400(self, transport):
-        """Test GET request without session ID returns 400."""
         # Arrange
         # Create request with valid headers but no session ID
         headers = {
@@ -107,13 +105,12 @@ class TestHttpServerTransportGetHandler:
 
         # Assert
         assert response.status_code == 400
-        assert response.body.decode() == "Missing session ID"
+        assert "Missing session ID" in response.body.decode()
 
         # Verify stream creation was never attempted
         transport._stream_manager.create_server_stream.assert_not_awaited()
 
     async def test_get_request_invalid_session_id_returns_404(self, transport):
-        """Test GET request with invalid session ID returns 404."""
         # Arrange
         # Create request with valid headers but non-existent session ID
         headers = {
@@ -130,7 +127,7 @@ class TestHttpServerTransportGetHandler:
 
         # Assert
         assert response.status_code == 404
-        assert response.body.decode() == "Invalid or expired session"
+        assert "Invalid or expired session" in response.body.decode()
 
         # Verify stream creation was never attempted
         transport._stream_manager.create_server_stream.assert_not_awaited()
@@ -159,7 +156,7 @@ class TestHttpServerTransportGetHandler:
 
         # Assert
         assert response.status_code == 500
-        assert response.body.decode() == "Internal server error"
+        assert "Internal server error" in response.body.decode()
 
         # Verify stream creation was attempted
         transport._stream_manager.create_server_stream.assert_awaited_once_with(

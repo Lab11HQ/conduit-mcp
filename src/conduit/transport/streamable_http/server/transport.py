@@ -194,9 +194,14 @@ class HttpServerTransport(ServerTransport):
         try:
             message_data = await request.json()
             if not isinstance(message_data, dict):
-                return Response("Invalid JSON", status_code=400)
-        except json.JSONDecodeError:
-            return Response("Invalid JSON", status_code=400)
+                return Response(
+                    f"Invalid JSON: expected object, got {type(message_data).__name__}",
+                    status_code=400,
+                )
+        except json.JSONDecodeError as e:
+            return Response(
+                f"Invalid JSON: {e.msg} at position {e.pos}", status_code=400
+            )
 
         jsonrpc_error = self._validate_jsonrpc_message(message_data)
         if jsonrpc_error:
@@ -282,14 +287,25 @@ class HttpServerTransport(ServerTransport):
     def _validate_protocol_headers(self, request: Request) -> Response | None:
         """Validate required MCP protocol headers (Protocol-Version, Accept, Origin)."""
         protocol_version = request.headers.get("MCP-Protocol-Version")
-        if protocol_version != PROTOCOL_VERSION:
-            logger.warning("Invalid MCP-Protocol-Version header")
-            return Response("Invalid MCP-Protocol-Version header", status_code=400)
+        if not protocol_version:
+            return Response(
+                f"Missing MCP-Protocol-Version header, expected: {PROTOCOL_VERSION}",
+                status_code=400,
+            )
+        elif protocol_version != PROTOCOL_VERSION:
+            return Response(
+                f"Invalid MCP-Protocol-Version: {protocol_version}, expected:"
+                f" {PROTOCOL_VERSION}",
+                status_code=400,
+            )
 
         accept = request.headers.get("Accept")
         if "text/event-stream" not in accept or "application/json" not in accept:
-            logger.warning("Invalid Accept header")
-            return Response("Invalid Accept header", status_code=400)
+            return Response(
+                "Invalid Accept header, expected: text/event-stream, application/json"
+                f" (got: {accept})",
+                status_code=400,
+            )
 
         # TODO: Implement proper Origin validation to prevent DNS rebinding attacks
         # For now, we accept all origins (development mode)
@@ -324,11 +340,9 @@ class HttpServerTransport(ServerTransport):
         else:
             # All other messages MUST have a valid session ID
             if not session_id:
-                return Response(
-                    "Missing required Mcp-Session-Id header", status_code=400
-                )
+                return Response("Missing Mcp-Session-Id header", status_code=400)
             if not self._session_manager.session_exists(session_id):
-                return Response("Invalid or expired session", status_code=404)
+                return Response("Invalid or expired Mcp-Session-Id", status_code=404)
             return None
 
     def _validate_jsonrpc_message(self, message_data: dict) -> Response | None:
@@ -341,7 +355,9 @@ class HttpServerTransport(ServerTransport):
         is_notification = self._message_parser.is_valid_notification(message_data)
 
         if not (is_request or is_response or is_notification):
-            return Response("Invalid JSON-RPC message", status_code=400)
+            return Response(
+                f"Invalid JSON-RPC message: {message_data}", status_code=400
+            )
         return None
 
     def _is_valid_origin(self, origin: str | None) -> bool:
@@ -384,7 +400,7 @@ class HttpServerTransport(ServerTransport):
         else:
             client_id = self._session_manager.get_client_id(session_id)
             if not client_id:
-                raise ValueError(f"Client ID not found for session {session_id}")
+                raise ValueError("Client not found for session")
             return client_id, session_id
 
     # ================================
@@ -401,13 +417,19 @@ class HttpServerTransport(ServerTransport):
         2. Send the final response to the original request
         3. Auto-close after sending the response
         """
-        stream = await self._stream_manager.create_request_stream(
-            client_id, str(request_id)
-        )
+        try:
+            stream = await self._stream_manager.create_request_stream(
+                client_id, str(request_id)
+            )
 
-        return StreamingResponse(
-            stream.event_generator(), media_type="text/event-stream", headers=headers
-        )
+            return StreamingResponse(
+                stream.event_generator(),
+                media_type="text/event-stream",
+                headers=headers,
+            )
+        except Exception as e:
+            logger.error(f"Failed to create request stream for client {client_id}: {e}")
+            return Response("Internal server error", status_code=500)
 
     # ================================
     # Response Builders
