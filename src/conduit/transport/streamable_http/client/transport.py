@@ -32,6 +32,10 @@ class HttpClientTransport(ClientTransport):
         # server_id -> stream manager
         self._stream_managers: dict[str, StreamManager] = {}
 
+    # ================================
+    # Transport Interface
+    # ================================
+
     async def add_server(self, server_id: str, connection_info: dict[str, Any]) -> None:
         """Register HTTP server endpoint.
 
@@ -105,99 +109,16 @@ class HttpClientTransport(ClientTransport):
                 f"HTTP request failed for server '{server_id}': {e}"
             ) from e
 
-    async def _handle_response(self, server_id: str, response: httpx.Response) -> None:
-        """Handle the HTTP response based on content type and status.
+    def server_messages(self) -> AsyncIterator[ServerMessage]:
+        """Stream of messages from all servers with explicit server context.
 
-        According to the spec:
-        - 200 with application/json: Single JSON response
-        - 200 with text/event-stream: SSE stream
-        - 202: Accepted (for notifications/responses)
-        - 404: Session expired (if we sent a session ID)
-        - Other errors: Raise ConnectionError
+        Yields messages from the internal queue as they arrive from HTTP responses
+        and SSE streams. This is the main way consumers get messages from servers.
 
-        Args:
-            server_id: Server ID to handle response for
-            response: The HTTP response from the server
-
-        Raises:
-            ConnectionError: If the session expired or other HTTP errors
+        Yields:
+            ServerMessage: Message with server ID and metadata
         """
-        if response.status_code == 200:
-            content_type = response.headers.get("content-type", "")
-
-            if "application/json" in content_type:
-                response_data = response.json()
-                server_message = ServerMessage(
-                    server_id=server_id,
-                    payload=response_data,
-                    timestamp=asyncio.get_event_loop().time(),
-                )
-                await self._message_queue.put(server_message)
-
-            elif "text/event-stream" in content_type:
-                # Get or create stream manager for this server
-                if server_id not in self._stream_managers:
-                    self._stream_managers[server_id] = StreamManager(
-                        server_id, self._http_client
-                    )
-
-                stream_manager = self._stream_managers[server_id]
-                await stream_manager.create_response_stream(
-                    response, self._message_queue
-                )
-
-        elif response.status_code == 202:
-            logger.debug(f"Server '{server_id}' accepted message (202)")
-
-        elif response.status_code == 404:
-            # Check if we sent a session ID - if so, this means session expired
-            request_had_session = "Mcp-Session-Id" in response.request.headers
-
-            if request_had_session:
-                # Session expired - clear session ID per spec
-                if server_id in self._sessions:
-                    expired_session = self._sessions[server_id]
-                    del self._sessions[server_id]
-                    logger.info(
-                        f"Session '{expired_session}' expired for server '{server_id}'"
-                        " - cleared session ID"
-                    )
-
-                raise ConnectionError(
-                    f"Session expired for server '{server_id}'. "
-                    "Must re-initialize with a new InitializeRequest."
-                )
-            else:
-                # Regular 404 - not session related
-                raise ConnectionError(
-                    f"Server '{server_id}' returned 404: {response.text or 'Not Found'}"
-                )
-
-        else:
-            # Other HTTP errors
-            response.raise_for_status()
-
-    async def _handle_session_management(
-        self, server_id: str, message: dict[str, Any], response: httpx.Response
-    ) -> None:
-        """Handle session ID extraction from InitializeResult responses.
-
-        According to the spec, servers MAY include an Mcp-Session-Id header
-        in the response to an initialize request to establish a session.
-
-        Args:
-            server_id: Server ID to handle session management for
-            message: The message that was sent to the server
-            response: The response from the server
-        """
-        if (
-            message.get("method") == "initialize"
-            and response.status_code == 200
-            and "Mcp-Session-Id" in response.headers
-        ):
-            session_id = response.headers["Mcp-Session-Id"]
-            self._sessions[server_id] = session_id
-            logger.debug(f"Established session for server '{server_id}': {session_id}")
+        return self._message_queue_iterator()
 
     async def disconnect_server(self, server_id: str) -> None:
         """Disconnect from specific server.
@@ -284,39 +205,107 @@ class HttpClientTransport(ClientTransport):
             await self._http_client.aclose()
             logger.debug("HTTP client closed")
 
-    def _build_headers(
-        self, server_id: str, server_config: dict[str, Any]
-    ) -> dict[str, str]:
-        """Build HTTP headers for requests to the server.
+    # ================================
+    # Response Handling
+    # ================================
 
-        Constructs headers according to the Streamable HTTP spec:
-        - Content-Type: application/json (for POST body)
-        - Accept: application/json, text/event-stream (support both response types)
-        - MCP-Protocol-Version: current protocol version
-        - Mcp-Session-Id: session ID if we have one for this server
-        - Any custom headers from server config
+    async def _handle_response(self, server_id: str, response: httpx.Response) -> None:
+        """Handle the HTTP response based on content type and status.
+
+        According to the spec:
+        - 200 with application/json: Single JSON response
+        - 200 with text/event-stream: SSE stream
+        - 202: Accepted (for notifications/responses)
+        - 404: Session expired (if we sent a session ID)
+        - Other errors: Raise ConnectionError
 
         Args:
-            server_id: Server ID to build headers for
-            server_config: Server configuration containing custom headers
+            server_id: Server ID to handle response for
+            response: The HTTP response from the server
 
-        Returns:
-            Complete headers dict for the HTTP request
+        Raises:
+            ConnectionError: If the session expired or other HTTP errors
         """
-        headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json, text/event-stream",
-            "MCP-Protocol-Version": PROTOCOL_VERSION,
-        }
+        if response.status_code == 200:
+            content_type = response.headers.get("content-type", "")
 
-        # Add session ID if we have one for this server
-        if server_id in self._sessions:
-            headers["Mcp-Session-Id"] = self._sessions[server_id]
+            if "application/json" in content_type:
+                response_data = response.json()
+                server_message = ServerMessage(
+                    server_id=server_id,
+                    payload=response_data,
+                    timestamp=asyncio.get_event_loop().time(),
+                )
+                await self._message_queue.put(server_message)
 
-        # Add any custom headers from server config
-        headers.update(server_config["headers"])
+            elif "text/event-stream" in content_type:
+                # Get or create stream manager for this server
+                if server_id not in self._stream_managers:
+                    self._stream_managers[server_id] = StreamManager(
+                        server_id, self._http_client
+                    )
 
-        return headers
+                stream_manager = self._stream_managers[server_id]
+                await stream_manager.create_response_stream(
+                    response, self._message_queue
+                )
+
+        elif response.status_code == 202:
+            logger.debug(f"Server '{server_id}' accepted message (202)")
+
+        elif response.status_code == 404:
+            # Check if we sent a session ID - if so, this means session expired
+            request_had_session = "Mcp-Session-Id" in response.request.headers
+
+            if request_had_session:
+                # Session expired - clear session ID per spec
+                if server_id in self._sessions:
+                    expired_session = self._sessions[server_id]
+                    del self._sessions[server_id]
+                    logger.info(
+                        f"Session '{expired_session}' expired for server '{server_id}'"
+                        " - cleared session ID"
+                    )
+
+                raise ConnectionError(
+                    f"Session expired for server '{server_id}'. "
+                    "Must re-initialize with a new InitializeRequest."
+                )
+            else:
+                # Regular 404 - not session related
+                raise ConnectionError(
+                    f"Server '{server_id}' returned 404: {response.text or 'Not Found'}"
+                )
+
+        else:
+            # Other HTTP errors
+            response.raise_for_status()
+
+    # ================================
+    # Session/Stream Management
+    # ================================
+
+    async def _handle_session_management(
+        self, server_id: str, message: dict[str, Any], response: httpx.Response
+    ) -> None:
+        """Handle session ID extraction from InitializeResult responses.
+
+        According to the spec, servers MAY include an Mcp-Session-Id header
+        in the response to an initialize request to establish a session.
+
+        Args:
+            server_id: Server ID to handle session management for
+            message: The message that was sent to the server
+            response: The response from the server
+        """
+        if (
+            message.get("method") == "initialize"
+            and response.status_code == 200
+            and "Mcp-Session-Id" in response.headers
+        ):
+            session_id = response.headers["Mcp-Session-Id"]
+            self._sessions[server_id] = session_id
+            logger.debug(f"Established session for server '{server_id}': {session_id}")
 
     async def start_server_stream(self, server_id: str) -> None:
         """Start a server-initiated message stream via HTTP GET.
@@ -414,16 +403,43 @@ class HttpClientTransport(ClientTransport):
                 f"Failed to start server stream for '{server_id}': {e}"
             ) from e
 
-    def server_messages(self) -> AsyncIterator[ServerMessage]:
-        """Stream of messages from all servers with explicit server context.
+    # ================================
+    # Helpers
+    # ================================
 
-        Yields messages from the internal queue as they arrive from HTTP responses
-        and SSE streams. This is the main way consumers get messages from servers.
+    def _build_headers(
+        self, server_id: str, server_config: dict[str, Any]
+    ) -> dict[str, str]:
+        """Build HTTP headers for requests to the server.
 
-        Yields:
-            ServerMessage: Message with server ID and metadata
+        Constructs headers according to the Streamable HTTP spec:
+        - Content-Type: application/json (for POST body)
+        - Accept: application/json, text/event-stream (support both response types)
+        - MCP-Protocol-Version: current protocol version
+        - Mcp-Session-Id: session ID if we have one for this server
+        - Any custom headers from server config
+
+        Args:
+            server_id: Server ID to build headers for
+            server_config: Server configuration containing custom headers
+
+        Returns:
+            Complete headers dict for the HTTP request
         """
-        return self._message_queue_iterator()
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+            "MCP-Protocol-Version": PROTOCOL_VERSION,
+        }
+
+        # Add session ID if we have one for this server
+        if server_id in self._sessions:
+            headers["Mcp-Session-Id"] = self._sessions[server_id]
+
+        # Add any custom headers from server config
+        headers.update(server_config["headers"])
+
+        return headers
 
     async def _message_queue_iterator(self) -> AsyncIterator[ServerMessage]:
         """Async iterator that yields messages from the queue.
