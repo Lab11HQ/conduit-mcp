@@ -4,8 +4,6 @@ import logging
 import uuid
 from typing import Any, AsyncIterator
 
-from conduit.shared.message_parser import MessageParser
-
 logger = logging.getLogger(__name__)
 
 
@@ -17,15 +15,10 @@ class SSEStream:
         self.client_id = client_id
         self.request_id = request_id
         self._message_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
-        self._message_parser = MessageParser()
 
     async def send_message(self, message: dict[str, Any]) -> None:
         """Send message on this stream."""
         await self._message_queue.put(message)
-
-    async def send_response(self, response: dict[str, Any]) -> None:
-        """Send final response and mark for auto-close."""
-        await self.send_message(response)
 
     async def close(self) -> None:
         """Explicitly close the stream."""
@@ -34,11 +27,25 @@ class SSEStream:
         logger.debug(f"Manually closed stream {self.stream_id}")
 
     def is_response(self, message: dict[str, Any]) -> bool:
-        """Check if message is the final response."""
-        return self._message_parser.is_valid_response(message)
+        """Check if message is a JSON-RPC response."""
+        id_value = message.get("id")
+        has_valid_id = (
+            id_value is not None
+            and isinstance(id_value, (int, str))
+            and not isinstance(id_value, bool)
+        )
+        has_result = "result" in message
+        has_error = "error" in message
+        return has_valid_id and (has_result ^ has_error)
 
     async def event_generator(self) -> AsyncIterator[str]:
-        """Generate SSE events for this stream."""
+        """Generate SSE events for this stream.
+
+        Automatically closes after sending a response.
+
+        Yields:
+            str: SSE event data
+        """
         try:
             while True:
                 message = await self._message_queue.get()
