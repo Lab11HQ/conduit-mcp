@@ -34,7 +34,7 @@ class TestGetHandler:
         client_id, session_id = transport._session_manager.create_session()
 
         # Mock successful stream creation
-        transport._stream_manager.create_server_stream.return_value = mock_stream
+        transport._stream_manager.create_stream.return_value = mock_stream
 
         # Create request with proper headers
         headers = {
@@ -60,9 +60,7 @@ class TestGetHandler:
         assert response.headers["MCP-Protocol-Version"] == PROTOCOL_VERSION
 
         # Verify stream creation
-        transport._stream_manager.create_server_stream.assert_awaited_once_with(
-            client_id
-        )
+        transport._stream_manager.create_stream.assert_awaited_once_with(client_id)
 
     async def test_get_request_invalid_accept_header_returns_400(self, transport):
         # Arrange
@@ -86,7 +84,7 @@ class TestGetHandler:
         assert "Invalid Accept header" in response.body.decode()
 
         # Verify stream creation was never attempted
-        transport._stream_manager.create_server_stream.assert_not_awaited()
+        transport._stream_manager.create_stream.assert_not_awaited()
 
     async def test_get_request_missing_session_id_returns_400(self, transport):
         # Arrange
@@ -108,7 +106,7 @@ class TestGetHandler:
         assert "Missing session ID" in response.body.decode()
 
         # Verify stream creation was never attempted
-        transport._stream_manager.create_server_stream.assert_not_awaited()
+        transport._stream_manager.create_stream.assert_not_awaited()
 
     async def test_get_request_invalid_session_id_returns_404(self, transport):
         # Arrange
@@ -130,14 +128,14 @@ class TestGetHandler:
         assert "Invalid or expired session" in response.body.decode()
 
         # Verify stream creation was never attempted
-        transport._stream_manager.create_server_stream.assert_not_awaited()
+        transport._stream_manager.create_stream.assert_not_awaited()
 
     async def test_get_request_stream_creation_failure_returns_500(self, transport):
         # Arrange
         client_id, session_id = transport._session_manager.create_session()
 
         # Mock stream creation to raise an exception
-        transport._stream_manager.create_server_stream.side_effect = Exception(
+        transport._stream_manager.create_stream.side_effect = Exception(
             "Stream creation failed"
         )
 
@@ -159,6 +157,4 @@ class TestGetHandler:
         assert "Internal server error" in response.body.decode()
 
         # Verify stream creation was attempted
-        transport._stream_manager.create_server_stream.assert_awaited_once_with(
-            client_id
-        )
+        transport._stream_manager.create_stream.assert_awaited_once_with(client_id)

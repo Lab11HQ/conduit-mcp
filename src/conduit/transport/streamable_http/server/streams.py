@@ -76,23 +76,22 @@ class StreamManager:
     """Manages multiple SSE streams with routing and cleanup."""
 
     def __init__(self):
-        self._streams: dict[str, SSEStream] = {}  # stream_id -> stream
-        self._client_streams: dict[str, set[str]] = {}  # client_id -> set of stream_ids
+        self._client_streams: dict[
+            str, set[SSEStream]
+        ] = {}  # client_id -> set of streams
 
-    async def create_request_stream(self, client_id: str, request_id: str) -> SSEStream:
-        """Create and register a new stream for a specific request."""
-        stream_id = f"{client_id}:request:{request_id}"
-        return await self._create_and_register_stream(
-            stream_id, client_id, str(request_id)
-        )
+    async def create_stream(
+        self, client_id: str, request_id: str | None = None
+    ) -> SSEStream:
+        """Create and register a new stream."""
+        stream_id = str(uuid.uuid4())
+        stream = SSEStream(stream_id, client_id, request_id or "GET")
 
-    async def create_server_stream(self, client_id: str) -> SSEStream:
-        """Create and register a new stream for server-initiated messages."""
+        # Track by client
+        self._client_streams.setdefault(client_id, set()).add(stream)
 
-        stream_uuid = str(uuid.uuid4())[:8]
-        stream_id = f"{client_id}:server:{stream_uuid}"
-
-        return await self._create_and_register_stream(stream_id, client_id, None)
+        logger.debug(f"Created stream {stream_id} for client {client_id}")
+        return stream
 
     async def send_to_existing_stream(
         self,
@@ -100,44 +99,34 @@ class StreamManager:
         message: dict[str, Any],
         originating_request_id: str | int | None = None,
     ) -> bool:
-        """Send message to existing stream if available. Returns True if sent."""
+        """Send message to existing stream if available.
+
+        Args:
+            client_id: The client ID
+            message: The message to send
+            originating_request_id: The ID of the originating request. If provided,
+                the message will be sent to the stream with the matching request ID.
+                If not provided, the message will be sent to the first available
+                stream (e.g. a stream created by a GET request).
+
+        Returns:
+            True if message was sent, False otherwise
+        """
+        streams = self._client_streams.get(client_id, set())
+
         if originating_request_id:
-            stream = self.get_request_stream(client_id, originating_request_id)
-            if stream:
-                return await self._send_to_stream(stream, message, auto_cleanup=True)
-            else:
-                return False
+            for stream in streams:
+                if stream.request_id == originating_request_id:
+                    return await self._send_to_stream(
+                        stream, message, auto_cleanup=True
+                    )
         else:
-            server_streams = [
-                sid
-                for sid in self._client_streams.get(client_id, set())
-                if sid.startswith(f"{client_id}:server:")
-            ]
+            # Use any available stream (first one)
+            if streams:
+                stream = next(iter(streams))
+                return await self._send_to_stream(stream, message, auto_cleanup=False)
 
-            if server_streams:
-                # For now, just use the first available server stream
-                # Don't auto-cleanup even though responses should not be sent on
-                # server streams
-                return await self._send_to_stream(
-                    server_streams[0], message, auto_cleanup=False
-                )
-
-            return False
-
-    async def _create_and_register_stream(
-        self, stream_id: str, client_id: str, request_id: str | int | None
-    ) -> SSEStream:
-        """Create and register a stream."""
-        stream = SSEStream(stream_id, client_id, request_id or "GET")
-
-        # Register it
-        self._streams[stream_id] = stream
-
-        # Track by client
-        self._client_streams.setdefault(client_id, set()).add(stream_id)
-
-        logger.debug(f"Created stream {stream_id} for client {client_id}")
-        return stream
+        return False
 
     async def _send_to_stream(
         self, stream: SSEStream, message: dict[str, Any], auto_cleanup: bool
@@ -146,70 +135,41 @@ class StreamManager:
         await stream.send_message(message)
 
         if auto_cleanup and stream.is_response(message):
-            await self._cleanup_stream(stream.stream_id)
+            await self._cleanup_stream(stream)
 
         return True
 
     async def cleanup_client_streams(self, client_id: str) -> None:
         """Clean up all streams for a client."""
-        if client_id not in self._client_streams:
-            return
+        streams = self._client_streams.get(client_id, set()).copy()
+        for stream in streams:
+            await self._cleanup_stream(stream)
 
-        stream_ids = self._client_streams[client_id].copy()
-        for stream_id in stream_ids:
-            await self._cleanup_stream(stream_id)
-
-        logger.debug(f"Cleaned up {len(stream_ids)} streams for client {client_id}")
+        logger.debug(f"Cleaned up {len(streams)} streams for client {client_id}")
 
     def get_stream_by_id(self, stream_id: str) -> SSEStream | None:
         """Get stream by exact stream ID."""
-        return self._streams.get(stream_id)
+        for streams in self._client_streams.values():
+            for stream in streams:
+                if stream.stream_id == stream_id:
+                    return stream
+        return None
 
-    def get_request_stream(self, client_id: str, request_id: str) -> SSEStream | None:
-        """Get specific request stream."""
-        stream_id = f"{client_id}:request:{request_id}"
-        return self._streams.get(stream_id)
-
-    def get_server_streams(self, client_id: str) -> list[SSEStream]:
-        """Get all server streams for a client."""
-        server_streams = []
-        for stream_id in self._client_streams.get(client_id, set()):
-            if stream_id.startswith(f"{client_id}:server:"):
-                stream = self._streams.get(stream_id)
-                if stream:
-                    server_streams.append(stream)
-        return server_streams
-
-    async def _cleanup_stream(self, stream_id: str) -> None:
+    async def _cleanup_stream(self, stream: SSEStream) -> None:
         """Clean up a single stream."""
-        if stream_id not in self._streams:
-            return
-
-        stream = self._streams[stream_id]
-
         # Close the stream (sends sentinel)
         await stream.close()
 
-        # Remove from tracking
-        del self._streams[stream_id]
-
         # Remove from client tracking
         if stream.client_id in self._client_streams:
-            self._client_streams[stream.client_id].discard(stream_id)
+            self._client_streams[stream.client_id].discard(stream)
             if not self._client_streams[stream.client_id]:
                 del self._client_streams[stream.client_id]
 
-        logger.debug(f"Cleaned up stream {stream_id}")
-
-    def get_active_stream_count(self) -> int:
-        """Get number of active streams (for debugging/metrics)."""
-        return len(self._streams)
-
-    def get_client_stream_count(self, client_id: str) -> int:
-        """Get number of active streams for a client."""
-        return len(self._client_streams.get(client_id, set()))
+        logger.debug(f"Cleaned up stream {stream.stream_id}")
 
     async def close_all_streams(self) -> None:
         """Close all streams."""
-        for stream_id in list(self._streams):
-            await self._cleanup_stream(stream_id)
+        for streams in list(self._client_streams.values()):
+            for stream in streams.copy():
+                await self._cleanup_stream(stream)

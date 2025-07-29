@@ -40,9 +40,7 @@ class TestPostRequestProcessing:
         client_id, session_id = transport._session_manager.create_session()
 
         # Mock successful stream creation
-        transport._stream_manager.create_request_stream = AsyncMock(
-            return_value=mock_stream
-        )
+        transport._stream_manager.create_stream = AsyncMock(return_value=mock_stream)
 
         # Create MCP request message (has method + id)
         message_data = {"jsonrpc": "2.0", "method": "tools/list", "id": "req-123"}
@@ -71,7 +69,7 @@ class TestPostRequestProcessing:
         assert response.headers["MCP-Protocol-Version"] == PROTOCOL_VERSION
 
         # Verify request stream creation
-        transport._stream_manager.create_request_stream.assert_awaited_once_with(
+        transport._stream_manager.create_stream.assert_awaited_once_with(
             client_id, "req-123"
         )
 
@@ -116,7 +114,7 @@ class TestPostRequestProcessing:
         assert response.headers["MCP-Protocol-Version"] == PROTOCOL_VERSION
 
         # Verify no stream creation attempted
-        transport._stream_manager.create_request_stream.assert_not_awaited()
+        transport._stream_manager.create_stream.assert_not_awaited()
 
         # Verify message was still queued
         assert not transport._message_queue.empty()
@@ -150,7 +148,7 @@ class TestPostRequestProcessing:
 
         # Verify early exit - no JSON parsing or stream creation
         request.json.assert_not_awaited()
-        transport._stream_manager.create_request_stream.assert_not_awaited()
+        transport._stream_manager.create_stream.assert_not_awaited()
 
         # Verify message queue is empty (never got that far)
         assert transport._message_queue.empty()
@@ -182,7 +180,7 @@ class TestPostRequestProcessing:
         assert "Invalid JSON" in response.body.decode()
 
         # Verify no stream creation attempted
-        transport._stream_manager.create_request_stream.assert_not_awaited()
+        transport._stream_manager.create_stream.assert_not_awaited()
 
         # Verify message queue is empty (never got that far)
         assert transport._message_queue.empty()
@@ -212,7 +210,7 @@ class TestPostRequestProcessing:
         assert "Invalid JSON" in response.body.decode()
 
         # Verify no stream creation attempted
-        transport._stream_manager.create_request_stream.assert_not_awaited()
+        transport._stream_manager.create_stream.assert_not_awaited()
 
         # Verify message queue is empty (never got that far)
         assert transport._message_queue.empty()
@@ -248,7 +246,7 @@ class TestPostRequestProcessing:
         assert "Invalid JSON-RPC message" in response.body.decode()
 
         # Verify no stream creation attempted
-        transport._stream_manager.create_request_stream.assert_not_awaited()
+        transport._stream_manager.create_stream.assert_not_awaited()
 
         # Verify message queue is empty (never got that far)
         assert transport._message_queue.empty()
@@ -294,9 +292,7 @@ class TestSessionValidation:
             yield "data: test\n\n"
 
         mock_stream.event_generator = Mock(return_value=mock_event_generator())
-        transport._stream_manager.create_request_stream = AsyncMock(
-            return_value=mock_stream
-        )
+        transport._stream_manager.create_stream = AsyncMock(return_value=mock_stream)
 
         # Act
         response = await transport._handle_post_request(request)
@@ -311,7 +307,7 @@ class TestSessionValidation:
         new_session_id = response.headers["Mcp-Session-Id"]
 
         # Verify stream creation with new client
-        transport._stream_manager.create_request_stream.assert_awaited_once()
+        transport._stream_manager.create_stream.assert_awaited_once()
 
         # Verify message was queued with new client_id
         assert not transport._message_queue.empty()
@@ -352,7 +348,7 @@ class TestSessionValidation:
         )
 
         # Verify no stream creation attempted
-        transport._stream_manager.create_request_stream.assert_not_awaited()
+        transport._stream_manager.create_stream.assert_not_awaited()
 
         # Verify message queue is empty (never got that far)
         assert transport._message_queue.empty()
@@ -385,7 +381,7 @@ class TestSessionValidation:
         assert "Missing Mcp-Session-Id header" in response.body.decode()
 
         # Verify no stream creation attempted
-        transport._stream_manager.create_request_stream.assert_not_awaited()
+        transport._stream_manager.create_stream.assert_not_awaited()
 
         # Verify message queue is empty (never got that far)
         assert transport._message_queue.empty()
@@ -418,7 +414,7 @@ class TestSessionValidation:
         assert "Invalid or expired Mcp-Session-Id" in response.body.decode()
 
         # Verify no stream creation attempted
-        transport._stream_manager.create_request_stream.assert_not_awaited()
+        transport._stream_manager.create_stream.assert_not_awaited()
 
         # Verify message queue is empty (never got that far)
         assert transport._message_queue.empty()
@@ -450,9 +446,7 @@ class TestSessionValidation:
             yield "data: test\n\n"
 
         mock_stream.event_generator = Mock(return_value=mock_event_generator())
-        transport._stream_manager.create_request_stream = AsyncMock(
-            return_value=mock_stream
-        )
+        transport._stream_manager.create_stream = AsyncMock(return_value=mock_stream)
 
         # Act
         response = await transport._handle_post_request(request)
@@ -475,7 +469,7 @@ class TestSessionValidation:
         client_id, session_id = transport._session_manager.create_session()
 
         # Mock stream creation to raise an exception
-        transport._stream_manager.create_request_stream.side_effect = Exception(
+        transport._stream_manager.create_stream.side_effect = Exception(
             "Stream creation failed"
         )
 
@@ -499,6 +493,6 @@ class TestSessionValidation:
         assert "Internal server error" in response.body.decode()
 
         # Verify stream creation was attempted
-        transport._stream_manager.create_request_stream.assert_awaited_once_with(
+        transport._stream_manager.create_stream.assert_awaited_once_with(
             client_id, "req-123"
         )

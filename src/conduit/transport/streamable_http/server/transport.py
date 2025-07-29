@@ -254,7 +254,7 @@ class HttpServerTransport(ServerTransport):
         headers = self._build_server_stream_headers(request, session_id)
 
         try:
-            stream = await self._stream_manager.create_server_stream(client_id)
+            stream = await self._stream_manager.create_stream(client_id)
             logger.debug(
                 f"Created server stream {stream.stream_id} for client {client_id}"
             )
@@ -425,9 +425,7 @@ class HttpServerTransport(ServerTransport):
         3. Auto-close after sending the response
         """
         try:
-            stream = await self._stream_manager.create_request_stream(
-                client_id, str(request_id)
-            )
+            stream = await self._stream_manager.create_stream(client_id, request_id)
 
             return StreamingResponse(
                 stream.event_generator(),
