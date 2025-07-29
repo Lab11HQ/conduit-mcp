@@ -97,8 +97,13 @@ class HttpClientTransport(ClientTransport):
                 timeout=30.0,  # TODO: Make configurable
             )
 
-            # Handle session management for initialize responses
-            await self._handle_session_id(server_id, message, response)
+            # Store session ID if we have one
+            if (
+                message.get("method") == "initialize"
+                and response.status_code == 200
+                and "Mcp-Session-Id" in response.headers
+            ):
+                self._store_session_id(server_id, response.headers["Mcp-Session-Id"])
 
             # Handle different response types based on content-type
             await self._handle_response(server_id, response)
@@ -461,3 +466,8 @@ class HttpClientTransport(ClientTransport):
                 f"Unexpected response {response.status_code} when terminating "
                 f"session for '{server_id}'"
             )
+
+    def _store_session_id(self, server_id: str, session_id: str) -> None:
+        """Store session ID for a server."""
+        self._sessions[server_id] = session_id
+        logger.debug(f"Established session for server '{server_id}': {session_id}")

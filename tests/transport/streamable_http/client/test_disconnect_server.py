@@ -18,8 +18,7 @@ class TestDisconnectServer:
         assert "unknown-server" not in transport._servers
         assert "unknown-server" not in transport._sessions
 
-    async def test_disconnect_server_without_session_stops_streams_only(self):
-        """Test disconnect without session only stops streams and removes server."""
+    async def test_disconnect_server_without_session_stops_streams(self):
         # Arrange
         transport = HttpClientTransport()
         server_id = "test-server"
@@ -41,7 +40,6 @@ class TestDisconnectServer:
     async def test_disconnect_server_with_session_attempts_graceful_termination(
         self, mock_delete
     ):
-        """Test disconnect with session attempts DELETE and cleans up properly."""
         # Arrange
         transport = HttpClientTransport()
         server_id = "test-server"
@@ -86,7 +84,6 @@ class TestDisconnectServer:
 
     @patch("httpx.AsyncClient.delete")
     async def test_disconnect_handles_405_method_not_allowed(self, mock_delete):
-        """Test disconnect handles 405 response gracefully."""
         # Arrange
         transport = HttpClientTransport()
         server_id = "test-server"
@@ -107,7 +104,6 @@ class TestDisconnectServer:
 
     @patch("httpx.AsyncClient.delete")
     async def test_disconnect_handles_delete_request_failure(self, mock_delete):
-        """Test disconnect handles DELETE request failures gracefully."""
         # Arrange
         transport = HttpClientTransport()
         server_id = "test-server"
@@ -126,7 +122,6 @@ class TestDisconnectServer:
 
     @patch("httpx.AsyncClient.delete")
     async def test_disconnect_handles_unexpected_delete_response(self, mock_delete):
-        """Test disconnect handles unexpected DELETE response codes."""
         # Arrange
         transport = HttpClientTransport()
         server_id = "test-server"
