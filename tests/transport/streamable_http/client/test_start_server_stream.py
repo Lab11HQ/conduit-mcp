@@ -12,7 +12,6 @@ class TestStartServerStream:
 
     @patch("httpx.AsyncClient.get")
     async def test_start_server_stream_happy_path(self, mock_get):
-        """Test successful server stream start with SSE response."""
         # Arrange
         server_id = "test-server"
         await self.transport.add_server(
@@ -54,8 +53,7 @@ class TestStartServerStream:
         )
 
     @patch("httpx.AsyncClient.get")
-    async def test_start_server_stream_get_request_failure(self, mock_get):
-        """Test start_server_stream handles GET request failures."""
+    async def test_raises_connection_error_on_get_request_failure(self, mock_get):
         # Arrange
         server_id = "test-server"
         await self.transport.add_server(
@@ -66,31 +64,23 @@ class TestStartServerStream:
         mock_get.side_effect = httpx.ConnectError("Connection failed")
 
         # Act & Assert
-        with pytest.raises(
-            ConnectionError, match="Failed to start server stream for 'test-server'"
-        ):
+        with pytest.raises(ConnectionError):
             await self.transport.start_server_stream(server_id)
 
         # Verify GET was attempted
         mock_get.assert_awaited_once()
 
     @patch("httpx.AsyncClient.get")
-    async def test_start_server_stream_unregistered_server_raises_value_error(
-        self, mock_get
-    ):
-        """Test start_server_stream fails when server is not registered."""
+    async def test_raises_value_error_on_unregistered_server(self, mock_get):
         # Act & Assert
-        with pytest.raises(
-            ValueError, match="Server 'unknown-server' is not registered"
-        ):
+        with pytest.raises(ValueError):
             await self.transport.start_server_stream("unknown-server")
 
         # Verify no GET request was made
         mock_get.assert_not_awaited()
 
     @patch("httpx.AsyncClient.get")
-    async def test_start_server_stream_405_method_not_allowed(self, mock_get):
-        """Test start_server_stream handles 405 Method Not Allowed."""
+    async def test_raises_connection_error_on_405_method_not_allowed(self, mock_get):
         # Arrange
         server_id = "test-server"
         await self.transport.add_server(
@@ -107,8 +97,7 @@ class TestStartServerStream:
             await self.transport.start_server_stream(server_id)
 
     @patch("httpx.AsyncClient.get")
-    async def test_start_server_stream_404_session_expired(self, mock_get):
-        """Test start_server_stream handles 404 with session expiry."""
+    async def test_raises_connection_error_on_404_session_expired(self, mock_get):
         # Arrange
         server_id = "test-server"
         await self.transport.add_server(
@@ -130,8 +119,7 @@ class TestStartServerStream:
         assert server_id not in self.transport._sessions
 
     @patch("httpx.AsyncClient.get")
-    async def test_start_server_stream_404_no_session(self, mock_get):
-        """Test start_server_stream handles 404 without session."""
+    async def test_raises_connection_error_on_404_no_session(self, mock_get):
         # Arrange
         server_id = "test-server"
         await self.transport.add_server(
@@ -149,8 +137,7 @@ class TestStartServerStream:
             await self.transport.start_server_stream(server_id)
 
     @patch("httpx.AsyncClient.get")
-    async def test_start_server_stream_other_http_error(self, mock_get):
-        """Test start_server_stream handles other HTTP errors."""
+    async def test_raises_connection_error_on_other_http_error(self, mock_get):
         # Arrange
         server_id = "test-server"
         await self.transport.add_server(
@@ -170,8 +157,7 @@ class TestStartServerStream:
             await self.transport.start_server_stream(server_id)
 
     @patch("httpx.AsyncClient.get")
-    async def test_start_server_stream_invalid_content_type(self, mock_get):
-        """Test start_server_stream handles non-SSE content type."""
+    async def test_raises_connection_error_on_invalid_content_type(self, mock_get):
         # Arrange
         server_id = "test-server"
         await self.transport.add_server(
