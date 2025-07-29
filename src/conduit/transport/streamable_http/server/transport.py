@@ -30,7 +30,7 @@ from conduit.protocol.base import PROTOCOL_VERSION
 from conduit.shared.message_parser import MessageParser
 from conduit.transport.server import ClientMessage, ServerTransport, TransportContext
 from conduit.transport.streamable_http.server.session_manager import SessionManager
-from conduit.transport.streamable_http.server.streams import StreamManager
+from conduit.transport.streamable_http.server.stream_manager import StreamManager
 
 logger = logging.getLogger(__name__)
 
@@ -237,12 +237,10 @@ class HttpServerTransport(ServerTransport):
 
     async def _handle_get_request(self, request: Request) -> Response:
         """Handle HTTP GET request for SSE streams."""
-        # Validate headers
         headers_error = self._validate_protocol_headers(request)
         if headers_error:
             return headers_error
 
-        # First check: Is session ID present?
         session_id = request.headers.get("Mcp-Session-Id")
         if not session_id:
             return Response("Missing session ID", status_code=400)

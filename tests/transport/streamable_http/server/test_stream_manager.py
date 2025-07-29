@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from conduit.transport.streamable_http.server.streams import StreamManager
+from conduit.transport.streamable_http.server.stream_manager import StreamManager
 
 
 class TestStreamManager:
