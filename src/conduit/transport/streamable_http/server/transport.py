@@ -107,6 +107,52 @@ class HttpServerTransport(ServerTransport):
             self._server.should_exit = True
             await self._server.shutdown()
 
+    # ================================
+    # Server Transport Interface
+    # ================================
+
+    async def send(
+        self,
+        client_id: str,
+        message: dict[str, Any],
+        transport_context: TransportContext | None = None,
+    ) -> None:
+        """Send message to specific client.
+
+        Args:
+            client_id: Target client connection ID
+            message: JSON-RPC message to send
+            transport_context: Context for the transport. For example, this helps route
+                messages along specific streams.
+
+        Raises:
+            ValueError: If client_id is not connected
+            ConnectionError: If connection failed during send
+        """
+        if not self._session_manager.get_session_id(client_id):
+            raise ValueError(f"Client {client_id} is not connected")
+
+        originating_request_id = (
+            transport_context.originating_request_id if transport_context else None
+        )
+
+        if await self._stream_manager.send_to_existing_stream(
+            client_id, message, originating_request_id
+        ):
+            return
+
+        raise ConnectionError(f"No active streams available for client {client_id}")
+
+    def client_messages(self) -> AsyncIterator[ClientMessage]:
+        """Stream of messages from all clients."""
+        return self._message_queue_iterator()
+
+    async def disconnect_client(self, client_id: str) -> None:
+        """Disconnect specific client."""
+        session_id = self._session_manager.get_session_id(client_id)
+        if session_id:
+            self._session_manager.terminate_session(session_id)
+
     async def close(self) -> None:
         """Close the transport and clean up all resources.
 
@@ -118,40 +164,6 @@ class HttpServerTransport(ServerTransport):
         # Clean up sessions and streams
         self._session_manager.terminate_all_sessions()
         await self._stream_manager.close_all_streams()
-
-    # ================================
-    # Server Transport Interface
-    # ================================
-
-    async def send(
-        self,
-        client_id: str,
-        message: dict[str, Any],
-        transport_context: TransportContext | None = None,
-    ) -> None:
-        """Send message to specific client."""
-        originating_request_id = (
-            transport_context.originating_request_id if transport_context else None
-        )
-
-        if await self._stream_manager.send_to_existing_stream(
-            client_id, message, originating_request_id
-        ):
-            return
-
-        logger.warning(
-            f"No server streams available for client {client_id}, dropping message."
-        )
-
-    def client_messages(self) -> AsyncIterator[ClientMessage]:
-        """Stream of messages from all clients."""
-        return self._message_queue_iterator()
-
-    async def disconnect_client(self, client_id: str) -> None:
-        """Disconnect specific client."""
-        session_id = self._session_manager.get_session_id(client_id)
-        if session_id:
-            self._session_manager.terminate_session(session_id)
 
     # ================================
     # HTTP Request Handlers
@@ -182,9 +194,14 @@ class HttpServerTransport(ServerTransport):
         try:
             message_data = await request.json()
             if not isinstance(message_data, dict):
-                return Response("Invalid JSON", status_code=400)
-        except json.JSONDecodeError:
-            return Response("Invalid JSON", status_code=400)
+                return Response(
+                    f"Invalid JSON: expected object, got {type(message_data).__name__}",
+                    status_code=400,
+                )
+        except json.JSONDecodeError as e:
+            return Response(
+                f"Invalid JSON: {e.msg} at position {e.pos}", status_code=400
+            )
 
         jsonrpc_error = self._validate_jsonrpc_message(message_data)
         if jsonrpc_error:
@@ -225,19 +242,19 @@ class HttpServerTransport(ServerTransport):
         if headers_error:
             return headers_error
 
-        # Get client from existing session (GET doesn't create sessions)
+        # First check: Is session ID present?
         session_id = request.headers.get("Mcp-Session-Id")
-        if not session_id or not self._session_manager.session_exists(session_id):
-            return Response("Missing or invalid session", status_code=400)
+        if not session_id:
+            return Response("Missing session ID", status_code=400)
 
         client_id = self._session_manager.get_client_id(session_id)
         if not client_id:
-            return Response("Client not found", status_code=404)
+            return Response("Invalid or expired session", status_code=404)
 
         headers = self._build_server_stream_headers(request, session_id)
 
         try:
-            stream = await self._stream_manager.create_server_stream(client_id)
+            stream = await self._stream_manager.create_stream(client_id)
             logger.debug(
                 f"Created server stream {stream.stream_id} for client {client_id}"
             )
@@ -257,8 +274,7 @@ class HttpServerTransport(ServerTransport):
         if not session_id:
             return Response("Missing session ID", status_code=400)
 
-        client_id = self._session_manager.terminate_session(session_id)
-        if client_id is None:
+        if not self._session_manager.terminate_session(session_id):
             return Response("Session not found", status_code=404)
 
         return Response(status_code=200)
@@ -270,14 +286,30 @@ class HttpServerTransport(ServerTransport):
     def _validate_protocol_headers(self, request: Request) -> Response | None:
         """Validate required MCP protocol headers (Protocol-Version, Accept, Origin)."""
         protocol_version = request.headers.get("MCP-Protocol-Version")
-        if protocol_version != PROTOCOL_VERSION:
-            logger.warning("Invalid MCP-Protocol-Version header")
-            return Response("Invalid MCP-Protocol-Version header", status_code=400)
+        if not protocol_version:
+            return Response(
+                f"Missing MCP-Protocol-Version header, expected: {PROTOCOL_VERSION}",
+                status_code=400,
+            )
+        elif protocol_version != PROTOCOL_VERSION:
+            return Response(
+                f"Invalid MCP-Protocol-Version: {protocol_version}, expected:"
+                f" {PROTOCOL_VERSION}",
+                status_code=400,
+            )
 
         accept = request.headers.get("Accept")
+        if not accept:
+            return Response(
+                "Missing Accept header, expected: text/event-stream, application/json",
+                status_code=400,
+            )
         if "text/event-stream" not in accept or "application/json" not in accept:
-            logger.warning("Invalid Accept header")
-            return Response("Invalid Accept header", status_code=400)
+            return Response(
+                "Invalid Accept header, expected: text/event-stream, application/json"
+                f" (got: {accept})",
+                status_code=400,
+            )
 
         # TODO: Implement proper Origin validation to prevent DNS rebinding attacks
         # For now, we accept all origins (development mode)
@@ -312,11 +344,9 @@ class HttpServerTransport(ServerTransport):
         else:
             # All other messages MUST have a valid session ID
             if not session_id:
-                return Response(
-                    "Missing required Mcp-Session-Id header", status_code=400
-                )
+                return Response("Missing Mcp-Session-Id header", status_code=400)
             if not self._session_manager.session_exists(session_id):
-                return Response("Invalid or expired session", status_code=404)
+                return Response("Invalid or expired Mcp-Session-Id", status_code=404)
             return None
 
     def _validate_jsonrpc_message(self, message_data: dict) -> Response | None:
@@ -329,7 +359,9 @@ class HttpServerTransport(ServerTransport):
         is_notification = self._message_parser.is_valid_notification(message_data)
 
         if not (is_request or is_response or is_notification):
-            return Response("Invalid JSON-RPC message", status_code=400)
+            return Response(
+                f"Invalid JSON-RPC message: {message_data}", status_code=400
+            )
         return None
 
     def _is_valid_origin(self, origin: str | None) -> bool:
@@ -358,7 +390,7 @@ class HttpServerTransport(ServerTransport):
             Tuple of (client_id, session_id)
 
         Raises:
-            ValueError: If client ID is not found for the session
+            ValueError: If missing session ID or client not found
         """
         session_id = request.headers.get("Mcp-Session-Id")
         is_initialize = (
@@ -370,9 +402,12 @@ class HttpServerTransport(ServerTransport):
             client_id, session_id = self._session_manager.create_session()
             return client_id, session_id
         else:
+            if session_id is None:
+                raise ValueError("Session ID is required for non-initialize requests")
+
             client_id = self._session_manager.get_client_id(session_id)
             if not client_id:
-                raise ValueError(f"Client ID not found for session {session_id}")
+                raise ValueError("Client not found for session")
             return client_id, session_id
 
     # ================================
@@ -381,7 +416,7 @@ class HttpServerTransport(ServerTransport):
 
     async def _create_request_stream(
         self, client_id: str, request_id: str | int, headers: dict[str, str]
-    ) -> StreamingResponse:
+    ) -> StreamingResponse | Response:
         """Create SSE stream for a request.
 
         The stream will:
@@ -389,13 +424,17 @@ class HttpServerTransport(ServerTransport):
         2. Send the final response to the original request
         3. Auto-close after sending the response
         """
-        stream = await self._stream_manager.create_request_stream(
-            client_id, str(request_id)
-        )
+        try:
+            stream = await self._stream_manager.create_stream(client_id, request_id)
 
-        return StreamingResponse(
-            stream.event_generator(), media_type="text/event-stream", headers=headers
-        )
+            return StreamingResponse(
+                stream.event_generator(),
+                media_type="text/event-stream",
+                headers=headers,
+            )
+        except Exception as e:
+            logger.error(f"Failed to create request stream for client {client_id}: {e}")
+            return Response("Internal server error", status_code=500)
 
     # ================================
     # Response Builders
