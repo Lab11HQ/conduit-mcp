@@ -127,10 +127,6 @@ class Tool(BaseMetadata):
     """
     A callable function that extends LLM capabilities beyond text generation.
 
-    Tools solve the fundamental limitation of language models: they can describe
-    actions but can't perform them. By defining tools, you create a controlled
-    interface for LLMs to interact with your systems, APIs, and data sources.
-
     The LLM automatically determines when to call tools based on conversation
     context, eliminating the need for explicit command parsing or user input.
     """
