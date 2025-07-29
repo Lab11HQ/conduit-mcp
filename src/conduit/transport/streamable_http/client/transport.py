@@ -29,8 +29,11 @@ class HttpClientTransport(ClientTransport):
         self._sessions: dict[str, str] = {}  # server_id -> session_id
         self._http_client = httpx.AsyncClient()
         self._message_queue: asyncio.Queue[ServerMessage] = asyncio.Queue()
-        # server_id -> stream manager
-        self._stream_managers: dict[str, StreamManager] = {}
+        self._stream_manager = StreamManager(self._http_client)
+
+    # ================================
+    # Transport Interface
+    # ================================
 
     async def add_server(self, server_id: str, connection_info: dict[str, Any]) -> None:
         """Register HTTP server endpoint.
@@ -94,8 +97,13 @@ class HttpClientTransport(ClientTransport):
                 timeout=30.0,  # TODO: Make configurable
             )
 
-            # Handle session management for initialize responses
-            await self._handle_session_management(server_id, message, response)
+            # Store session ID if we have one
+            if (
+                message.get("method") == "initialize"
+                and response.status_code == 200
+                and "Mcp-Session-Id" in response.headers
+            ):
+                self._store_session_id(server_id, response.headers["Mcp-Session-Id"])
 
             # Handle different response types based on content-type
             await self._handle_response(server_id, response)
@@ -104,6 +112,63 @@ class HttpClientTransport(ClientTransport):
             raise ConnectionError(
                 f"HTTP request failed for server '{server_id}': {e}"
             ) from e
+
+    def server_messages(self) -> AsyncIterator[ServerMessage]:
+        """Stream of messages from all servers with explicit server context.
+
+        Yields messages from the internal queue as they arrive from HTTP responses
+        and SSE streams. This is the main way consumers get messages from servers.
+
+        Yields:
+            ServerMessage: Message with server ID and metadata
+        """
+        return self._message_queue_iterator()
+
+    async def disconnect_server(self, server_id: str) -> None:
+        """Disconnect from specific server.
+
+        Attempts graceful session termination via DELETE request if we have a session,
+        cancels all active SSE streams, then cleans up all local state.
+        Safe to call multiple times.
+
+        Args:
+            server_id: Server connection ID to disconnect
+        """
+        if server_id not in self._servers:
+            return
+
+        # Cancel all streams for this server
+        self._stream_manager.stop_server_listeners(server_id)
+
+        # Attempt graceful session termination if we have one
+        if server_id in self._sessions:
+            await self._terminate_session(server_id)
+
+        # Remove server configuration
+        del self._servers[server_id]
+        logger.debug(f"Disconnected from server '{server_id}'")
+
+    async def close(self) -> None:
+        """Close the HTTP client and clean up all resources.
+
+        Cancels all active streams and closes the underlying HTTP client.
+        Safe to call multiple times.
+        """
+        # Cancel all active streams across all servers
+        self._stream_manager.stop_all_listeners()
+
+        # Clear all state
+        self._servers.clear()
+        self._sessions.clear()
+
+        # Close the HTTP client
+        if not self._http_client.is_closed:
+            await self._http_client.aclose()
+            logger.debug("HTTP client closed")
+
+    # ================================
+    # Response Handling
+    # ================================
 
     async def _handle_response(self, server_id: str, response: httpx.Response) -> None:
         """Handle the HTTP response based on content type and status.
@@ -135,15 +200,8 @@ class HttpClientTransport(ClientTransport):
                 await self._message_queue.put(server_message)
 
             elif "text/event-stream" in content_type:
-                # Get or create stream manager for this server
-                if server_id not in self._stream_managers:
-                    self._stream_managers[server_id] = StreamManager(
-                        server_id, self._http_client
-                    )
-
-                stream_manager = self._stream_managers[server_id]
-                await stream_manager.create_response_stream(
-                    response, self._message_queue
+                await self._stream_manager.start_stream_listener(
+                    server_id, response, message_queue=self._message_queue
                 )
 
         elif response.status_code == 202:
@@ -156,11 +214,9 @@ class HttpClientTransport(ClientTransport):
             if request_had_session:
                 # Session expired - clear session ID per spec
                 if server_id in self._sessions:
-                    expired_session = self._sessions[server_id]
                     del self._sessions[server_id]
                     logger.info(
-                        f"Session '{expired_session}' expired for server '{server_id}'"
-                        " - cleared session ID"
+                        f"Session expired for server '{server_id}'. Cleared session ID"
                     )
 
                 raise ConnectionError(
@@ -177,13 +233,16 @@ class HttpClientTransport(ClientTransport):
             # Other HTTP errors
             response.raise_for_status()
 
-    async def _handle_session_management(
+    # ================================
+    # Session/Stream Management
+    # ================================
+
+    async def _handle_session_id(
         self, server_id: str, message: dict[str, Any], response: httpx.Response
     ) -> None:
-        """Handle session ID extraction from InitializeResult responses.
+        """Extracts the session ID from the response to an initialize request.
 
-        According to the spec, servers MAY include an Mcp-Session-Id header
-        in the response to an initialize request to establish a session.
+        Saves the session ID to include in future requests to the server.
 
         Args:
             server_id: Server ID to handle session management for
@@ -199,90 +258,70 @@ class HttpClientTransport(ClientTransport):
             self._sessions[server_id] = session_id
             logger.debug(f"Established session for server '{server_id}': {session_id}")
 
-    async def disconnect_server(self, server_id: str) -> None:
-        """Disconnect from specific server.
-
-        Attempts graceful session termination via DELETE request if we have a session,
-        cancels all active SSE streams, then cleans up all local state.
-        Safe to call multiple times.
-
-        Args:
-            server_id: Server connection ID to disconnect
-        """
+    async def start_server_stream(self, server_id: str) -> None:
+        """Start a server-initiated message stream via HTTP GET."""
         if server_id not in self._servers:
-            return
+            raise ValueError(f"Server '{server_id}' is not registered")
 
-        # Cancel all streams for this server
-        if server_id in self._stream_managers:
-            self._stream_managers[server_id].cancel_all_streams()
-            del self._stream_managers[server_id]
+        server_config = self._servers[server_id]
+        endpoint = server_config["endpoint"]
+        headers = self._build_get_stream_headers(server_id, server_config)
 
-        # If we have a session, try to terminate it gracefully
-        if server_id in self._sessions:
-            try:
-                session_id = self._sessions[server_id]
-                endpoint = self._servers[server_id]["endpoint"]
+        try:
+            # Transport makes the HTTP request and handles transport-level errors
+            response = await self._http_client.get(
+                endpoint, headers=headers, timeout=10.0
+            )
 
-                # Build headers for DELETE request
-                headers = {
-                    "Mcp-Session-Id": session_id,
-                    "MCP-Protocol-Version": PROTOCOL_VERSION,
-                }
-                # Add any custom headers from server config
-                headers.update(self._servers[server_id]["headers"])
+            # Handle transport-level response validation
+            await self._validate_get_response(server_id, response)
 
-                # Attempt graceful session termination
-                response = await self._http_client.delete(
-                    endpoint, headers=headers, timeout=5.0
-                )
+            # Stream manager just handles the resulting stream
+            await self._stream_manager.start_stream_listener(
+                server_id, response, message_queue=self._message_queue
+            )
 
-                if response.status_code == 200:
-                    logger.debug(
-                        f"Successfully terminated session '{session_id}' for "
-                        f"server '{server_id}'"
-                    )
-                elif response.status_code == 405:
-                    logger.debug(
-                        f"Server '{server_id}' does not support session termination "
-                        "(405)"
-                    )
-                else:
-                    logger.warning(
-                        f"Unexpected response {response.status_code} when terminating "
-                        f"session for '{server_id}'"
-                    )
+        except Exception as e:
+            # Transport handles connection errors
+            if isinstance(e, (ValueError, ConnectionError)):
+                raise
+            raise ConnectionError(
+                f"Failed to start server stream for '{server_id}': {e}"
+            ) from e
 
-            except Exception as e:
-                logger.debug(
-                    f"Failed to gracefully terminate session for '{server_id}': {e}"
-                )
-            finally:
-                # Always clean up session state
+    async def _validate_get_response(
+        self, server_id: str, response: httpx.Response
+    ) -> None:
+        """Validate GET response for stream compatibility."""
+        if response.status_code == 405:
+            raise ConnectionError(
+                f"Server '{server_id}' does not support server streams (405)"
+            )
+        elif response.status_code == 404:
+            # Handle session expiry - transport knows about sessions
+            if (
+                "Mcp-Session-Id" in response.request.headers
+                and server_id in self._sessions
+            ):
                 del self._sessions[server_id]
+                logger.info(f"Session expired for server '{server_id}'")
+            raise ConnectionError(
+                f"Session expired for server '{server_id}'. "
+                "Must re-initialize with a new InitializeRequest."
+            )
+        elif response.status_code != 200:
+            response.raise_for_status()
 
-        # Remove server configuration
-        del self._servers[server_id]
-        logger.debug(f"Disconnected from server '{server_id}'")
+        # Validate content type
+        content_type = response.headers.get("content-type", "")
+        if "text/event-stream" not in content_type:
+            raise ConnectionError(
+                f"Server '{server_id}' returned non-SSE content type: {content_type}"
+            )
 
-    async def close(self) -> None:
-        """Close the HTTP client and clean up all resources.
-
-        Cancels all active streams and closes the underlying HTTP client.
-        Safe to call multiple times.
-        """
-        # Cancel all active streams across all servers
-        for stream_manager in list(self._stream_managers.values()):
-            stream_manager.cancel_all_streams()
-        self._stream_managers.clear()
-
-        # Clear all state
-        self._servers.clear()
-        self._sessions.clear()
-
-        # Close the HTTP client
-        if not self._http_client.is_closed:
-            await self._http_client.aclose()
-            logger.debug("HTTP client closed")
+    # ================================
+    # Build Headers
+    # ================================
 
     def _build_headers(
         self, server_id: str, server_config: dict[str, Any]
@@ -318,27 +357,18 @@ class HttpClientTransport(ClientTransport):
 
         return headers
 
-    async def start_server_stream(self, server_id: str) -> None:
-        """Start a server-initiated message stream via HTTP GET.
-
-        Opens an SSE stream that allows the server to send requests and
-        notifications without the client first sending a message.
+    def _build_get_stream_headers(
+        self, server_id: str, server_config: dict[str, Any]
+    ) -> dict[str, str]:
+        """Build headers for GET stream requests.
 
         Args:
-            server_id: Server to start stream for
+            server_id: Server ID to build headers for
+            server_config: Server configuration containing custom headers
 
-        Raises:
-            ValueError: If server_id is not registered
-            ConnectionError: If the server doesn't support server streams (405)
-                or other HTTP errors occur
+        Returns:
+            Headers dict for GET stream request
         """
-        if server_id not in self._servers:
-            raise ValueError(f"Server '{server_id}' is not registered")
-
-        server_config = self._servers[server_id]
-        endpoint = server_config["endpoint"]
-
-        # Build headers for GET request - only Accept text/event-stream
         headers = {
             "Accept": "text/event-stream",
             "MCP-Protocol-Version": PROTOCOL_VERSION,
@@ -351,79 +381,29 @@ class HttpClientTransport(ClientTransport):
         # Add custom headers from server config
         headers.update(server_config["headers"])
 
-        try:
-            # Test if server supports GET streams
-            response = await self._http_client.get(
-                endpoint,
-                headers=headers,
-                timeout=10.0,  # Shorter timeout for initial connection
-            )
+        return headers
 
-            if response.status_code == 405:
-                raise ConnectionError(
-                    f"Server '{server_id}' does not support server-initiated streams "
-                    "(405)"
-                )
-            elif response.status_code == 404:
-                # Handle session expiry same as in _handle_response
-                if "Mcp-Session-Id" in headers:
-                    if server_id in self._sessions:
-                        expired_session = self._sessions[server_id]
-                        del self._sessions[server_id]
-                        logger.info(
-                            f"Session '{expired_session}' expired for server "
-                            f"'{server_id}' during GET stream setup - cleared session "
-                            "ID"
-                        )
-                    raise ConnectionError(
-                        f"Session expired for server '{server_id}'. "
-                        "Must re-initialize with a new InitializeRequest."
-                    )
-                else:
-                    raise ConnectionError(
-                        f"Server '{server_id}' returned 404 for GET stream"
-                    )
-            elif response.status_code != 200:
-                response.raise_for_status()
+    def _build_delete_headers(self, server_id: str, session_id: str) -> dict[str, str]:
+        """Build headers for session termination DELETE request.
 
-            # Check content type
-            content_type = response.headers.get("content-type", "")
-            if "text/event-stream" not in content_type:
-                raise ConnectionError(
-                    f"Server '{server_id}' returned non-SSE content type: "
-                    f"{content_type}"
-                )
+        Args:
+            server_id: Server ID for custom headers
+            session_id: Session ID to terminate
 
-            # Create stream manager if needed and start the server stream
-            if server_id not in self._stream_managers:
-                self._stream_managers[server_id] = StreamManager(
-                    server_id, self._http_client
-                )
-
-            stream_manager = self._stream_managers[server_id]
-            await stream_manager.create_server_stream(
-                endpoint, headers, self._message_queue
-            )
-
-            logger.debug(f"Started server stream for '{server_id}'")
-
-        except Exception as e:
-            if isinstance(e, ConnectionError):
-                raise
-            raise ConnectionError(
-                f"Failed to start server stream for '{server_id}': {e}"
-            ) from e
-
-    def server_messages(self) -> AsyncIterator[ServerMessage]:
-        """Stream of messages from all servers with explicit server context.
-
-        Yields messages from the internal queue as they arrive from HTTP responses
-        and SSE streams. This is the main way consumers get messages from servers.
-
-        Yields:
-            ServerMessage: Message with server ID and metadata
+        Returns:
+            Headers dict for DELETE request
         """
-        return self._message_queue_iterator()
+        headers = {
+            "Mcp-Session-Id": session_id,
+            "MCP-Protocol-Version": PROTOCOL_VERSION,
+        }
+        # Add any custom headers from server config
+        headers.update(self._servers[server_id]["headers"])
+        return headers
+
+    # ================================
+    # Helper Methods
+    # ================================
 
     async def _message_queue_iterator(self) -> AsyncIterator[ServerMessage]:
         """Async iterator that yields messages from the queue.
@@ -438,3 +418,53 @@ class HttpClientTransport(ClientTransport):
             except Exception as e:
                 logger.error(f"Error reading from message queue: {e}")
                 break
+
+    async def _terminate_session(self, server_id: str) -> None:
+        """Attempt graceful session termination via DELETE request.
+
+        Args:
+            server_id: Server to terminate session for
+        """
+        session_id = self._sessions[server_id]
+        endpoint = self._servers[server_id]["endpoint"]
+
+        try:
+            headers = self._build_delete_headers(server_id, session_id)
+
+            response = await self._http_client.delete(
+                endpoint, headers=headers, timeout=5.0
+            )
+
+            self._handle_delete_response(server_id, response)
+
+        except Exception as e:
+            logger.debug(
+                f"Failed to gracefully terminate session for '{server_id}': {e}"
+            )
+        finally:
+            # Always clean up session state
+            del self._sessions[server_id]
+
+    def _handle_delete_response(self, server_id: str, response: httpx.Response) -> None:
+        """Handle response from session termination DELETE request.
+
+        Args:
+            server_id: Server ID for logging
+            response: DELETE response from server
+        """
+        if response.status_code == 200:
+            logger.debug(f"Successfully terminated session for server '{server_id}'")
+        elif response.status_code == 405:
+            logger.debug(
+                f"Server '{server_id}' does not support session termination (405)"
+            )
+        else:
+            logger.warning(
+                f"Unexpected response {response.status_code} when terminating "
+                f"session for '{server_id}'"
+            )
+
+    def _store_session_id(self, server_id: str, session_id: str) -> None:
+        """Store session ID for a server."""
+        self._sessions[server_id] = session_id
+        logger.debug(f"Established session for server '{server_id}': {session_id}")

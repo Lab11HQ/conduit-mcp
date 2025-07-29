@@ -14,82 +14,129 @@ logger = logging.getLogger(__name__)
 
 
 class StreamManager:
-    """Manages SSE streams for a single server connection.
+    """Manages SSE stream listeners across multiple servers."""
 
-    Handles multiple concurrent streams per server, including:
-    - Request streams (from POST responses)
-    - Server streams (from GET requests)
-    - Proper lifecycle management and cleanup
-    """
-
-    def __init__(self, server_id: str, http_client: httpx.AsyncClient) -> None:
-        """Initialize stream manager for a specific server.
+    def __init__(self, http_client: httpx.AsyncClient) -> None:
+        """Initialize stream manager.
 
         Args:
-            server_id: ID of the server this manager handles
-            http_client: HTTP client to use for connections
+            http_client: HTTP client to use for SSE connections
         """
-        self.server_id = server_id
         self._http_client = http_client
-        self._active_streams: set[asyncio.Task] = set()
-        self._stream_counter = 0
+        # server_id -> set of active listener tasks
+        self._server_listeners: dict[str, set[asyncio.Task]] = {}
 
-    async def create_response_stream(
-        self, response: httpx.Response, message_queue: asyncio.Queue[ServerMessage]
-    ) -> None:
-        """Create a new SSE stream from an HTTP response.
-
-        Spawns a background task to handle the stream and tracks it for cleanup.
+    async def start_stream_listener(
+        self,
+        server_id: str,
+        response: httpx.Response,
+        message_queue: asyncio.Queue[ServerMessage],
+    ) -> asyncio.Task:
+        """Start listening to an SSE stream from an HTTP response.
 
         Args:
+            server_id: ID of the server this stream belongs to
             response: HTTP response containing the SSE stream
             message_queue: Queue to put parsed messages into
-        """
-        self._stream_counter += 1
-        stream_id = f"{self.server_id}-response-{self._stream_counter}"
 
-        stream_task = asyncio.create_task(
-            self._handle_sse_stream(stream_id, response, message_queue), name=stream_id
+        Returns:
+            The asyncio task handling the stream listener
+        """
+        # Create stream listener task
+        task = asyncio.create_task(
+            self._listen_to_sse_stream(server_id, response, message_queue),
+            name=f"sse-stream-{server_id}",
         )
 
-        self._active_streams.add(stream_task)
-        stream_task.add_done_callback(self._active_streams.discard)
+        # Track task by server
+        if server_id not in self._server_listeners:
+            self._server_listeners[server_id] = set()
 
-        logger.debug(f"Created response stream {stream_id}")
+        self._server_listeners[server_id].add(task)
 
-    async def create_server_stream(
-        self,
-        endpoint: str,
-        headers: dict[str, str],
-        message_queue: asyncio.Queue[ServerMessage],
-    ) -> None:
-        """Create a new server-initiated SSE stream via GET request.
+        # Auto-cleanup when task completes
+        task.add_done_callback(
+            lambda t: self._server_listeners.get(server_id, set()).discard(t)
+        )
+
+        logger.debug(f"Started stream listener for server '{server_id}'")
+        return task
+
+    def stop_server_listeners(self, server_id: str) -> None:
+        """Stop all stream listeners for a specific server.
+
+        Cancels all active listener tasks for the server, which will
+        close the underlying SSE connections.
 
         Args:
-            endpoint: Server endpoint URL
-            headers: Headers to send with GET request
-            message_queue: Queue to put parsed messages into
+            server_id: Server to stop all listeners for
         """
-        self._stream_counter += 1
-        stream_id = f"{self.server_id}-server-{self._stream_counter}"
+        if server_id not in self._server_listeners:
+            return
 
-        stream_task = asyncio.create_task(
-            self._handle_get_stream(stream_id, endpoint, headers, message_queue),
-            name=stream_id,
+        listeners = self._server_listeners[server_id].copy()
+        cancelled_count = 0
+
+        for task in listeners:
+            if not task.done():
+                task.cancel()
+                cancelled_count += 1
+
+        # Clean up the server entry
+        self._server_listeners[server_id].clear()
+
+        if cancelled_count > 0:
+            logger.debug(
+                f"Cancelled {cancelled_count} stream listeners for server '{server_id}'"
+            )
+
+    def get_server_stream_count(self, server_id: str) -> int:
+        """Get count of active streams for a server.
+
+        Args:
+            server_id: Server to count streams for
+
+        Returns:
+            Number of active stream listeners for the server
+        """
+        if server_id not in self._server_listeners:
+            return 0
+        return len(
+            [task for task in self._server_listeners[server_id] if not task.done()]
         )
 
-        self._active_streams.add(stream_task)
-        stream_task.add_done_callback(self._active_streams.discard)
+    def stop_all_listeners(self) -> None:
+        """Stop all stream listeners across all servers."""
+        total_cancelled = 0
 
-        logger.debug(f"Created server stream {stream_id}")
+        for server_id in list(self._server_listeners.keys()):
+            listeners = self._server_listeners[server_id].copy()
+            for task in listeners:
+                if not task.done():
+                    task.cancel()
+                    total_cancelled += 1
+            self._server_listeners[server_id].clear()
 
-    async def _handle_sse_stream(
+        self._server_listeners.clear()
+
+        if total_cancelled > 0:
+            logger.debug(
+                f"Cancelled {total_cancelled} stream listeners across all servers"
+            )
+
+    async def _listen_to_sse_stream(
         self,
-        stream_id: str,
+        server_id: str,
         response: httpx.Response,
         message_queue: asyncio.Queue[ServerMessage],
     ) -> None:
-        """Handle an SSE stream from an HTTP response."""
+        """Listen to SSE events from an HTTP response stream.
+
+        Args:
+            server_id: Server ID for message attribution
+            response: HTTP response containing the SSE stream
+            message_queue: Queue to put parsed messages into
+        """
         try:
             async with aconnect_sse(
                 self._http_client,
@@ -100,113 +147,64 @@ class StreamManager:
                 async for sse_event in event_source.aiter_sse():
                     if sse_event.data:
                         await self._process_sse_event(
-                            stream_id, sse_event, message_queue
+                            server_id, sse_event, message_queue
                         )
 
         except asyncio.CancelledError:
-            logger.debug(f"Stream {stream_id} was cancelled")
+            logger.debug(f"Stream listener for '{server_id}' was cancelled")
             raise
         except Exception as e:
-            logger.error(f"Stream {stream_id} error: {e}")
+            logger.error(f"Stream listener for '{server_id}' failed: {e}")
         finally:
-            logger.debug(f"Stream {stream_id} closed")
-
-    async def _handle_get_stream(
-        self,
-        stream_id: str,
-        endpoint: str,
-        headers: dict[str, str],
-        message_queue: asyncio.Queue[ServerMessage],
-    ) -> None:
-        """Handle a server-initiated SSE stream via GET request."""
-        try:
-            async with self._http_client.stream(
-                "GET", endpoint, headers=headers
-            ) as response:
-                if response.status_code != 200:
-                    logger.warning(
-                        f"GET stream {stream_id} failed: {response.status_code}"
-                    )
-                    return
-
-                if "text/event-stream" not in response.headers.get("content-type", ""):
-                    logger.warning(
-                        f"GET stream {stream_id} not SSE: "
-                        f"{response.headers.get('content-type')}"
-                    )
-                    return
-
-                async with aconnect_sse(
-                    self._http_client, "GET", endpoint, headers=headers
-                ) as event_source:
-                    async for sse_event in event_source.aiter_sse():
-                        if sse_event.data:
-                            await self._process_sse_event(
-                                stream_id, sse_event, message_queue
-                            )
-
-        except asyncio.CancelledError:
-            logger.debug(f"GET stream {stream_id} was cancelled")
-            raise
-        except Exception as e:
-            logger.error(f"GET stream {stream_id} error: {e}")
-        finally:
-            logger.debug(f"GET stream {stream_id} closed")
+            logger.debug(f"Stream listener for '{server_id}' closed")
 
     async def _process_sse_event(
         self,
-        stream_id: str,
+        server_id: str,
         sse_event: Any,
         message_queue: asyncio.Queue[ServerMessage],
     ) -> None:
-        """Process a single SSE event and queue the message."""
+        """Process a single SSE event and queue the message.
+
+        Args:
+            server_id: Server ID for message attribution
+            sse_event: SSE event from httpx-sse
+            message_queue: Queue to put the parsed message into
+        """
         try:
             message_data = json.loads(sse_event.data)
 
             server_message = ServerMessage(
-                server_id=self.server_id,
+                server_id=server_id,
                 payload=message_data,
                 timestamp=asyncio.get_event_loop().time(),
                 metadata={
-                    "stream_id": stream_id,
                     "sse_event_id": sse_event.id,
                 }
                 if sse_event.id
-                else {"stream_id": stream_id},
+                else None,
             )
 
             await message_queue.put(server_message)
 
             logger.debug(
-                f"Stream {stream_id} received: {message_data.get('method', 'response')}"
+                f"Server '{server_id}' SSE event: "
+                f"{message_data.get('method', 'response')}"
             )
 
         except json.JSONDecodeError as e:
-            logger.warning(f"Stream {stream_id} JSON parse error: {e}")
-
-    def cancel_all_streams(self) -> None:
-        """Cancel all active streams for this server."""
-        if not self._active_streams:
-            return
-
-        cancelled_count = 0
-        for stream_task in list(self._active_streams):
-            if not stream_task.done():
-                stream_task.cancel()
-                cancelled_count += 1
-
-        if cancelled_count > 0:
-            logger.debug(
-                f"Cancelled {cancelled_count} streams for server {self.server_id}"
-            )
+            logger.warning(f"Server '{server_id}' SSE JSON parse error: {e}")
 
     @property
-    def active_stream_count(self) -> int:
-        """Number of currently active streams."""
-        return len([task for task in self._active_streams if not task.done()])
+    def total_active_streams(self) -> int:
+        """Total number of active stream listeners across all servers."""
+        return sum(
+            len([task for task in listeners if not task.done()])
+            for listeners in self._server_listeners.values()
+        )
 
     def __repr__(self) -> str:
         return (
-            f"ClientStreamManager(server_id={self.server_id}, "
-            f"active_streams={self.active_stream_count})"
+            f"StreamManager(servers={len(self._server_listeners)}, "
+            f"active_streams={self.total_active_streams})"
         )
