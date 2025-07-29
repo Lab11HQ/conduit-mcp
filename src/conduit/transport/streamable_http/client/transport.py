@@ -29,8 +29,7 @@ class HttpClientTransport(ClientTransport):
         self._sessions: dict[str, str] = {}  # server_id -> session_id
         self._http_client = httpx.AsyncClient()
         self._message_queue: asyncio.Queue[ServerMessage] = asyncio.Queue()
-        # server_id -> stream manager
-        self._stream_managers: dict[str, StreamManager] = {}
+        self._stream_manager = StreamManager(self._http_client)
 
     # ================================
     # Transport Interface
@@ -134,9 +133,7 @@ class HttpClientTransport(ClientTransport):
             return
 
         # Cancel all streams for this server
-        if server_id in self._stream_managers:
-            self._stream_managers[server_id].cancel_all_streams()
-            del self._stream_managers[server_id]
+        self._stream_manager.stop_all_server_streams(server_id)
 
         # If we have a session, try to terminate it gracefully
         if server_id in self._sessions:
@@ -192,9 +189,7 @@ class HttpClientTransport(ClientTransport):
         Safe to call multiple times.
         """
         # Cancel all active streams across all servers
-        for stream_manager in list(self._stream_managers.values()):
-            stream_manager.cancel_all_streams()
-        self._stream_managers.clear()
+        self._stream_manager.stop_all_streams()
 
         # Clear all state
         self._servers.clear()
@@ -239,15 +234,8 @@ class HttpClientTransport(ClientTransport):
                 await self._message_queue.put(server_message)
 
             elif "text/event-stream" in content_type:
-                # Get or create stream manager for this server
-                if server_id not in self._stream_managers:
-                    self._stream_managers[server_id] = StreamManager(
-                        server_id, self._http_client
-                    )
-
-                stream_manager = self._stream_managers[server_id]
-                await stream_manager.create_response_stream(
-                    response, self._message_queue
+                await self._stream_manager.start_stream_listener(
+                    server_id, response, message_queue=self._message_queue
                 )
 
         elif response.status_code == 202:
@@ -260,11 +248,9 @@ class HttpClientTransport(ClientTransport):
             if request_had_session:
                 # Session expired - clear session ID per spec
                 if server_id in self._sessions:
-                    expired_session = self._sessions[server_id]
                     del self._sessions[server_id]
                     logger.info(
-                        f"Session '{expired_session}' expired for server '{server_id}'"
-                        " - cleared session ID"
+                        f"Session expired for server '{server_id}'. Cleared session ID"
                     )
 
                 raise ConnectionError(
@@ -308,100 +294,68 @@ class HttpClientTransport(ClientTransport):
             logger.debug(f"Established session for server '{server_id}': {session_id}")
 
     async def start_server_stream(self, server_id: str) -> None:
-        """Start a server-initiated message stream via HTTP GET.
-
-        Opens an SSE stream that allows the server to send requests and
-        notifications without the client first sending a message.
-
-        Args:
-            server_id: Server to start stream for
-
-        Raises:
-            ValueError: If server_id is not registered
-            ConnectionError: If the server doesn't support server streams (405)
-                or other HTTP errors occur
-        """
+        """Start a server-initiated message stream via HTTP GET."""
         if server_id not in self._servers:
             raise ValueError(f"Server '{server_id}' is not registered")
 
         server_config = self._servers[server_id]
         endpoint = server_config["endpoint"]
-
-        # Build headers for GET request - only Accept text/event-stream
-        headers = {
-            "Accept": "text/event-stream",
-            "MCP-Protocol-Version": PROTOCOL_VERSION,
-        }
-
-        # Add session ID if we have one
-        if server_id in self._sessions:
-            headers["Mcp-Session-Id"] = self._sessions[server_id]
-
-        # Add custom headers from server config
-        headers.update(server_config["headers"])
+        headers = self._build_get_stream_headers(server_id, server_config)
 
         try:
-            # Test if server supports GET streams
+            # Transport makes the HTTP request and handles transport-level errors
             response = await self._http_client.get(
-                endpoint,
-                headers=headers,
-                timeout=10.0,  # Shorter timeout for initial connection
+                endpoint, headers=headers, timeout=10.0
             )
 
-            if response.status_code == 405:
-                raise ConnectionError(
-                    f"Server '{server_id}' does not support server-initiated streams "
-                    "(405)"
-                )
-            elif response.status_code == 404:
-                # Handle session expiry same as in _handle_response
-                if "Mcp-Session-Id" in headers:
-                    if server_id in self._sessions:
-                        expired_session = self._sessions[server_id]
-                        del self._sessions[server_id]
-                        logger.info(
-                            f"Session '{expired_session}' expired for server "
-                            f"'{server_id}' during GET stream setup - cleared session "
-                            "ID"
-                        )
-                    raise ConnectionError(
-                        f"Session expired for server '{server_id}'. "
-                        "Must re-initialize with a new InitializeRequest."
-                    )
-                else:
-                    raise ConnectionError(
-                        f"Server '{server_id}' returned 404 for GET stream"
-                    )
-            elif response.status_code != 200:
-                response.raise_for_status()
+            # Handle transport-level response validation
+            await self._validate_get_response(server_id, response)
 
-            # Check content type
-            content_type = response.headers.get("content-type", "")
-            if "text/event-stream" not in content_type:
-                raise ConnectionError(
-                    f"Server '{server_id}' returned non-SSE content type: "
-                    f"{content_type}"
-                )
-
-            # Create stream manager if needed and start the server stream
-            if server_id not in self._stream_managers:
-                self._stream_managers[server_id] = StreamManager(
-                    server_id, self._http_client
-                )
-
-            stream_manager = self._stream_managers[server_id]
-            await stream_manager.create_server_stream(
-                endpoint, headers, self._message_queue
+            # Stream manager just handles the resulting stream
+            await self._stream_manager.start_stream_listener(
+                server_id, response, message_queue=self._message_queue
             )
-
-            logger.debug(f"Started server stream for '{server_id}'")
 
         except Exception as e:
-            if isinstance(e, ConnectionError):
+            # Transport handles connection errors
+            if isinstance(e, (ValueError, ConnectionError)):
                 raise
             raise ConnectionError(
                 f"Failed to start server stream for '{server_id}': {e}"
             ) from e
+
+    async def _validate_get_response(
+        self, server_id: str, response: httpx.Response
+    ) -> None:
+        """Validate GET response for stream compatibility."""
+        if response.status_code == 405:
+            raise ConnectionError(
+                f"Server '{server_id}' does not support server streams (405)"
+            )
+        elif response.status_code == 404:
+            # Handle session expiry - transport knows about sessions
+            if (
+                "Mcp-Session-Id" in response.request.headers
+                and server_id in self._sessions
+            ):
+                expired_session = self._sessions[server_id]
+                del self._sessions[server_id]
+                logger.info(
+                    f"Session '{expired_session}' expired for server '{server_id}'"
+                )
+            raise ConnectionError(
+                f"Session expired for server '{server_id}'. "
+                "Must re-initialize with a new InitializeRequest."
+            )
+        elif response.status_code != 200:
+            response.raise_for_status()
+
+        # Validate content type
+        content_type = response.headers.get("content-type", "")
+        if "text/event-stream" not in content_type:
+            raise ConnectionError(
+                f"Server '{server_id}' returned non-SSE content type: {content_type}"
+            )
 
     # ================================
     # Helpers
@@ -437,6 +391,32 @@ class HttpClientTransport(ClientTransport):
             headers["Mcp-Session-Id"] = self._sessions[server_id]
 
         # Add any custom headers from server config
+        headers.update(server_config["headers"])
+
+        return headers
+
+    def _build_get_stream_headers(
+        self, server_id: str, server_config: dict[str, Any]
+    ) -> dict[str, str]:
+        """Build headers for GET stream requests.
+
+        Args:
+            server_id: Server ID to build headers for
+            server_config: Server configuration containing custom headers
+
+        Returns:
+            Headers dict for GET stream request
+        """
+        headers = {
+            "Accept": "text/event-stream",
+            "MCP-Protocol-Version": PROTOCOL_VERSION,
+        }
+
+        # Add session ID if we have one
+        if server_id in self._sessions:
+            headers["Mcp-Session-Id"] = self._sessions[server_id]
+
+        # Add custom headers from server config
         headers.update(server_config["headers"])
 
         return headers
