@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from conduit.transport.streamable_http.server.streams import SSEStream
+from conduit.transport.streamable_http.server.sse_stream import SSEStream
 
 
 class TestSSEStream:

@@ -30,7 +30,7 @@ from conduit.protocol.base import PROTOCOL_VERSION
 from conduit.shared.message_parser import MessageParser
 from conduit.transport.server import ClientMessage, ServerTransport, TransportContext
 from conduit.transport.streamable_http.server.session_manager import SessionManager
-from conduit.transport.streamable_http.server.streams import StreamManager
+from conduit.transport.streamable_http.server.stream_manager import StreamManager
 
 logger = logging.getLogger(__name__)
 
