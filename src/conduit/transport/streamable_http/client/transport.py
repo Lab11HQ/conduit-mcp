@@ -303,11 +303,8 @@ class HttpClientTransport(ClientTransport):
                 "Mcp-Session-Id" in response.request.headers
                 and server_id in self._sessions
             ):
-                expired_session = self._sessions[server_id]
                 del self._sessions[server_id]
-                logger.info(
-                    f"Session '{expired_session}' expired for server '{server_id}'"
-                )
+                logger.info(f"Session expired for server '{server_id}'")
             raise ConnectionError(
                 f"Session expired for server '{server_id}'. "
                 "Must re-initialize with a new InitializeRequest."
