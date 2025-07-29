@@ -62,11 +62,14 @@ class StreamManager:
         logger.debug(f"Started stream listener for server '{server_id}'")
         return task
 
-    def stop_all_server_streams(self, server_id: str) -> None:
+    def stop_server_listeners(self, server_id: str) -> None:
         """Stop all stream listeners for a specific server.
 
+        Cancels all active listener tasks for the server, which will
+        close the underlying SSE connections.
+
         Args:
-            server_id: Server to stop all streams for
+            server_id: Server to stop all listeners for
         """
         if server_id not in self._server_listeners:
             return
@@ -102,7 +105,7 @@ class StreamManager:
             [task for task in self._server_listeners[server_id] if not task.done()]
         )
 
-    def stop_all_streams(self) -> None:
+    def stop_all_listeners(self) -> None:
         """Stop all stream listeners across all servers."""
         total_cancelled = 0
 

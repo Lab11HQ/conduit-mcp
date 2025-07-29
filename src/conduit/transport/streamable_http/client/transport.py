@@ -98,7 +98,7 @@ class HttpClientTransport(ClientTransport):
             )
 
             # Handle session management for initialize responses
-            await self._handle_session_management(server_id, message, response)
+            await self._handle_session_id(server_id, message, response)
 
             # Handle different response types based on content-type
             await self._handle_response(server_id, response)
@@ -133,50 +133,11 @@ class HttpClientTransport(ClientTransport):
             return
 
         # Cancel all streams for this server
-        self._stream_manager.stop_all_server_streams(server_id)
+        self._stream_manager.stop_server_listeners(server_id)
 
-        # If we have a session, try to terminate it gracefully
+        # Attempt graceful session termination if we have one
         if server_id in self._sessions:
-            try:
-                session_id = self._sessions[server_id]
-                endpoint = self._servers[server_id]["endpoint"]
-
-                # Build headers for DELETE request
-                headers = {
-                    "Mcp-Session-Id": session_id,
-                    "MCP-Protocol-Version": PROTOCOL_VERSION,
-                }
-                # Add any custom headers from server config
-                headers.update(self._servers[server_id]["headers"])
-
-                # Attempt graceful session termination
-                response = await self._http_client.delete(
-                    endpoint, headers=headers, timeout=5.0
-                )
-
-                if response.status_code == 200:
-                    logger.debug(
-                        f"Successfully terminated session '{session_id}' for "
-                        f"server '{server_id}'"
-                    )
-                elif response.status_code == 405:
-                    logger.debug(
-                        f"Server '{server_id}' does not support session termination "
-                        "(405)"
-                    )
-                else:
-                    logger.warning(
-                        f"Unexpected response {response.status_code} when terminating "
-                        f"session for '{server_id}'"
-                    )
-
-            except Exception as e:
-                logger.debug(
-                    f"Failed to gracefully terminate session for '{server_id}': {e}"
-                )
-            finally:
-                # Always clean up session state
-                del self._sessions[server_id]
+            await self._terminate_session(server_id)
 
         # Remove server configuration
         del self._servers[server_id]
@@ -189,7 +150,7 @@ class HttpClientTransport(ClientTransport):
         Safe to call multiple times.
         """
         # Cancel all active streams across all servers
-        self._stream_manager.stop_all_streams()
+        self._stream_manager.stop_all_listeners()
 
         # Clear all state
         self._servers.clear()
@@ -271,13 +232,12 @@ class HttpClientTransport(ClientTransport):
     # Session/Stream Management
     # ================================
 
-    async def _handle_session_management(
+    async def _handle_session_id(
         self, server_id: str, message: dict[str, Any], response: httpx.Response
     ) -> None:
-        """Handle session ID extraction from InitializeResult responses.
+        """Extracts the session ID from the response to an initialize request.
 
-        According to the spec, servers MAY include an Mcp-Session-Id header
-        in the response to an initialize request to establish a session.
+        Saves the session ID to include in future requests to the server.
 
         Args:
             server_id: Server ID to handle session management for
@@ -358,7 +318,7 @@ class HttpClientTransport(ClientTransport):
             )
 
     # ================================
-    # Helpers
+    # Build Headers
     # ================================
 
     def _build_headers(
@@ -421,6 +381,28 @@ class HttpClientTransport(ClientTransport):
 
         return headers
 
+    def _build_delete_headers(self, server_id: str, session_id: str) -> dict[str, str]:
+        """Build headers for session termination DELETE request.
+
+        Args:
+            server_id: Server ID for custom headers
+            session_id: Session ID to terminate
+
+        Returns:
+            Headers dict for DELETE request
+        """
+        headers = {
+            "Mcp-Session-Id": session_id,
+            "MCP-Protocol-Version": PROTOCOL_VERSION,
+        }
+        # Add any custom headers from server config
+        headers.update(self._servers[server_id]["headers"])
+        return headers
+
+    # ================================
+    # Helper Methods
+    # ================================
+
     async def _message_queue_iterator(self) -> AsyncIterator[ServerMessage]:
         """Async iterator that yields messages from the queue.
 
@@ -434,3 +416,48 @@ class HttpClientTransport(ClientTransport):
             except Exception as e:
                 logger.error(f"Error reading from message queue: {e}")
                 break
+
+    async def _terminate_session(self, server_id: str) -> None:
+        """Attempt graceful session termination via DELETE request.
+
+        Args:
+            server_id: Server to terminate session for
+        """
+        session_id = self._sessions[server_id]
+        endpoint = self._servers[server_id]["endpoint"]
+
+        try:
+            headers = self._build_delete_headers(server_id, session_id)
+
+            response = await self._http_client.delete(
+                endpoint, headers=headers, timeout=5.0
+            )
+
+            self._handle_delete_response(server_id, response)
+
+        except Exception as e:
+            logger.debug(
+                f"Failed to gracefully terminate session for '{server_id}': {e}"
+            )
+        finally:
+            # Always clean up session state
+            del self._sessions[server_id]
+
+    def _handle_delete_response(self, server_id: str, response: httpx.Response) -> None:
+        """Handle response from session termination DELETE request.
+
+        Args:
+            server_id: Server ID for logging
+            response: DELETE response from server
+        """
+        if response.status_code == 200:
+            logger.debug(f"Successfully terminated session for server '{server_id}'")
+        elif response.status_code == 405:
+            logger.debug(
+                f"Server '{server_id}' does not support session termination (405)"
+            )
+        else:
+            logger.warning(
+                f"Unexpected response {response.status_code} when terminating "
+                f"session for '{server_id}'"
+            )
