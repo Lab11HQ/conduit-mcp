@@ -19,7 +19,6 @@ class PKCEParameters:
 
     code_verifier: str = field()
     code_challenge: str = field()
-    state: str = field()  # For CSRF protection
     code_challenge_method: str = field(default="S256")
 
     def __post_init__(self) -> None:
