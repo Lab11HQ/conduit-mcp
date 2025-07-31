@@ -70,8 +70,18 @@ class PKCEManager:
         if response.is_error():
             # Still validate state for security, but don't expose separate error
             if response.state and response.state != expected_state:
-                raise AuthorizationResponseError("State mismatch in error response")
-            raise AuthorizationError(f"Authorization failed: {response.error}")
+                raise AuthorizationResponseError(
+                    "State mismatch in error response. expected: "
+                    f"{expected_state}, received: {response.state}"
+                    f"Error response: {response.error} "
+                    f"({response.error_description or ''}) "
+                    f"{'See: ' + response.error_uri if response.error_uri else ''}"
+                )
+            raise AuthorizationError(
+                f"Authorization failed: {response.error} "
+                f"({response.error_description or ''}) "
+                f"{'See: ' + response.error_uri if response.error_uri else ''}"
+            )
 
         # Technical validation failures
         if response.code is None:
