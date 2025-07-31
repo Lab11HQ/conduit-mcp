@@ -61,6 +61,12 @@ class AuthorizationError(OAuth2Error):
     pass
 
 
+class AuthorizationResponseError(OAuth2Error):
+    """Raised when authorization response is malformed or invalid."""
+
+    pass
+
+
 class UserAuthCancelledError(AuthorizationError):
     """Raised when user cancels the authorization flow."""
 

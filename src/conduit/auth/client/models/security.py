@@ -19,8 +19,8 @@ class PKCEParameters:
 
     code_verifier: str = field()
     code_challenge: str = field()
-    code_challenge_method: str = field(default="S256")
     state: str = field()  # For CSRF protection
+    code_challenge_method: str = field(default="S256")
 
     def __post_init__(self) -> None:
         """Validate PKCE parameters meet RFC 7636 requirements."""

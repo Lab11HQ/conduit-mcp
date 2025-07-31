@@ -42,21 +42,15 @@ class AuthorizationRequest:
 
 
 @dataclass(frozen=True)
-class AuthorizationCallback:
-    """Authorization callback response from OAuth server."""
-
-    code: str
-    state: str
+class AuthorizationResponse:
+    code: str | None = None
+    state: str | None = None
     error: str | None = None
     error_description: str | None = None
+    error_uri: str | None = None
 
-    def validate_state(self, expected_state: str) -> None:
-        """Validate state parameter matches expected value."""
-        if self.state != expected_state:
-            raise ValueError(
-                f"State mismatch: expected {expected_state}, got {self.state}"
-            )
+    def is_success(self) -> bool:
+        return self.error is None and self.code is not None
 
-    def has_error(self) -> bool:
-        """Check if callback contains an error."""
+    def is_error(self) -> bool:
         return self.error is not None
