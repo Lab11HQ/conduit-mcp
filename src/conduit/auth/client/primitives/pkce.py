@@ -10,17 +10,14 @@ import base64
 import hashlib
 import secrets
 import string
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from ..models.flow import AuthorizationResponse
-    from ..models.security import PKCEParameters
-
-from ..models.errors import (
+from conduit.auth.client.models.errors import (
     AuthorizationError,
     AuthorizationResponseError,
     PKCEError,
 )
+from conduit.auth.client.models.flow import AuthorizationResponse
+from conduit.auth.client.models.security import PKCEParameters
 
 
 class PKCEManager:
@@ -55,9 +52,6 @@ class PKCEManager:
 
             # Generate state parameter for CSRF protection
             state = self._generate_state()
-
-            # Import here to avoid circular imports
-            from ..models.security import PKCEParameters
 
             return PKCEParameters(
                 code_verifier=code_verifier,
