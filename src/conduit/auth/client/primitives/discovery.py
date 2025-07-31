@@ -296,11 +296,4 @@ class OAuth2Discovery:
         # OAuth root fallback
         urls.append(urljoin(base_url, "/.well-known/oauth-authorization-server"))
 
-        # OIDC discovery fallback (many servers support this)
-        if parsed.path and parsed.path != "/":
-            oidc_path = f"/.well-known/openid-configuration{parsed.path.rstrip('/')}"
-            urls.append(urljoin(base_url, oidc_path))
-
-        urls.append(urljoin(base_url, "/.well-known/openid-configuration"))
-
         return urls

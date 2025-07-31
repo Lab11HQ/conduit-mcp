@@ -87,19 +87,16 @@ class DiscoveryResult:
     def get_resource_url(self) -> str:
         """Get the resource URL for RFC 8707 resource parameter.
 
-        Uses Protected Resource Metadata resource if available and valid,
-        otherwise derives canonical URL from server_url.
+        Uses the most specific URI (the actual server URL) as per MCP spec
+        guidance to provide the most specific URI possible.
         """
-        # Start with canonical server URL
+        # Canonicalize the server URL per RFC 3986 and MCP spec
         parsed = urlparse(self.server_url)
         canonical = f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
         if parsed.path and parsed.path != "/":
-            canonical += parsed.path.rstrip("/")
-
-        # Use PRM resource if it's a valid parent of our server URL
-        if self.protected_resource_metadata.resource:
-            prm_resource = str(self.protected_resource_metadata.resource).rstrip("/")
-            if canonical.startswith(prm_resource):
-                return prm_resource
+            canonical += parsed.path.rstrip("/")  # Preserve case, remove trailing slash
 
         return canonical
+
+    # TODO: Consider if we ever need PRM resource override
+    # The spec is unclear about when to use PRM resource vs server URL
