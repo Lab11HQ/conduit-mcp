@@ -43,11 +43,13 @@ class AuthorizationServerMetadata(BaseModel):
     and supported capabilities.
     """
 
-    # Required fields
+    # Required by RFC 8414
     issuer: HttpUrl
+    response_types_supported: list[str] = Field(min_length=1)
+
+    # Required for authorization code flow (our use case)
     authorization_endpoint: HttpUrl
     token_endpoint: HttpUrl
-    response_types_supported: list[str] = Field(min_length=1)
 
     # PKCE support (required for OAuth 2.1)
     code_challenge_methods_supported: list[str] = Field(default=["S256"])
@@ -81,7 +83,6 @@ class DiscoveryResult:
     protected_resource_metadata: ProtectedResourceMetadata
     authorization_server_metadata: AuthorizationServerMetadata
     auth_server_url: str
-    protocol_version: str | None = None
 
     def get_resource_url(self) -> str:
         """Get the resource URL for RFC 8707 resource parameter.
@@ -97,24 +98,8 @@ class DiscoveryResult:
 
         # Use PRM resource if it's a valid parent of our server URL
         if self.protected_resource_metadata.resource:
-            prm_resource = str(self.protected_resource_metadata.resource)
+            prm_resource = str(self.protected_resource_metadata.resource).rstrip("/")
             if canonical.startswith(prm_resource):
                 return prm_resource
 
         return canonical
-
-    def should_include_resource_param(self) -> bool:
-        """Determine if resource parameter should be included in OAuth requests.
-
-        Returns True if we have Protected Resource Metadata or if the
-        protocol version is 2025-06-18 or later.
-        """
-        # Always include if we discovered PRM
-        if self.protected_resource_metadata:
-            return True
-
-        # Include for newer protocol versions
-        if self.protocol_version and self.protocol_version >= "2025-06-18":
-            return True
-
-        return False
