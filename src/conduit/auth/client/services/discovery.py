@@ -124,10 +124,6 @@ class OAuth2Discovery:
             auth_server_url=auth_server_url,
         )
 
-    async def close(self) -> None:
-        """Close the HTTP client."""
-        await self._http_client.aclose()
-
     def _extract_resource_metadata_from_www_auth(
         self, response: httpx.Response
     ) -> str | None:
@@ -297,3 +293,7 @@ class OAuth2Discovery:
         urls.append(urljoin(base_url, "/.well-known/oauth-authorization-server"))
 
         return urls
+
+    async def close(self) -> None:
+        """Close the HTTP client."""
+        await self._http_client.aclose()
