@@ -79,13 +79,21 @@ class PKCEError(OAuth2Error):
     pass
 
 
-class CallbackError(OAuth2Error):
-    """Raised when authorization callback handling fails."""
+class AuthorizationCallbackError(OAuth2Error):
+    """Raised when authorization server callback data is malformed or invalid.
+
+    This indicates the authorization server sent an invalid callback URL,
+    not that our callback handling code failed.
+    """
 
     pass
 
 
-class StateValidationError(CallbackError):
-    """Raised when OAuth state parameter validation fails."""
+class StateValidationError(AuthorizationCallbackError):
+    """Raised when OAuth state parameter validation fails.
+
+    This indicates either a missing state parameter or a state mismatch,
+    which could indicate a CSRF attack or authorization server issue.
+    """
 
     pass
