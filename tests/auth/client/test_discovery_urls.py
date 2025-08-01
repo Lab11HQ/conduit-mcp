@@ -13,7 +13,7 @@ from conduit.auth.client.models.discovery import (
     DiscoveryResult,
     ProtectedResourceMetadata,
 )
-from conduit.auth.client.primitives.discovery import OAuth2Discovery
+from conduit.auth.client.services.discovery import OAuth2Discovery
 
 
 class TestWWWAuthenticateHeaderParsing:

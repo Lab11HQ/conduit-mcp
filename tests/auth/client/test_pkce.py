@@ -1,7 +1,7 @@
 import base64
 import hashlib
 
-from conduit.auth.client.primitives.pkce import PKCEManager
+from conduit.auth.client.services.pkce import PKCEManager
 
 
 class TestPKCEManager:
