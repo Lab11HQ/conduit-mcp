@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, Field, HttpUrl, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class ProtectedResourceMetadata(BaseModel):
@@ -19,18 +19,18 @@ class ProtectedResourceMetadata(BaseModel):
     and resource configuration.
     """
 
-    resource: HttpUrl | None = None
-    authorization_servers: list[HttpUrl] = Field(min_length=1)
+    resource: str | None = None
+    authorization_servers: list[str] = Field(min_length=1)
 
     # Optional fields from RFC 9728
     bearer_methods_supported: list[str] | None = None
-    resource_documentation: HttpUrl | None = None
-    resource_policy_uri: HttpUrl | None = None
-    resource_tos_uri: HttpUrl | None = None
+    resource_documentation: str | None = None
+    resource_policy_uri: str | None = None
+    resource_tos_uri: str | None = None
 
     @field_validator("authorization_servers")
     @classmethod
-    def validate_auth_servers(cls, v: list[HttpUrl]) -> list[HttpUrl]:
+    def validate_auth_servers(cls, v: list[str]) -> list[str]:
         if not v:
             raise ValueError("At least one authorization server is required")
         return v
@@ -44,22 +44,22 @@ class AuthorizationServerMetadata(BaseModel):
     """
 
     # Required by RFC 8414
-    issuer: HttpUrl
+    issuer: str
     response_types_supported: list[str] = Field(min_length=1)
 
     # Required for authorization code flow (our use case)
-    authorization_endpoint: HttpUrl
-    token_endpoint: HttpUrl
+    authorization_endpoint: str
+    token_endpoint: str
 
     # PKCE support (required for OAuth 2.1)
     code_challenge_methods_supported: list[str] = Field(default=["S256"])
 
     # Dynamic registration (RFC 7591)
-    registration_endpoint: HttpUrl | None = None
+    registration_endpoint: str | None = None
 
     # Optional but commonly used
-    revocation_endpoint: HttpUrl | None = None
-    introspection_endpoint: HttpUrl | None = None
+    revocation_endpoint: str | None = None
+    introspection_endpoint: str | None = None
     scopes_supported: list[str] | None = None
     grant_types_supported: list[str] = Field(default=["authorization_code"])
 

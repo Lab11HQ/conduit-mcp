@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, Field, HttpUrl, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class ClientMetadata(BaseModel):
@@ -19,12 +19,12 @@ class ClientMetadata(BaseModel):
     redirect_uris: list[str] = Field(min_length=1)
 
     # Optional metadata
-    client_uri: HttpUrl | None = None
-    logo_uri: HttpUrl | None = None
+    client_uri: str | None = None
+    logo_uri: str | None = None
     scope: str | None = None
     contacts: list[str] | None = None
-    tos_uri: HttpUrl | None = None
-    policy_uri: HttpUrl | None = None
+    tos_uri: str | None = None
+    policy_uri: str | None = None
 
     # OAuth 2.1 specific
     token_endpoint_auth_method: str = "none"  # Public client
@@ -42,6 +42,14 @@ class ClientMetadata(BaseModel):
                 raise ValueError(f"Redirect URI must use HTTPS or localhost: {uri}")
         return v
 
+    @field_validator("client_uri", "logo_uri", "tos_uri", "policy_uri")
+    @classmethod
+    def validate_https_uris(cls, v: str | None) -> str | None:
+        """Validate optional URIs use HTTPS when provided."""
+        if v is not None and not v.startswith("https://"):
+            raise ValueError(f"URI must use HTTPS: {v}")
+        return v
+
 
 class ClientCredentials(BaseModel):
     """OAuth 2.0 Client Credentials from registration response."""
@@ -49,7 +57,7 @@ class ClientCredentials(BaseModel):
     client_id: str
     client_secret: str | None = None  # None for public clients
     registration_access_token: str | None = None
-    registration_client_uri: HttpUrl | None = None
+    registration_client_uri: str | None = None
     client_id_issued_at: int | None = None
     client_secret_expires_at: int | None = None
 
