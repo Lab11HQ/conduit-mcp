@@ -26,4 +26,3 @@
 - [] Documentation updated if needed
 - [] Breaking changes documented in commit messages
 
----
