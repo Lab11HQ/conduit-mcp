@@ -14,8 +14,8 @@ from conduit.protocol.tools import (
     Tool,
 )
 from conduit.server.client_manager import ClientState
+from conduit.server.message_context import MessageContext
 from conduit.server.protocol.tools import ToolManager
-from conduit.server.request_context import RequestContext
 
 
 class TestGlobalToolManagement:
@@ -326,7 +326,6 @@ class TestProtocolHandlers:
         self.manager = ToolManager()
         self.client_id = "test-client-123"
 
-        # Create a basic RequestContext for testing
         self.client_state = ClientState(
             capabilities=ClientCapabilities(),
             info=Implementation(name="test-client", version="1.0.0"),
@@ -338,7 +337,7 @@ class TestProtocolHandlers:
         mock_client_manager = AsyncMock()
         mock_transport = AsyncMock()
 
-        self.context = RequestContext(
+        self.context = MessageContext(
             client_id=self.client_id,
             client_state=self.client_state,
             client_manager=mock_client_manager,

@@ -1,6 +1,6 @@
 from unittest.mock import AsyncMock, Mock
 
-from conduit.client.request_context import RequestContext
+from conduit.client.message_context import MessageContext
 from conduit.client.session import ClientConfig, ClientSession
 from conduit.protocol.base import METHOD_NOT_FOUND, Error, Request
 from conduit.protocol.common import (
@@ -46,7 +46,7 @@ class TestNotificationHandling:
         )
         self.session = ClientSession(self.transport, self.config)
         self.session.server_manager.register_server("server_id")
-        self.context = RequestContext(
+        self.context = MessageContext(
             server_id="server_id",
             server_state=AsyncMock(),
             server_manager=AsyncMock(),

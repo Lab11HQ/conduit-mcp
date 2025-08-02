@@ -6,7 +6,7 @@ from conduit.protocol.common import EmptyResult
 from conduit.protocol.initialization import Implementation, ServerCapabilities
 from conduit.protocol.logging import SetLevelRequest
 from conduit.server.client_manager import ClientState
-from conduit.server.request_context import RequestContext
+from conduit.server.message_context import MessageContext
 from conduit.server.session import ServerConfig, ServerSession
 
 
@@ -26,7 +26,7 @@ class TestLoggingHandling:
             protocol_version=PROTOCOL_VERSION,
         )
         self.set_level_request = SetLevelRequest(level="info")
-        self.context = RequestContext(
+        self.context = MessageContext(
             client_id="test-client",
             client_state=ClientState(),
             client_manager=AsyncMock(),

@@ -1,7 +1,7 @@
 from unittest.mock import AsyncMock
 
 from conduit.protocol.common import CancelledNotification
-from conduit.server.request_context import RequestContext
+from conduit.server.message_context import MessageContext
 
 
 class TestNotificationHandling:
@@ -40,9 +40,9 @@ class TestNotificationHandling:
         mock_handler.assert_awaited_once()
         call_args = mock_handler.call_args
 
-        # Verify handler was called with RequestContext (not bare client_id)
+        # Verify handler was called with MessageContext
         context = call_args[0][0]
-        assert isinstance(context, RequestContext)
+        assert isinstance(context, MessageContext)
         assert context.client_id == client_id
 
         # Verify handler was called with parsed notification

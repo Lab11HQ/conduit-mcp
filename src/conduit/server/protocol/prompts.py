@@ -11,10 +11,10 @@ from conduit.protocol.prompts import (
 )
 
 if TYPE_CHECKING:
-    from conduit.server.request_context import RequestContext
+    from conduit.server.message_context import MessageContext
 
 PromptHandler = Callable[
-    ["RequestContext", GetPromptRequest], Awaitable[GetPromptResult]
+    ["MessageContext", GetPromptRequest], Awaitable[GetPromptResult]
 ]
 
 
@@ -170,7 +170,7 @@ class PromptManager:
     # ================================
 
     async def handle_list_prompts(
-        self, context: "RequestContext", request: ListPromptsRequest
+        self, context: "MessageContext", request: ListPromptsRequest
     ) -> ListPromptsResult:
         """List all prompts available to this client.
 
@@ -188,7 +188,7 @@ class PromptManager:
         return ListPromptsResult(prompts=list(prompts.values()))
 
     async def handle_get_prompt(
-        self, context: "RequestContext", request: GetPromptRequest
+        self, context: "MessageContext", request: GetPromptRequest
     ) -> GetPromptResult:
         """Execute a prompt request for a specific client.
 

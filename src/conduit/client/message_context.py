@@ -11,8 +11,8 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class RequestContext:
-    """Rich context for handling server -> client requests.
+class MessageContext:
+    """Rich context for handling server -> client messages.
 
     Provides immediate access to server state, capabilities, and helper methods.
     """
@@ -60,6 +60,6 @@ class RequestContext:
     def __str__(self) -> str:
         """String representation for logging."""
         return (
-            f"RequestContext(server={self.get_server_display_name()},"
+            f"MessageContext(server={self.get_server_display_name()},"
             f"id={self.server_id})"
         )

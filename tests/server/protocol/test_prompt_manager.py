@@ -12,8 +12,8 @@ from conduit.protocol.prompts import (
     Prompt,
 )
 from conduit.server.client_manager import ClientState
+from conduit.server.message_context import MessageContext
 from conduit.server.protocol.prompts import PromptManager
-from conduit.server.request_context import RequestContext
 
 
 class TestGlobalPromptManagement:
@@ -284,7 +284,7 @@ class TestProtocolHandlers:
         )
         mock_client_manager = AsyncMock()
         mock_transport = AsyncMock()
-        self.context = RequestContext(
+        self.context = MessageContext(
             client_id=self.client_id,
             client_state=self.client_state,
             client_manager=mock_client_manager,
