@@ -32,7 +32,6 @@ class TestHandleList:
         self.manager = ResourceManager()
         self.client_id = "test-client-123"
 
-        # Create a basic RequestContext for testing
         self.client_state = ClientState(
             capabilities=ClientCapabilities(),
             info=Implementation(name="test-client", version="1.0.0"),

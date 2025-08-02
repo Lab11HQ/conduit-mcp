@@ -60,6 +60,6 @@ class MessageContext:
     def __str__(self) -> str:
         """String representation for logging."""
         return (
-            f"RequestContext(server={self.get_server_display_name()},"
+            f"MessageContext(server={self.get_server_display_name()},"
             f"id={self.server_id})"
         )

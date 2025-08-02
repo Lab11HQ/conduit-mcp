@@ -104,6 +104,6 @@ class MessageContext:
     def __str__(self) -> str:
         """String representation for logging."""
         return (
-            f"RequestContext(client={self.get_client_display_name()},"
+            f"MessageContext(client={self.get_client_display_name()},"
             f"id={self.client_id})"
         )
