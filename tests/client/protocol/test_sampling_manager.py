@@ -2,15 +2,15 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from conduit.client.message_context import MessageContext
 from conduit.client.protocol.sampling import SamplingManager, SamplingNotConfiguredError
-from conduit.client.request_context import RequestContext
 from conduit.protocol.content import TextContent
 from conduit.protocol.sampling import CreateMessageRequest, CreateMessageResult
 
 
 class TestSamplingManager:
     def setup_method(self):
-        self.context = RequestContext(
+        self.context = MessageContext(
             server_id="server_id",
             server_state=AsyncMock(),
             server_manager=AsyncMock(),

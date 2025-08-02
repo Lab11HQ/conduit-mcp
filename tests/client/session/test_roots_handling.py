@@ -1,6 +1,6 @@
 from unittest.mock import AsyncMock
 
-from conduit.client.request_context import RequestContext
+from conduit.client.message_context import MessageContext
 from conduit.client.session import ClientConfig, ClientSession
 from conduit.protocol.base import METHOD_NOT_FOUND, Error
 from conduit.protocol.initialization import (
@@ -24,7 +24,7 @@ class TestRootsRequestHandling:
             client_info=Implementation(name="test-client", version="1.0.0"),
             capabilities=ClientCapabilities(roots=None),
         )
-        self.context = RequestContext(
+        self.context = MessageContext(
             server_id="server_id",
             server_state=AsyncMock(),
             server_manager=AsyncMock(),

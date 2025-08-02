@@ -10,7 +10,7 @@ import uuid
 from collections.abc import Coroutine
 from typing import Any, Awaitable, Callable, TypeVar
 
-from conduit.client.request_context import RequestContext
+from conduit.client.message_context import MessageContext
 from conduit.client.server_manager import ServerManager
 from conduit.protocol.base import (
     INTERNAL_ERROR,
@@ -35,9 +35,9 @@ TRequest = TypeVar("TRequest", bound=Request)
 TResult = TypeVar("TResult", bound=Result)
 TNotification = TypeVar("TNotification", bound=Notification)
 
-RequestHandler = Callable[[RequestContext, TRequest], Awaitable[TResult | Error]]
+RequestHandler = Callable[[MessageContext, TRequest], Awaitable[TResult | Error]]
 NotificationHandler = Callable[
-    [RequestContext, TNotification], Coroutine[Any, Any, None]
+    [MessageContext, TNotification], Coroutine[Any, Any, None]
 ]
 
 
@@ -137,14 +137,14 @@ class MessageCoordinator:
     # Build context
     # ================================
 
-    def _build_context(self, server_id: str) -> RequestContext:
+    def _build_context(self, server_id: str) -> MessageContext:
         """Builds context for a request.
 
         Args:
             server_id: ID of the server making the request
 
         Returns:
-            RequestContext: Context with server state and helpers
+            MessageContext: Context with server state and helpers
 
         Raises:
             ValueError: If the server is not registered with the client
@@ -153,7 +153,7 @@ class MessageCoordinator:
         if server_state is None:
             raise ValueError(f"Server {server_id} not registered")
 
-        return RequestContext(
+        return MessageContext(
             server_id=server_id,
             server_state=server_state,
             server_manager=self.server_manager,
@@ -250,7 +250,7 @@ class MessageCoordinator:
     async def _execute_request_handler(
         self,
         handler: RequestHandler,
-        context: RequestContext,
+        context: MessageContext,
         request_id: str | int,
         request: Request,
     ) -> None:

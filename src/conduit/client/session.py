@@ -14,13 +14,13 @@ from typing import Any, cast
 
 from conduit.client.callbacks import CallbackManager
 from conduit.client.coordinator import MessageCoordinator
+from conduit.client.message_context import MessageContext
 from conduit.client.protocol.elicitation import (
     ElicitationManager,
     ElicitationNotConfiguredError,
 )
 from conduit.client.protocol.roots import RootsManager
 from conduit.client.protocol.sampling import SamplingManager, SamplingNotConfiguredError
-from conduit.client.request_context import RequestContext
 from conduit.client.server_manager import ServerManager
 from conduit.protocol.base import (
     INTERNAL_ERROR,
@@ -293,7 +293,7 @@ class ClientSession:
     # ================================
 
     async def _handle_ping(
-        self, context: RequestContext, request: PingRequest
+        self, context: MessageContext, request: PingRequest
     ) -> EmptyResult:
         """Returns an empty result."""
 
@@ -304,7 +304,7 @@ class ClientSession:
     # ================================
 
     async def _handle_list_roots(
-        self, context: RequestContext, request: ListRootsRequest
+        self, context: MessageContext, request: ListRootsRequest
     ) -> ListRootsResult | Error:
         """Returns the roots available to the server.
 
@@ -324,7 +324,7 @@ class ClientSession:
     # ================================
 
     async def _handle_sampling(
-        self, context: RequestContext, request: CreateMessageRequest
+        self, context: MessageContext, request: CreateMessageRequest
     ) -> CreateMessageResult | Error:
         """Creates a message using the configured sampling handler.
 
@@ -354,7 +354,7 @@ class ClientSession:
     # ================================
 
     async def _handle_elicitation(
-        self, context: RequestContext, request: ElicitRequest
+        self, context: MessageContext, request: ElicitRequest
     ) -> ElicitResult | Error:
         """Returns an elicitation result using the configured elicitation handler.
 
@@ -384,7 +384,7 @@ class ClientSession:
     # ================================
 
     async def _handle_cancelled(
-        self, context: RequestContext, notification: CancelledNotification
+        self, context: MessageContext, notification: CancelledNotification
     ) -> None:
         """Cancels a request from the server and calls the registered callback."""
         request_exists = (
@@ -400,13 +400,13 @@ class ClientSession:
             await self.callbacks.call_cancelled(context.server_id, notification)
 
     async def _handle_progress(
-        self, context: RequestContext, notification: ProgressNotification
+        self, context: MessageContext, notification: ProgressNotification
     ) -> None:
         """Calls the registered callback for progress updates."""
         await self.callbacks.call_progress(context.server_id, notification)
 
     async def _handle_prompts_list_changed(
-        self, context: RequestContext, notification: PromptListChangedNotification
+        self, context: MessageContext, notification: PromptListChangedNotification
     ) -> None:
         """Fetches the updated prompts list and calls the registered callback.
 
@@ -433,7 +433,7 @@ class ClientSession:
             )
 
     async def _handle_resources_list_changed(
-        self, context: RequestContext, notification: ResourceListChangedNotification
+        self, context: MessageContext, notification: ResourceListChangedNotification
     ) -> None:
         """Fetches the updated resources/templates and calls the registered callback.
 
@@ -479,7 +479,7 @@ class ClientSession:
             )
 
     async def _handle_resources_updated(
-        self, context: RequestContext, notification: ResourceUpdatedNotification
+        self, context: MessageContext, notification: ResourceUpdatedNotification
     ) -> None:
         """Reads the updated resource content and calls the registered callback.
 
@@ -502,7 +502,7 @@ class ClientSession:
             )
 
     async def _handle_tools_list_changed(
-        self, context: RequestContext, notification: ToolListChangedNotification
+        self, context: MessageContext, notification: ToolListChangedNotification
     ) -> None:
         """Fetches the updated tools list and calls the registered callback.
 
@@ -529,7 +529,7 @@ class ClientSession:
             )
 
     async def _handle_logging_message(
-        self, context: RequestContext, notification: LoggingMessageNotification
+        self, context: MessageContext, notification: LoggingMessageNotification
     ) -> None:
         """Calls the registered callback for logging messages."""
         await self.callbacks.call_logging_message(context.server_id, notification)

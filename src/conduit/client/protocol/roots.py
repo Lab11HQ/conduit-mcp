@@ -1,7 +1,7 @@
 import logging
 from copy import deepcopy
 
-from conduit.client.request_context import RequestContext
+from conduit.client.message_context import MessageContext
 from conduit.protocol.roots import ListRootsRequest, ListRootsResult, Root
 
 
@@ -78,7 +78,7 @@ class RootsManager:
     # ================================
 
     async def handle_list_roots(
-        self, context: RequestContext, request: ListRootsRequest
+        self, context: MessageContext, request: ListRootsRequest
     ) -> ListRootsResult:
         """List the roots available to the server making the request."""
         roots = self.get_server_roots(context.server_id)

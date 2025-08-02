@@ -1,7 +1,7 @@
 import logging
 from typing import Awaitable, Callable
 
-from conduit.client.request_context import RequestContext
+from conduit.client.message_context import MessageContext
 from conduit.protocol.sampling import CreateMessageRequest, CreateMessageResult
 
 
@@ -19,7 +19,7 @@ class SamplingManager:
         self.logger = logging.getLogger("conduit.client.protocol.sampling")
 
     async def handle_create_message(
-        self, context: RequestContext, request: CreateMessageRequest
+        self, context: MessageContext, request: CreateMessageRequest
     ) -> CreateMessageResult:
         """Sample the host LLM for the server.
 

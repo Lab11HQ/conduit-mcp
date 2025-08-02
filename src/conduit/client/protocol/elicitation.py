@@ -1,7 +1,7 @@
 import logging
 from typing import Awaitable, Callable
 
-from conduit.client.request_context import RequestContext
+from conduit.client.message_context import MessageContext
 from conduit.protocol.elicitation import ElicitRequest, ElicitResult
 
 
@@ -19,7 +19,7 @@ class ElicitationManager:
         self.logger = logging.getLogger("conduit.client.protocol.elicitation")
 
     async def handle_elicitation(
-        self, context: RequestContext, request: ElicitRequest
+        self, context: MessageContext, request: ElicitRequest
     ) -> ElicitResult:
         """Elicit a response from the user.
 

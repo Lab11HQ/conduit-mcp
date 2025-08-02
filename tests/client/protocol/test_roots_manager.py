@@ -1,13 +1,13 @@
 from unittest.mock import AsyncMock
 
+from conduit.client.message_context import MessageContext
 from conduit.client.protocol.roots import RootsManager
-from conduit.client.request_context import RequestContext
 from conduit.protocol.roots import ListRootsRequest, ListRootsResult, Root
 
 
 class TestRootsManager:
     def setup_method(self):
-        self.context = RequestContext(
+        self.context = MessageContext(
             server_id="server_id",
             server_state=AsyncMock(),
             server_manager=AsyncMock(),

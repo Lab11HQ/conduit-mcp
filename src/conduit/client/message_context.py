@@ -11,8 +11,8 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class RequestContext:
-    """Rich context for handling server -> client requests.
+class MessageContext:
+    """Rich context for handling server -> client messages.
 
     Provides immediate access to server state, capabilities, and helper methods.
     """

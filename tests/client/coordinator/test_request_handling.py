@@ -1,6 +1,6 @@
 import asyncio
 
-from conduit.client.request_context import RequestContext
+from conduit.client.message_context import MessageContext
 from conduit.protocol.base import INTERNAL_ERROR, METHOD_NOT_FOUND
 from conduit.protocol.common import EmptyResult, PingRequest
 from conduit.protocol.elicitation import ElicitRequest, ElicitResult
@@ -14,7 +14,7 @@ class TestRequestHandling:
         handled_requests = []
 
         async def mock_handler(
-            context: RequestContext, request: PingRequest
+            context: MessageContext, request: PingRequest
         ) -> EmptyResult:
             handled_requests.append((context, request))
             return EmptyResult()
@@ -46,7 +46,7 @@ class TestRequestHandling:
         # Assert: Handler was called correctly
         assert len(handled_requests) == 1
         context, request = handled_requests[0]
-        assert isinstance(context, RequestContext)
+        assert isinstance(context, MessageContext)
         assert context.server_id == "test-server"
         assert request.method == "ping"
 
@@ -75,7 +75,7 @@ class TestRequestHandling:
         handler_called = False
 
         async def should_not_be_called(
-            context: RequestContext,
+            context: MessageContext,
             request: ElicitRequest,
         ) -> ElicitResult:
             nonlocal handler_called
@@ -136,7 +136,7 @@ class TestRequestHandling:
     ):
         # Arrange: Set up a handler that throws an exception
         async def failing_handler(
-            context: RequestContext, request: PingRequest
+            context: MessageContext, request: PingRequest
         ) -> EmptyResult:
             raise ValueError("Something went wrong in the handler")
 
@@ -180,7 +180,7 @@ class TestRequestHandling:
         handler_cancelled = False
 
         async def slow_handler(
-            context: RequestContext, request: PingRequest
+            context: MessageContext, request: PingRequest
         ) -> EmptyResult:
             nonlocal handler_cancelled
             handler_started.set()  # Signal that handler has started
