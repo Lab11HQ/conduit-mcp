@@ -18,14 +18,14 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class RequestContext:
-    """Rich context for handling client -> server requests.
+class MessageContext:
+    """Rich context for handling client -> server messages.
 
     Provides immediate access to client state, capabilities, and helper methods
     instead of requiring handlers to work with bare client_id strings.
 
     This context is built once at the coordinator level and threaded through
-    the request pipeline, giving handlers everything they need to make
+    the message pipeline, giving handlers everything they need to make
     informed decisions about client capabilities and state.
     """
 

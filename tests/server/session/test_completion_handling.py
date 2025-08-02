@@ -15,8 +15,8 @@ from conduit.protocol.completions import (
 from conduit.protocol.initialization import Implementation, ServerCapabilities
 from conduit.protocol.prompts import PromptReference
 from conduit.server.client_manager import ClientState
+from conduit.server.message_context import MessageContext
 from conduit.server.protocol.completions import CompletionNotConfiguredError
-from conduit.server.request_context import RequestContext
 from conduit.server.session import ServerConfig, ServerSession
 
 
@@ -44,7 +44,7 @@ class TestCompletionHandling:
             total=2,
             has_more=False,
         )
-        self.context = RequestContext(
+        self.context = MessageContext(
             client_id="test-client",
             client_state=ClientState(),
             client_manager=AsyncMock(),

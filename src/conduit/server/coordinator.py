@@ -26,7 +26,7 @@ from conduit.protocol.jsonrpc import (
     JSONRPCResponse,
 )
 from conduit.server.client_manager import ClientManager
-from conduit.server.request_context import RequestContext
+from conduit.server.message_context import MessageContext
 from conduit.shared.message_parser import MessageParser
 from conduit.transport.server import ClientMessage, ServerTransport, TransportContext
 
@@ -34,9 +34,9 @@ TRequest = TypeVar("TRequest", bound=Request)
 TResult = TypeVar("TResult", bound=Result)
 TNotification = TypeVar("TNotification", bound=Notification)
 
-RequestHandler = Callable[[RequestContext, TRequest], Awaitable[TResult | Error]]
+RequestHandler = Callable[[MessageContext, TRequest], Awaitable[TResult | Error]]
 NotificationHandler = Callable[
-    [RequestContext, TNotification], Coroutine[Any, Any, None]
+    [MessageContext, TNotification], Coroutine[Any, Any, None]
 ]
 
 
@@ -140,14 +140,14 @@ class MessageCoordinator:
 
     def _build_context(
         self, client_id: str, originating_request_id: str | int | None = None
-    ) -> RequestContext:
-        """Builds context for a request.
+    ) -> MessageContext:
+        """Builds context for handling a message.
 
         Args:
             client_id: ID of the client making the request
 
         Returns:
-            RequestContext: Rich context with client state and helpers
+            MessageContext: Rich context with client state and helpers
 
         Raises:
             ValueError: If client is not registered
@@ -156,7 +156,7 @@ class MessageCoordinator:
         if client_state is None:
             raise ValueError(f"Client {client_id} not registered")
 
-        return RequestContext(
+        return MessageContext(
             client_id=client_id,
             client_state=client_state,
             client_manager=self.client_manager,
@@ -256,7 +256,7 @@ class MessageCoordinator:
     async def _execute_request_handler(
         self,
         handler: RequestHandler,
-        context: RequestContext,
+        context: MessageContext,
         request_id: str | int,
         request: Request,
     ) -> None:

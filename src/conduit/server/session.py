@@ -64,6 +64,7 @@ from conduit.protocol.tools import (
 from conduit.server.callbacks import CallbackManager
 from conduit.server.client_manager import ClientManager
 from conduit.server.coordinator import MessageCoordinator
+from conduit.server.message_context import MessageContext
 from conduit.server.protocol.completions import (
     CompletionManager,
     CompletionNotConfiguredError,
@@ -72,7 +73,6 @@ from conduit.server.protocol.logging import LoggingManager
 from conduit.server.protocol.prompts import PromptManager
 from conduit.server.protocol.resources import ResourceManager
 from conduit.server.protocol.tools import ToolManager
-from conduit.server.request_context import RequestContext
 from conduit.transport.server import ServerTransport
 
 
@@ -179,7 +179,7 @@ class ServerSession:
     # ================================
 
     async def _handle_initialize(
-        self, context: RequestContext, request: InitializeRequest
+        self, context: MessageContext, request: InitializeRequest
     ) -> InitializeResult | Error:
         """Handle the first step of the MCP initialization handshake.
 
@@ -227,7 +227,7 @@ class ServerSession:
         )
 
     async def _handle_initialized(
-        self, context: RequestContext, notification: InitializedNotification
+        self, context: MessageContext, notification: InitializedNotification
     ) -> None:
         """Complete the initialization handshake.
 
@@ -246,7 +246,7 @@ class ServerSession:
     # ================================
 
     async def _handle_ping(
-        self, context: RequestContext, request: PingRequest
+        self, context: MessageContext, request: PingRequest
     ) -> EmptyResult:
         """Always returns an empty result.
 
@@ -259,7 +259,7 @@ class ServerSession:
     # ================================
 
     async def _handle_list_tools(
-        self, context: RequestContext, request: ListToolsRequest
+        self, context: MessageContext, request: ListToolsRequest
     ) -> ListToolsResult | Error:
         """Returns the list of available tools.
 
@@ -276,7 +276,7 @@ class ServerSession:
         return await self.tools.handle_list(context, request)
 
     async def _handle_call_tool(
-        self, context: RequestContext, request: CallToolRequest
+        self, context: MessageContext, request: CallToolRequest
     ) -> CallToolResult | Error:
         """Executes a tool call.
 
@@ -302,7 +302,7 @@ class ServerSession:
     # ================================
 
     async def _handle_list_prompts(
-        self, context: RequestContext, request: ListPromptsRequest
+        self, context: MessageContext, request: ListPromptsRequest
     ) -> ListPromptsResult | Error:
         """Returns the list of available prompts.
 
@@ -318,7 +318,7 @@ class ServerSession:
         return await self.prompts.handle_list_prompts(context, request)
 
     async def _handle_get_prompt(
-        self, context: RequestContext, request: GetPromptRequest
+        self, context: MessageContext, request: GetPromptRequest
     ) -> GetPromptResult | Error:
         """Returns the contents of a specific prompt.
 
@@ -347,7 +347,7 @@ class ServerSession:
     # ================================
 
     async def _handle_list_resources(
-        self, context: RequestContext, request: ListResourcesRequest
+        self, context: MessageContext, request: ListResourcesRequest
     ) -> ListResourcesResult | Error:
         """Returns the list of available resources.
 
@@ -364,7 +364,7 @@ class ServerSession:
         return await self.resources.handle_list_resources(context, request)
 
     async def _handle_list_resource_templates(
-        self, context: RequestContext, request: ListResourceTemplatesRequest
+        self, context: MessageContext, request: ListResourceTemplatesRequest
     ) -> ListResourceTemplatesResult | Error:
         """Returns the list of available resource templates.
 
@@ -380,7 +380,7 @@ class ServerSession:
         return await self.resources.handle_list_templates(context, request)
 
     async def _handle_read_resource(
-        self, context: RequestContext, request: ReadResourceRequest
+        self, context: MessageContext, request: ReadResourceRequest
     ) -> ReadResourceResult | Error:
         """Returns the contents of a specific resource.
 
@@ -405,7 +405,7 @@ class ServerSession:
             )
 
     async def _handle_subscribe(
-        self, context: RequestContext, request: SubscribeRequest
+        self, context: MessageContext, request: SubscribeRequest
     ) -> EmptyResult | Error:
         """Subscribes a client to a resource.
 
@@ -428,7 +428,7 @@ class ServerSession:
             return Error(code=METHOD_NOT_FOUND, message=str(e))
 
     async def _handle_unsubscribe(
-        self, context: RequestContext, request: UnsubscribeRequest
+        self, context: MessageContext, request: UnsubscribeRequest
     ) -> EmptyResult | Error:
         """Unsubscribes a client from a resource.
 
@@ -455,7 +455,7 @@ class ServerSession:
     # ================================
 
     async def _handle_complete(
-        self, context: RequestContext, request: CompleteRequest
+        self, context: MessageContext, request: CompleteRequest
     ) -> CompleteResult | Error:
         """Generates a completion for a given prompt.
 
@@ -487,7 +487,7 @@ class ServerSession:
     # ================================
 
     async def _handle_set_level(
-        self, context: RequestContext, request: SetLevelRequest
+        self, context: MessageContext, request: SetLevelRequest
     ) -> EmptyResult | Error:
         """Sets the logging level for the given client.
 
@@ -508,7 +508,7 @@ class ServerSession:
     # ================================
 
     async def _handle_cancelled(
-        self, context: RequestContext, notification: CancelledNotification
+        self, context: MessageContext, notification: CancelledNotification
     ) -> None:
         """Cancels a request from a client and calls the registered callback."""
         client_id = context.client_id
@@ -518,14 +518,14 @@ class ServerSession:
         await self.callbacks.call_cancelled(client_id, notification)
 
     async def _handle_progress(
-        self, context: RequestContext, notification: ProgressNotification
+        self, context: MessageContext, notification: ProgressNotification
     ) -> None:
         """Calls the registered callback for progress updates."""
         client_id = context.client_id
         await self.callbacks.call_progress(client_id, notification)
 
     async def _handle_roots_list_changed(
-        self, context: RequestContext, notification: RootsListChangedNotification
+        self, context: MessageContext, notification: RootsListChangedNotification
     ) -> None:
         """Handles roots/list_changed notification.
 

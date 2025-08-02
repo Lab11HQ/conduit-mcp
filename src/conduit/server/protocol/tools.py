@@ -14,9 +14,9 @@ from conduit.protocol.tools import (
 )
 
 if TYPE_CHECKING:
-    from conduit.server.request_context import RequestContext
+    from conduit.server.message_context import MessageContext
 
-ToolHandler = Callable[["RequestContext", CallToolRequest], Awaitable[CallToolResult]]
+ToolHandler = Callable[["MessageContext", CallToolRequest], Awaitable[CallToolResult]]
 
 
 class ToolManager:
@@ -173,7 +173,7 @@ class ToolManager:
     # ================================
 
     async def handle_list(
-        self, context: "RequestContext", request: ListToolsRequest
+        self, context: "MessageContext", request: ListToolsRequest
     ) -> ListToolsResult:
         """Lists tools for a specific client.
 
@@ -191,7 +191,7 @@ class ToolManager:
         return ListToolsResult(tools=list(tools.values()))
 
     async def handle_call(
-        self, context: "RequestContext", request: CallToolRequest
+        self, context: "MessageContext", request: CallToolRequest
     ) -> CallToolResult:
         """Execute a tool call request for a specific client.
 

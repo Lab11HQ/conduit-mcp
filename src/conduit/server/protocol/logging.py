@@ -5,7 +5,7 @@ from conduit.protocol.common import EmptyResult
 from conduit.protocol.logging import LoggingLevel, SetLevelRequest
 
 if TYPE_CHECKING:
-    from conduit.server.request_context import RequestContext
+    from conduit.server.message_context import MessageContext
 
 
 class LoggingManager:
@@ -55,7 +55,7 @@ class LoggingManager:
         self._client_log_levels.pop(client_id, None)
 
     async def handle_set_level(
-        self, context: "RequestContext", request: SetLevelRequest
+        self, context: "MessageContext", request: SetLevelRequest
     ) -> EmptyResult:
         """Set the MCP protocol logging level for a specific client.
 

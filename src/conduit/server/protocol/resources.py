@@ -20,11 +20,11 @@ from conduit.protocol.resources import (
 )
 
 if TYPE_CHECKING:
-    from conduit.server.request_context import RequestContext
+    from conduit.server.message_context import MessageContext
 
 
 ResourceHandler = Callable[
-    ["RequestContext", ReadResourceRequest], Awaitable[ReadResourceResult]
+    ["MessageContext", ReadResourceRequest], Awaitable[ReadResourceResult]
 ]
 SubscriptionCallback = Callable[[str, str], Awaitable[None]]  # (client_id, uri)
 
@@ -242,21 +242,21 @@ class ResourceManager:
     # ===============================
 
     async def handle_list_resources(
-        self, context: "RequestContext", request: ListResourcesRequest
+        self, context: "MessageContext", request: ListResourcesRequest
     ) -> ListResourcesResult:
         """List all resources available to a specific client."""
         resources = self.get_client_resources(context.client_id)
         return ListResourcesResult(resources=list(resources.values()))
 
     async def handle_list_templates(
-        self, context: "RequestContext", request: ListResourceTemplatesRequest
+        self, context: "MessageContext", request: ListResourceTemplatesRequest
     ) -> ListResourceTemplatesResult:
         """List all resource templates available to a specific client."""
         templates = self.get_client_templates(context.client_id)
         return ListResourceTemplatesResult(resource_templates=list(templates.values()))
 
     async def handle_read(
-        self, context: "RequestContext", request: ReadResourceRequest
+        self, context: "MessageContext", request: ReadResourceRequest
     ) -> ReadResourceResult:
         """Read a resource by URI for a specific client.
 
@@ -298,7 +298,7 @@ class ResourceManager:
         raise KeyError(f"No resource or template handler found for URI: {uri}")
 
     async def handle_subscribe(
-        self, context: "RequestContext", request: SubscribeRequest
+        self, context: "MessageContext", request: SubscribeRequest
     ) -> EmptyResult:
         """Subscribe a client to resource updates for the given URI.
 
@@ -343,7 +343,7 @@ class ResourceManager:
         return EmptyResult()
 
     async def handle_unsubscribe(
-        self, context: "RequestContext", request: UnsubscribeRequest
+        self, context: "MessageContext", request: UnsubscribeRequest
     ) -> EmptyResult:
         """Unsubscribe a client from resource updates for the given URI.
 

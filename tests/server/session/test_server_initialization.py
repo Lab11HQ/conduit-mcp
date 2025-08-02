@@ -14,7 +14,7 @@ from conduit.protocol.initialization import (
     ServerCapabilities,
 )
 from conduit.server.client_manager import ClientState
-from conduit.server.request_context import RequestContext
+from conduit.server.message_context import MessageContext
 from conduit.server.session import ServerConfig, ServerSession
 
 
@@ -29,7 +29,7 @@ class TestInitialization:
         )
         self.session = ServerSession(self.transport, self.config)
 
-        self.context = RequestContext(
+        self.context = MessageContext(
             client_id="test-client",
             client_state=ClientState(),
             client_manager=AsyncMock(),

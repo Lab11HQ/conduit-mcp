@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Awaitable, Callable
 from conduit.protocol.completions import CompleteRequest, CompleteResult
 
 if TYPE_CHECKING:
-    from conduit.server.request_context import RequestContext
+    from conduit.server.message_context import MessageContext
 
 
 class CompletionNotConfiguredError(Exception):
@@ -14,13 +14,13 @@ class CompletionNotConfiguredError(Exception):
 class CompletionManager:
     def __init__(self):
         self.completion_handler: (
-            Callable[["RequestContext", CompleteRequest], Awaitable[CompleteResult]]
+            Callable[["MessageContext", CompleteRequest], Awaitable[CompleteResult]]
             | None
         ) = None
         self.logger = logging.getLogger("conduit.server.protocol.completions")
 
     async def handle_complete(
-        self, context: "RequestContext", request: CompleteRequest
+        self, context: "MessageContext", request: CompleteRequest
     ) -> CompleteResult:
         """Generate a completion for a given argument.
 

@@ -5,7 +5,7 @@ from conduit.protocol.common import CancelledNotification, ProgressNotification
 from conduit.protocol.initialization import Implementation, ServerCapabilities
 from conduit.protocol.roots import ListRootsResult, Root, RootsListChangedNotification
 from conduit.server.client_manager import ClientState
-from conduit.server.request_context import RequestContext
+from conduit.server.message_context import MessageContext
 from conduit.server.session import ServerConfig, ServerSession
 
 
@@ -19,7 +19,7 @@ class TestNotificationHandling:
             info=Implementation(name="test-server", version="1.0.0"),
             protocol_version=PROTOCOL_VERSION,
         )
-        self.context = RequestContext(
+        self.context = MessageContext(
             client_id="test-client",
             client_state=ClientState(),
             client_manager=AsyncMock(),

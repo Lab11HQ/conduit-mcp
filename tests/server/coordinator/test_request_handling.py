@@ -4,7 +4,7 @@ from conduit.protocol.base import INTERNAL_ERROR, METHOD_NOT_FOUND
 from conduit.protocol.common import EmptyResult
 from conduit.protocol.jsonrpc import Request
 from conduit.protocol.resources import ReadResourceRequest, ReadResourceResult
-from conduit.server.request_context import RequestContext
+from conduit.server.message_context import MessageContext
 
 
 class TestRequestHandling:
@@ -16,7 +16,7 @@ class TestRequestHandling:
         handled_requests = []
 
         async def mock_handler(
-            context: RequestContext, request: Request
+            context: MessageContext, request: Request
         ) -> EmptyResult:
             handled_requests.append((context, request))
             return EmptyResult()
@@ -41,7 +41,7 @@ class TestRequestHandling:
         # Assert: Handler was called correctly
         assert len(handled_requests) == 1
         context, request = handled_requests[0]
-        assert isinstance(context, RequestContext)
+        assert isinstance(context, MessageContext)
         assert context.client_id == "client-1"
         assert request.method == "ping"
 
@@ -74,7 +74,7 @@ class TestRequestHandling:
         handler_called = False
 
         async def should_not_be_called(
-            context: RequestContext, request: ReadResourceRequest
+            context: MessageContext, request: ReadResourceRequest
         ) -> ReadResourceResult:
             nonlocal handler_called
             handler_called = True
@@ -129,7 +129,7 @@ class TestRequestHandling:
 
         # Arrange: Set up a handler that throws an exception
         async def failing_handler(
-            context: RequestContext, request: Request
+            context: MessageContext, request: Request
         ) -> EmptyResult:
             raise ValueError("Something went wrong in the handler")
 
@@ -168,7 +168,7 @@ class TestRequestHandling:
         handler_cancelled = False
 
         async def slow_handler(
-            context: RequestContext, request: Request
+            context: MessageContext, request: Request
         ) -> EmptyResult:
             nonlocal handler_cancelled
             handler_started.set()  # Signal that handler has started

@@ -14,7 +14,7 @@ from conduit.protocol.tools import (
     TextContent,
 )
 from conduit.server.client_manager import ClientState
-from conduit.server.request_context import RequestContext
+from conduit.server.message_context import MessageContext
 from conduit.server.session import ServerConfig, ServerSession
 
 
@@ -35,7 +35,7 @@ class TestToolHandling:
         )
 
         self.list_request = ListToolsRequest()
-        self.context = RequestContext(
+        self.context = MessageContext(
             client_id="test-client",
             client_state=ClientState(),
             client_manager=AsyncMock(),
