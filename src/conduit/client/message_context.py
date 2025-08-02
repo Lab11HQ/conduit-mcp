@@ -40,7 +40,7 @@ class MessageContext:
     # Communication Helpers
     # ================================
 
-    async def send_to_server(self, message: dict[str, Any]) -> None:
+    async def send(self, message: dict[str, Any]) -> None:
         """Send a message directly to this server."""
         await self.transport.send(self.server_id, message)
 
