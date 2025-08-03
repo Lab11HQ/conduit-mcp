@@ -199,7 +199,10 @@ class MessageCoordinator:
         request_or_error = self.parser.parse_request(payload)
 
         if isinstance(request_or_error, Error):
-            await self._send_error(client_id, request_id, request_or_error)
+            transport_context = TransportContext(originating_request_id=request_id)
+            await self._send_error(
+                client_id, request_id, request_or_error, transport_context
+            )
             return
 
         await self._route_request(client_id, request_id, request_or_error)
@@ -219,13 +222,14 @@ class MessageCoordinator:
             request_id: ID of the request
             request: The request object
         """
+        transport_context = TransportContext(originating_request_id=request_id)
         handler = self._request_handlers.get(request.method)
         if not handler:
             error = Error(
                 code=METHOD_NOT_FOUND,
                 message=f"No handler for method: {request.method}",
             )
-            await self._send_error(client_id, request_id, error)
+            await self._send_error(client_id, request_id, error, transport_context)
             return
 
         try:
@@ -235,7 +239,7 @@ class MessageCoordinator:
                 code=INTERNAL_ERROR,
                 message="Client not registered. Can't build context.",
             )
-            await self._send_error(client_id, request_id, error)
+            await self._send_error(client_id, request_id, error, transport_context)
             self.logger.warning(f"Failed to build request context for {client_id}: {e}")
             return
 
@@ -514,8 +518,14 @@ class MessageCoordinator:
             self.client_manager.register_client(client_id)
 
     async def _send_error(
-        self, client_id: str, request_id: str | int, error: Error
+        self,
+        client_id: str,
+        request_id: str | int,
+        error: Error,
+        transport_context: TransportContext | None = None,
     ) -> None:
         """Sends error response to client."""
         response = JSONRPCError.from_error(error, request_id)
-        await self.transport.send(client_id, response.to_wire())
+        await self.transport.send(
+            client_id, response.to_wire(), transport_context=transport_context
+        )
