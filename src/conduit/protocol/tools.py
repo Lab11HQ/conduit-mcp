@@ -1,19 +1,6 @@
 """
 Tool system for extending LLM capabilities beyond text generation.
 
-Tools solve a fundamental limitation: LLMs can describe actions but can't perform them.
-By defining callable functions through MCP, you enable LLMs to interact with your
-systems, APIs, and data sources automatically based on conversation context.
-
-## The Tool Lifecycle
-
-1. **Discovery** - Clients ask servers "what can you do?" via ListToolsRequest
-2. **Selection** - LLMs choose appropriate tools based on descriptions and behavioral
-    hints
-3. **Execution** - Clients invoke tools with CallToolRequest, passing structured
-    arguments
-4. **Integration** - Tool results become conversation context the LLM can build upon
-
 ## Designing Effective Tools
 
 Tools work best when they represent clear, focused capabilities. Instead of a generic
@@ -28,11 +15,6 @@ a complex object hierarchy.
 Use ToolAnnotations to guide LLM decision-making. For example, mark tools as
 read-only, destructive, or open-world to help LLMs understand when and how to
 use them.
-
-Tool results can include rich content: text responses, images, audio, or embedded
-server resources. The error handling model keeps failures visible to the LLM rather
-than breaking the conversation flow, enabling intelligent recovery and alternative
-approaches.
 """
 
 from typing import Any, Literal

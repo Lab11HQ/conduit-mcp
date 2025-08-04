@@ -33,15 +33,6 @@ from conduit.protocol.base import Notification, ProtocolModel, Request, Result
 class Root(ProtocolModel):
     """
     A filesystem resource that the server can access.
-
-    Roots define the boundaries of what a server can work with—think of them as
-    declaring "here are the directories and files you're allowed to touch."
-    This creates a secure sandbox while enabling servers to apply their domain
-    expertise to your local content.
-
-    Instead of manually feeding files into conversations, you can point servers
-    at project directories and let them intelligently traverse, analyze, and
-    work with the file structure as their capabilities require.
     """
 
     uri: str
@@ -69,10 +60,6 @@ class Root(ProtocolModel):
 class ListRootsRequest(Request):
     """
     Server request to discover what filesystem locations it can access.
-
-    Servers send this to understand their operating boundaries—what directories
-    and files the client has made available. This shapes how the server can
-    apply its capabilities to the client's content.
     """
 
     method: Literal["roots/list"] = "roots/list"
@@ -96,11 +83,6 @@ class ListRootsResult(Result):
 class RootsListChangedNotification(Notification):
     """
     Client notification that filesystem access boundaries have changed.
-
-    Sent when roots are added, removed, or modified—perhaps when users
-    open new projects or revoke access to directories. Servers typically
-    respond by requesting the updated root list to understand their new
-    operating scope.
     """
 
     method: Literal["notifications/roots/list_changed"] = (

@@ -1,17 +1,6 @@
 """
 Autocomplete support for MCP prompt and resource arguments.
 
-MCP enables servers to offer reusable, parameterized prompts - think "code review"
-templates that take language, focus area, and code as arguments. When users fill
-out these templates, they need smart autocomplete for argument values.
-
-## The Completion Flow
-
-1. **Discovery**: Client discovers available prompts and their argument schemas
-2. **User Input**: User selects a prompt and starts filling argument values
-3. **Completion**: As they type, client requests suggestions for the current argument
-4. **Suggestions**: Server responds with relevant completions based on partial input
-
 For example, a "weather" prompt with a `city` argument might suggest
 "San Francisco", "San Diego", "San Antonio" when the user types "San".
 
