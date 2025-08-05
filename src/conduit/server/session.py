@@ -133,7 +133,7 @@ class ServerSession:
     # ================================
 
     async def _start(self) -> None:
-        """Start accepting and processing client messages.
+        """Starts accepting and processing client messages.
 
         Starts the background message loop that will handle incoming client
         messages and route them to the appropriate handlers.
@@ -181,7 +181,7 @@ class ServerSession:
     async def _handle_initialize(
         self, context: MessageContext, request: InitializeRequest
     ) -> InitializeResult | Error:
-        """Handle the first step of the MCP initialization handshake.
+        """Handles the first step of the MCP initialization handshake.
 
         Validates protocol version compatibility and stores the client's
         capabilities and info. Returns the server's capabilities and
@@ -229,7 +229,7 @@ class ServerSession:
     async def _handle_initialized(
         self, context: MessageContext, notification: InitializedNotification
     ) -> None:
-        """Complete the initialization handshake.
+        """Completes the initialization handshake.
 
         Marks the client as fully initialized and calls any registered callbacks.
         After this point, the client is ready for normal operation.
