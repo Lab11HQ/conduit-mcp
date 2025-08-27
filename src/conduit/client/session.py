@@ -177,6 +177,7 @@ class ClientSession:
     # ================================
     # Initialization
     # ================================
+
     async def connect_server(
         self, server_id: str, connection_info: dict[str, Any], timeout: float = 30.0
     ) -> None:
