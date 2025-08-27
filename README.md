@@ -22,7 +22,7 @@ Protocol Layer     →  Managers (tools, resources, prompts)
 
 ## Status
 
-🚧 **Pre-launch** - Core architecture complete, transport implementations in progress.
+🚧 **In developement** - Core architecture complete. stdio transport complete. Integrating OAuth 2.1 client into HTTP transport
 
 ## Contributing
 
