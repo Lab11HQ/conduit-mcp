@@ -22,7 +22,7 @@ async def main():
         name="calculate",
         description="Calculate the sum of two numbers",
         input_schema=JSONSchema(
-            type="object", properties={"a": {"type": "number"}, "b": {"type": "number"}}
+            properties={"a": {"type": "number"}, "b": {"type": "number"}}
         ),
     )
 
