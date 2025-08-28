@@ -1,7 +1,9 @@
 """
-The goal is to build an MCP server that can get my sleep data from my Oura Ring.
+MCP server to get sleep data from your Oura Ring.
 
-Oura API: https://cloud.ouraring.com/v2/docs
+You'll need to set the OURA_API_KEY environment variable.
+
+Oura API: https://api.ouraring.com/v2/docs
 """
 
 import asyncio
