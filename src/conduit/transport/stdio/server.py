@@ -3,7 +3,7 @@ import sys
 import time
 from typing import Any, AsyncIterator
 
-from conduit.transport.server import ClientMessage, ServerTransport
+from conduit.transport.server import ClientMessage, ServerTransport, TransportContext
 from conduit.transport.stdio.shared import parse_json_message, serialize_message
 
 
@@ -31,12 +31,18 @@ class StdioServerTransport(ServerTransport):
         protocol = asyncio.StreamReaderProtocol(self._stdin_reader)
         await asyncio.get_event_loop().connect_read_pipe(lambda: protocol, sys.stdin)
 
-    async def send(self, client_id: str, message: dict[str, Any]) -> None:
+    async def send(
+        self,
+        client_id: str,
+        message: dict[str, Any],
+        transport_context: TransportContext | None = None,
+    ) -> None:
         """Send message to the client via stdout.
 
         Args:
             client_id: Ignored for stdio (always 1:1 relationship)
             message: JSON-RPC message to send
+            transport_context: Ignored for stdio (always 1:1 relationship)
 
         Raises:
             ValueError: If message is invalid

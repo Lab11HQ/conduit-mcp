@@ -1,3 +1,10 @@
+"""
+This is a simple calculator server that can be used to test the MCP protocol.
+This works with the Claude Desktop app.
+
+API is under development!!!
+"""
+
 import asyncio
 import logging
 
@@ -34,7 +41,14 @@ async def main():
 
     server.tools.add_tool(tool, calculate_handler)
 
-    await server._start()  # TODO: This is a hack to start the server
+    await server._start()
+
+    # HACK: Keep the server running indefinitely.
+    try:
+        while True:
+            await asyncio.sleep(1)
+    except KeyboardInterrupt:
+        await server._stop()
 
 
 if __name__ == "__main__":

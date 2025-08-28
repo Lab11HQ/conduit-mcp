@@ -678,3 +678,20 @@ class ServerSession:
         self._coordinator.register_notification_handler(
             "notifications/initialized", self._handle_initialized
         )
+
+    # ================================
+    # Run. Experimental.
+    # ================================
+
+    async def run(self) -> None:
+        """Run the server until the message loop completes.
+
+        Starts the server and waits for the message loop to finish naturally.
+        The message loop completes when the transport closes or fails.
+        """
+        await self._start()
+
+        # Just wait for the message loop to complete
+        message_loop_task = self._coordinator._message_loop_task
+        if message_loop_task:
+            await message_loop_task
