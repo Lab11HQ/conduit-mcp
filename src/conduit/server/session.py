@@ -31,7 +31,10 @@ from conduit.protocol.initialization import (
     InitializedNotification,
     InitializeRequest,
     InitializeResult,
+    PromptsCapability,
+    ResourcesCapability,
     ServerCapabilities,
+    ToolsCapability,
 )
 from conduit.protocol.logging import SetLevelRequest
 from conduit.protocol.prompts import (
@@ -84,10 +87,30 @@ class ServerConfig:
     protocol_version: str = PROTOCOL_VERSION
 
 
+DEFAULT_CONFIG = ServerConfig(
+    info=Implementation(
+        name="conduit-server",
+        version="0.1.0",
+    ),
+    capabilities=ServerCapabilities(
+        tools=ToolsCapability(
+            list_changed=True,
+        ),
+        resources=ResourcesCapability(
+            subscribe=True,
+            list_changed=True,
+        ),
+        prompts=PromptsCapability(
+            list_changed=True,
+        ),
+    ),
+)
+
+
 class ServerSession:
     """MCP server session handling protocol conversations with clients."""
 
-    def __init__(self, transport: ServerTransport, config: ServerConfig):
+    def __init__(self, transport: ServerTransport, config: ServerConfig | None = None):
         """Initialize the server session.
 
         Registers all protocol handlers with the message processor.
@@ -100,7 +123,7 @@ class ServerSession:
 
         # Transport and config
         self.transport = transport
-        self.server_config = config
+        self.server_config = config or DEFAULT_CONFIG
 
         # Client manager
         self.client_manager = ClientManager()
